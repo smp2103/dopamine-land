@@ -15,6 +15,7 @@ import { TOD, CAMS, CURVE_K, type TodPreset } from './presets';
 import { MiniDofEffect } from '../modules/atmosphere/miniDof';
 import { SoftGradeEffect } from '../modules/atmosphere/grade';
 import type { Ctx, ScatterOpts, ModuleBuild } from './types';
+import type { Game } from './game';
 
 export interface EngineOpts {
   solo: string[] | null;
@@ -48,6 +49,9 @@ export class Engine {
   occupied: Array<{ x: number; z: number; r: number }> = [];
   timer = new THREE.Timer();
   todName: string;
+  game: Game | null = null;
+  /** 게임 모드: 넓은 세계용 안개 거리 */
+  fogOverride: { near: number; far: number } | null = null;
   errors: string[] = [];
   fx: Record<string, boolean>;
   effects: {
@@ -76,7 +80,7 @@ export class Engine {
     this.pmrem = new THREE.PMREMGenerator(r);
 
     const cp = CAMS[opts.cam] ?? CAMS.ac;
-    this.camera = new THREE.PerspectiveCamera(cp.fov, window.innerWidth / window.innerHeight, 0.1, 600);
+    this.camera = new THREE.PerspectiveCamera(cp.fov, window.innerWidth / window.innerHeight, 0.1, 9000);
     this.setCam(opts.cam);
 
     // 하늘: 카메라를 따라다니는 큰 구 + 세로 그라디언트(곡률·안개 제외).
@@ -267,7 +271,7 @@ export class Engine {
     this.rim.color.set(p.rimColor);
     this.rim.intensity = p.rimIntensity;
     const fog = this.scene.fog as THREE.Fog;
-    fog.color.set(p.fogColor); fog.near = p.fogNear; fog.far = p.fogFar;
+    fog.color.set(p.fogColor); fog.near = this.fogOverride?.near ?? p.fogNear; fog.far = this.fogOverride?.far ?? p.fogFar;
     this.renderer.toneMappingExposure = p.exposure;
 
     // 하늘 그라디언트로 환경광(반사·은은한 하늘빛)을 굽는다
@@ -345,6 +349,7 @@ export class Engine {
       onTod: (fn) => { this.todHooks.push(fn); },
       scatter: (o) => this.scatter(o),
       tod: this.todName,
+      game: this.game,
     };
   }
 
@@ -421,6 +426,7 @@ export class Engine {
         curveUniforms.uCurveOrigin.value.set(this.controls.target.x, 0, this.controls.target.z);
         this.viewTarget.copy(this.controls.target);
       }
+      if (this.game) this.game.update(t, this.opts.freezeT !== null ? 0 : dt);
       this.updateView();
       for (const fn of this.updates) fn(t, this.opts.freezeT !== null ? 0 : dt);
       this.renderer.info.reset();

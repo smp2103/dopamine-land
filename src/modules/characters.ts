@@ -27,11 +27,15 @@ export default function build(ctx: Ctx) {
   vill.root.rotation.y = Math.atan2(HERO.player.x - vx, HERO.player.z - vz) - 0.12;
   group.add(vill.root);
 
-  // 발밑 둥근 그림자
+  // 발밑 둥근 그림자(플레이어를 따라다니게 자식으로)
   const ps = blobShadow(0.32, 0.38);
-  ps.position.set(HERO.player.x, py + 0.012, HERO.player.z);
+  ps.position.set(0, 0.012, 0);
   ps.scale.z = 0.85;
-  group.add(ps);
+  player.root.add(ps);
+  // 게임 모드: 이 캐릭터를 조작 아바타로 넘긴다(이동·회전은 게임이, 포즈는 여기서)
+  if (ctx.game) {
+    ctx.game.player.setAvatar({ root: player.root, animate: (s) => player.update(s.t) });
+  }
   const vs = blobShadow(0.34, 0.38);
   vs.position.set(vx, vy + 0.012, vz);
   group.add(vs);

@@ -137,6 +137,12 @@ export interface CamPreset {
 }
 
 export const CAMS: Record<string, CamPreset> = {
+  /** 게임: 젤다식 모험 카메라(어깨 뒤). 심도는 아주 약하게 — 먼 풍경이 보여야 한다 */
+  adventure: { pos: [0, 3, 8], target: [0, 1.2, 0], fov: 50,
+    dof: { nearSharp: 2, farSharp: 60, nearRamp: 2, farRamp: 400, nearMax: 0.25, farMax: 0.35 } },
+  /** 게임: 동숲식 아늑한 카메라(위에서) */
+  cozy: { pos: [0, 10.5, 12.5], target: [0, 1.2, -0.6], fov: 32,
+    dof: { nearSharp: 2.5, farSharp: 3.5, nearRamp: 3, farRamp: 14, nearMax: 0.5, farMax: 1 } },
   /** 동숲 플레이 시점: 위에서 비스듬히, 플레이어 중심 */
   ac: {
     pos: [0, 8.99, 15.38], target: [0, 1.1, -0.8], fov: 28,

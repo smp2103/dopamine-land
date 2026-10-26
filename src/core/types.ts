@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { PALETTE } from './palette';
 import type * as Island from './island';
 import type { TodPreset } from './presets';
+import type { Game } from './game';
 
 export interface Ctx {
   scene: THREE.Scene;
@@ -19,6 +20,8 @@ export interface Ctx {
   scatter: (opts: ScatterOpts) => Array<{ x: number; z: number; y: number }>;
   /** 시간대 이름 */
   tod: string;
+  /** 게임(이동·물리·청크·상호작용·수집·UI). 룩 테스트 모드(game=0)면 null */
+  game: Game | null;
 }
 
 export interface ScatterOpts {

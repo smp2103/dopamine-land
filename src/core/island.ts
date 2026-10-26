@@ -2,8 +2,10 @@
 // 단위: 1 = 1 m(동숲 한 칸). 해수면 y = 0.
 import { createNoise2D } from 'simplex-noise';
 import { mulberry32 } from './rng';
+import { worldSample, type WorldSample } from './world';
+export * from './world';
 
-export type SurfaceKind = 'sea' | 'sand' | 'grass' | 'cliff' | 'river';
+export type SurfaceKind = 'sea' | 'sand' | 'grass' | 'cliff' | 'river' | 'rock' | 'snow' | 'jungle' | 'desert' | 'lava';
 
 export interface Surface {
   /** 지면 높이(강·바다면 바닥 높이) */
@@ -15,7 +17,12 @@ export interface Surface {
   riverDist: number;
   /** 해안선까지 부호 거리: 양수 = 육지 안쪽 */
   coastDist: number;
+  /** 섬 id(바다면 가장 가까운 섬, 없으면 null) */
+  island: string | null;
 }
+
+/** 마을(룩 테스트 장면) 범위 — 이 안은 마을 전용 지형 모듈이 그리고, 밖은 세계 청크 지형이 그린다 */
+export const ISLAND_BOUNDS = { minX: -48, maxX: 22, minZ: -44, maxZ: 26 };
 
 export const TIER_H = [0.0, 1.0, 3.0] as const;
 export const RIVER_HALF_W = 1.35;
@@ -106,6 +113,7 @@ const RIVER_BOX = (() => {
 const riverWarp = (z: number) => 0.8 * noise2(z * 0.08, 3.1);
 
 export function riverDistAt(x: number, z: number): number {
+  if (villageW(x, z) <= 0) return 1e9;
   // 굽이: 중심선 자체를 노이즈로 살짝 흔든다
   const wx = x + riverWarp(z);
   // 멀리 있으면 상자 거리로 충분(소품 배치·굽기 속도)
@@ -127,8 +135,8 @@ export function riverCenterline(): Array<{ x: number; z: number }> {
   return RIVER_DENSE.map((p) => ({ x: p.x - riverWarp(p.z), z: p.z }));
 }
 
-/** 해안선 부호 거리(양수 = 육지) */
-export function coastDistAt(x: number, z: number): number {
+/** 마을 반도만의 해안 부호 거리 */
+function villageCoastAt(x: number, z: number): number {
   const dx = x - ISLAND_C.x, dz = z - ISLAND_C.z;
   const ang = Math.atan2(dz, dx);
   const wobble = 2.6 * noise(Math.cos(ang) * 1.3, Math.sin(ang) * 1.3) + 1.2 * fbm(x * 0.06, z * 0.06, 2);
@@ -147,9 +155,37 @@ function plateauMask(x: number, z: number): number {
   return smooth(-0.35, 0.35, plateauDistAt(x, z));
 }
 
-/** 강이 깎기 전 땅 높이 */
+/** 해안선 부호 거리(양수 = 육지) — 마을 반도 ∪ 세계 섬 */
+export function coastDistAt(x: number, z: number): number {
+  const v = villageCoastAt(x, z);
+  if (villageW(x, z) <= 0) return worldSample(x, z).coast;
+  return Math.max(v, worldSample(x, z).coast);
+}
+
+/** 마을 영향 가중치: ISLAND_BOUNDS 안 1, 밖으로 30 m 에 걸쳐 0 */
+function villageW(x: number, z: number): number {
+  const b = ISLAND_BOUNDS;
+  const ox = Math.max(b.minX - x, 0, x - b.maxX), oz = Math.max(b.minZ - z, 0, z - b.maxZ);
+  return 1 - smooth(0, 30, Math.hypot(ox, oz));
+}
+
+/** 강이 깎기 전 땅 높이(마을 반도 + 세계 합성) */
 function baseHeight(x: number, z: number): { h: number; tier: number; coast: number } {
-  const coast = coastDistAt(x, z);
+  const w = villageW(x, z);
+  if (w <= 0) {
+    const ws = worldSample(x, z);
+    return { h: ws.h, tier: ws.coast > 0 ? 1 : 0, coast: ws.coast };
+  }
+  const v = villageBase(x, z);
+  const ws = worldSample(x, z);
+  // 마을이 바다라고 하는데 세계 섬이 육지면 세계를 따른다(반도가 시작 섬에 붙는 곳)
+  if (v.coast < 0 && ws.coast > 0) return { h: ws.h, tier: 1, coast: ws.coast };
+  if (w >= 1 || (ws.coast < 0 && v.coast >= 0)) return { ...v, coast: Math.max(v.coast, ws.coast) };
+  return { h: v.h * w + ws.h * (1 - w), tier: v.tier, coast: Math.max(v.coast, ws.coast) };
+}
+
+function villageBase(x: number, z: number): { h: number; tier: number; coast: number } {
+  const coast = villageCoastAt(x, z);
   if (coast < 0) {
     // 바다 바닥: 해안에서 멀어질수록 깊어진다
     const h = -0.25 + coast * 0.22;
@@ -179,12 +215,13 @@ function carveRiver(b: { h: number; coast: number }, rd: number): number {
 }
 
 export function surfaceAt(x: number, z: number): Surface {
+  if (villageW(x, z) <= 0) return worldSurface(x, z);
   const b = baseHeight(x, z);
   const rd = riverDistAt(x, z);
   let h = b.h;
   let kind: SurfaceKind;
   if (b.coast < 0) kind = 'sea';
-  else if (b.coast < BEACH_W * 0.8) kind = 'sand';
+  else if (b.coast < BEACH_W * 0.8 && villageCoastAt(x, z) >= worldSample(x, z).coast) kind = 'sand';
   else kind = 'grass';
 
   // 강: 둑은 둥글게, 바닥은 평평하게
@@ -198,7 +235,19 @@ export function surfaceAt(x: number, z: number): Surface {
     const hz = baseHeight(x, z + e).h - baseHeight(x, z - e).h;
     if (Math.hypot(hx, hz) / (2 * e) > 1.4) kind = 'cliff';
   }
-  return { h, kind, tier: b.tier, riverDist: rd, coastDist: b.coast };
+  return { h, kind, tier: b.tier, riverDist: rd, coastDist: b.coast, island: 'home' };
+}
+
+function worldSurface(x: number, z: number): Surface {
+  const ws: WorldSample = worldSample(x, z);
+  let kind: SurfaceKind = ws.kind;
+  if (kind !== 'sea' && kind !== 'sand') {
+    const e = 0.6;
+    const gx = worldSample(x + e, z).h - worldSample(x - e, z).h;
+    const gz = worldSample(x, z + e).h - worldSample(x, z - e).h;
+    if (Math.hypot(gx, gz) / (2 * e) > 1.2) kind = 'cliff';
+  }
+  return { h: ws.h, kind, tier: ws.coast > 0 ? 1 : 0, riverDist: 1e9, coastDist: ws.coast, island: ws.island?.id ?? null };
 }
 
 export function heightAt(x: number, z: number): number {
@@ -224,6 +273,10 @@ export function riverLevelAt(x: number, z: number): number {
 
 /** 굽기용 한 번에: 높이·해안 거리·강 거리·물 높이 */
 export function fieldAt(x: number, z: number): { h: number; coast: number; river: number; level: number } {
+  if (villageW(x, z) <= 0) {
+    const ws = worldSample(x, z);
+    return { h: ws.h, coast: ws.coast, river: 1e9, level: 0 };
+  }
   const b = baseHeight(x, z);
   const rd = riverDistAt(x, z);
   const h = carveRiver(b, rd);
@@ -234,7 +287,7 @@ export function fieldAt(x: number, z: number): { h: number; coast: number; river
 /** 위가 평평하고 물·절벽이 아닌 땅인가(소품 배치용) */
 export function isBuildable(x: number, z: number, margin = 0.6): boolean {
   const s = surfaceAt(x, z);
-  if (s.kind !== 'grass' && s.kind !== 'sand') return false;
+  if (s.kind === 'sea' || s.kind === 'river' || s.kind === 'cliff' || s.kind === 'lava') return false;
   if (s.riverDist < RIVER_HALF_W + margin + 0.6) return false;
   if (s.coastDist < margin) return false;
   for (const [ox, oz] of [[margin, 0], [-margin, 0], [0, margin], [0, -margin]]) {
@@ -244,4 +297,13 @@ export function isBuildable(x: number, z: number, margin = 0.6): boolean {
   return true;
 }
 
-export const ISLAND_BOUNDS = { minX: -48, maxX: 22, minZ: -44, maxZ: 26 };
+/** 물 높이(바다 0, 마을 강은 riverLevelAt). 수영·배 판정용. */
+export function waterLevelAt(x: number, z: number): number {
+  if (villageW(x, z) > 0) {
+    const f = fieldAt(x, z);
+    if (f.coast < 0) return 0;
+    if (f.river < RIVER_HALF_W + 0.2) return f.level;
+    return -Infinity;
+  }
+  return worldSample(x, z).coast < 0 ? 0 : -Infinity;
+}

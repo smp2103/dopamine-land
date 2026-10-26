@@ -1,5 +1,7 @@
 // 사용: node scripts/shot.mjs --q "cam=ac&tod=day" --out shots/x.png [--w 1600 --h 900] [--timeout 60000]
 //      node scripts/shot.mjs --set base --label v1   (표준 세트: 카메라 6 × 낮 + ac × 시간대 3 → shots/<label>/)
+//      --eval "await __game.player.teleport(1750,-900); __game.setWorld('space')"   준비 후 페이지에서 실행(async 본문)
+//      --after 1500   eval 뒤 기다릴 ms(live=1 이면 그동안 게임이 진행된다)
 // 서버: npm run dev (127.0.0.1:5180) 가 떠 있어야 한다.
 import { chromium } from 'playwright-core';
 import fs from 'node:fs';
@@ -44,6 +46,11 @@ for (const j of jobs) {
     ok = false;
   }
   await page.waitForTimeout(300);
+  if (args.eval) {
+    try { await page.evaluate(`(async () => { ${args.eval} })()`); }
+    catch (e) { logs.push(`eval error: ${e.message}`); ok = false; }
+  }
+  if (args.after) await page.waitForTimeout(Number(args.after));
   if (args.bench) await page.waitForTimeout(2500);
   const info = await page.evaluate(() => ({ gpu: window.__gpu, modules: window.__modules, errors: window.__errors, ms: window.__frameMs, stats: window.__stats }));
   if (args.bench) console.log(`  bench: ${info.ms?.toFixed(2)} ms/frame (${(1000 / info.ms).toFixed(0)} fps, headless — 참고용), last-pass calls=${info.stats?.calls} tris=${info.stats?.triangles}`);

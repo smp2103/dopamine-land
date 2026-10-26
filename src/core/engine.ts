@@ -1,8 +1,8 @@
 // 렌더러·조명·하늘·후처리·모듈 로더. 룩 테스트의 공통 뼈대.
 import * as THREE from 'three';
 import {
-  EffectComposer, RenderPass, EffectPass, BloomEffect, TiltShiftEffect, SMAAEffect,
-  ToneMappingEffect, ToneMappingMode, HueSaturationEffect, BrightnessContrastEffect, VignetteEffect,
+  EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect,
+  ToneMappingEffect, ToneMappingMode, BrightnessContrastEffect, VignetteEffect,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -11,7 +11,9 @@ import * as Island from './island';
 import { PALETTE } from './palette';
 import { applyCurve, curveUniforms } from './curve';
 import { rngFor } from './rng';
-import { TOD, CAMS, type TodPreset } from './presets';
+import { TOD, CAMS, CURVE_K, type TodPreset } from './presets';
+import { MiniDofEffect } from '../modules/atmosphere/miniDof';
+import { SoftGradeEffect } from '../modules/atmosphere/grade';
 import type { Ctx, ScatterOpts, ModuleBuild } from './types';
 
 export interface EngineOpts {
@@ -34,6 +36,8 @@ export class Engine {
   composer: EffectComposer;
   controls: OrbitControls | null = null;
   sun = new THREE.DirectionalLight();
+  /** 그림자 없는 약한 역광(카메라 반대편 위에서) */
+  rim = new THREE.DirectionalLight();
   hemi = new THREE.HemisphereLight();
   sky: THREE.Mesh;
   skyMat: THREE.ShaderMaterial;
@@ -47,8 +51,8 @@ export class Engine {
   errors: string[] = [];
   fx: Record<string, boolean>;
   effects: {
-    ao: N8AOPostPass; bloom: BloomEffect; tilt: TiltShiftEffect; smaa: SMAAEffect; tone: ToneMappingEffect;
-    hue: HueSaturationEffect; bc: BrightnessContrastEffect; vig: VignetteEffect;
+    ao: N8AOPostPass; bloom: BloomEffect; tilt: MiniDofEffect; smaa: SMAAEffect; tone: ToneMappingEffect;
+    hue: SoftGradeEffect; bc: BrightnessContrastEffect; vig: VignetteEffect;
     passTilt: EffectPass; passSmaa: EffectPass; passGrade: EffectPass;
   };
 
@@ -75,11 +79,14 @@ export class Engine {
     this.camera = new THREE.PerspectiveCamera(cp.fov, window.innerWidth / window.innerHeight, 0.1, 600);
     this.setCam(opts.cam);
 
-    // 하늘: 큰 구 + 세로 그라디언트(곡률·안개 제외)
+    // 하늘: 카메라를 따라다니는 큰 구 + 세로 그라디언트(곡률·안개 제외).
+    // uHorizon = 휘는 땅 너머로 보이는 '겉보기 지평선'의 높이(sin) — 그라디언트·구름이 거기 맞춘다.
     this.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
       uniforms: {
         top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, bottom: { value: new THREE.Color() },
+        uHorizon: { value: 0 }, uStars: { value: 0 },
+        uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color() }, uSunGlow: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -91,17 +98,42 @@ export class Engine {
         }`,
       fragmentShader: /* glsl */ `
         uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom;
+        uniform float uHorizon; uniform float uStars;
+        uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uSunGlow;
         varying vec3 vDir;
+        float hash13( vec3 p ) {
+          p = fract( p * 0.1031 );
+          p += dot( p, p.zyx + 31.32 );
+          return fract( ( p.x + p.y ) * p.z );
+        }
         void main() {
-          float y = vDir.y;
-          vec3 c = y > 0.0 ? mix( horizon, top, pow( smoothstep( 0.0, 0.75, y ), 0.8 ) )
-                           : mix( horizon, bottom, smoothstep( 0.0, -0.25, y ) );
+          vec3 d = normalize( vDir );
+          // 겉보기 지평선 기준 높이(위 = 양수)
+          float y = ( d.y - uHorizon ) / ( 1.0 - uHorizon );
+          vec3 c = y > 0.0 ? mix( horizon, top, pow( smoothstep( 0.0, 0.7, y ), 0.75 ) )
+                           : mix( horizon, bottom, smoothstep( 0.0, -0.2, y ) );
+          // 해 쪽 번짐(아침·노을)
+          float sd = max( dot( d, normalize( uSunDir ) ), 0.0 );
+          c += uSunColor * uSunGlow * ( pow( sd, 6.0 ) * 0.6 + pow( sd, 40.0 ) * 0.5 ) * ( 1.0 - smoothstep( 0.0, 0.6, y ) );
+          // 별: 방향 격자마다 하나, 지평선 근처는 옅게
+          if ( uStars > 0.0 ) {
+            vec3 p = d * 140.0;
+            vec3 cell = floor( p );
+            float h = hash13( cell );
+            if ( h > 0.985 ) {
+              vec3 sp = cell + 0.5 + 0.35 * ( vec3( hash13( cell + 7.1 ), hash13( cell + 3.7 ), hash13( cell + 1.3 ) ) - 0.5 );
+              float r = length( p - sp );
+              float b = ( 1.0 - smoothstep( 0.0, 0.16 + 0.12 * fract( h * 91.0 ), r ) ) * ( 0.5 + 0.5 * fract( h * 57.0 ) );
+              c += vec3( 1.0, 0.97, 0.88 ) * b * uStars * 2.2 * smoothstep( 0.03, 0.3, y );
+            }
+          }
           gl_FragColor = vec4( c, 1.0 );
           #include <colorspace_fragment>
         }`,
     });
     this.skyMat.userData.noCurve = true;
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(450, 32, 16), this.skyMat);
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(450, 64, 32), this.skyMat);
+    this.sky.name = 'sky';
     this.sky.userData.noCurve = true;
     this.sky.frustumCulled = false;
     this.sky.renderOrder = -1;
@@ -111,11 +143,13 @@ export class Engine {
     this.sun.castShadow = true;
     const sh = this.sun.shadow;
     sh.mapSize.set(4096, 4096);
-    sh.camera.left = -34; sh.camera.right = 34; sh.camera.top = 34; sh.camera.bottom = -34;
-    sh.camera.near = 1; sh.camera.far = 160;
-    sh.bias = -0.0004;
-    sh.normalBias = 0.035;
+    sh.camera.left = -30; sh.camera.right = 30; sh.camera.top = 30; sh.camera.bottom = -30;
+    sh.camera.near = 1; sh.camera.far = 180;
+    sh.bias = -0.00025;
+    sh.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
+    this.rim.castShadow = false;
+    this.scene.add(this.rim, this.rim.target);
     this.scene.fog = new THREE.Fog(0xffffff, 40, 140);
 
     // 후처리
@@ -136,10 +170,11 @@ export class Engine {
     const smaa = new SMAAEffect();
     const passSmaa = new EffectPass(this.camera, smaa);
     this.composer.addPass(passSmaa);
-    const tilt = new TiltShiftEffect({ offset: 0.06, rotation: 0, focusArea: 0.42, feather: 0.32, kernelSize: 3 });
+    // '틸트시프트' = 깊이 기준 미니어처 심도(초점 띠 선명, 먼 곳·바로 앞만 흐림)
+    const tilt = new MiniDofEffect();
     const passTilt = new EffectPass(this.camera, tilt);
     this.composer.addPass(passTilt);
-    const hue = new HueSaturationEffect({ saturation: 0.1 });
+    const hue = new SoftGradeEffect();
     const bc = new BrightnessContrastEffect({ contrast: 0.04 });
     const vig = new VignetteEffect({ offset: 0.32, darkness: 0.25 });
     const passGrade = new EffectPass(this.camera, hue, bc, vig);
@@ -155,25 +190,67 @@ export class Engine {
 
   setCam(name: string) {
     const cp = CAMS[name] ?? CAMS.ac;
+    this.camName = CAMS[name] ? name : 'ac';
     this.camera.fov = cp.fov;
     this.camera.position.set(...cp.pos);
-    this.camera.lookAt(new THREE.Vector3(...cp.target));
+    this.viewTarget.set(...cp.target);
+    this.camera.lookAt(this.viewTarget);
     this.camera.updateProjectionMatrix();
     if (this.controls) {
       this.controls.target.set(...cp.target);
       this.controls.update();
     }
     curveUniforms.uCurveOrigin.value.set(cp.target[0], 0, cp.target[2]);
+    this.updateView();
+  }
+
+  camName = 'ac';
+  viewTarget = new THREE.Vector3();
+  sunDir = new THREE.Vector3(0, 1, 0);
+
+  /** 카메라에 딸린 것들: 하늘 위치·겉보기 지평선·심도 초점·해/역광 위치 */
+  updateView() {
+    const cam = this.camera, tgt = this.viewTarget;
+    this.sky?.position.copy(cam.position);
+    // 겉보기 지평선: 휘는 땅을 앞으로 훑어 카메라에서 가장 높이 보이는 기울기
+    if (this.skyMat) {
+      const k = curveUniforms.uCurveK.value, o = curveUniforms.uCurveOrigin.value;
+      const f = new THREE.Vector3();
+      cam.getWorldDirection(f);
+      f.y = 0;
+      if (f.lengthSq() < 1e-6) f.set(0, 0, -1);
+      f.normalize();
+      let best = -Infinity;
+      for (let s = 2; s <= 420; s += 2) {
+        const dx = cam.position.x + f.x * s - o.x, dz = cam.position.z + f.z * s - o.z;
+        const yg = 0.6 - k * (dz * dz + 0.18 * dx * dx);
+        best = Math.max(best, (yg - cam.position.y) / s);
+      }
+      this.skyMat.uniforms.uHorizon.value = Math.sin(Math.atan(best));
+    }
+    if (this.effects) {
+      const cp = CAMS[this.camName] ?? CAMS.ac;
+      const d = cp.dof ?? { nearSharp: 3, farSharp: 4, nearRamp: 3, farRamp: 14, nearMax: 0.5, farMax: 1 };
+      // 초점 = 기준점까지 시선 방향 깊이
+      const fwd = new THREE.Vector3();
+      cam.getWorldDirection(fwd);
+      const focus = tgt.clone().sub(cam.position).dot(fwd);
+      this.effects.tilt.setParams({ focus, ...d });
+    }
+    const focusG = new THREE.Vector3(tgt.x, 0, tgt.z);
+    this.sun.position.copy(focusG).addScaledVector(this.sunDir, 80);
+    this.sun.target.position.copy(focusG);
+    // 역광: 카메라 반대편(시선 앞쪽) 위에서 카메라 쪽으로
+    const back = new THREE.Vector3(tgt.x - cam.position.x, 0, tgt.z - cam.position.z).normalize();
+    this.rim.position.copy(focusG).addScaledVector(back, 40).add(new THREE.Vector3(0, 28, 0));
+    this.rim.target.position.copy(focusG);
   }
 
   applyTod(name: string) {
     const p = TOD[name] ?? TOD.day;
     this.todName = name;
     const az = THREE.MathUtils.degToRad(p.sunAzimuth), el = THREE.MathUtils.degToRad(p.sunElevation);
-    const dir = new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), -Math.cos(el) * Math.sin(az));
-    const focus = new THREE.Vector3(-4, 0, -4);
-    this.sun.position.copy(focus).addScaledVector(dir, 70);
-    this.sun.target.position.copy(focus);
+    this.sunDir.set(Math.cos(el) * Math.cos(az), Math.sin(el), -Math.cos(el) * Math.sin(az));
     this.sun.color.set(p.sunColor);
     this.sun.intensity = p.sunIntensity;
     this.sun.shadow.radius = p.shadowRadius;
@@ -183,15 +260,25 @@ export class Engine {
     this.skyMat.uniforms.top.value.set(p.skyTop);
     this.skyMat.uniforms.horizon.value.set(p.skyHorizon);
     this.skyMat.uniforms.bottom.value.set(p.skyBottom);
+    this.skyMat.uniforms.uSunDir.value.copy(this.sunDir);
+    this.skyMat.uniforms.uSunColor.value.set(p.sunColor);
+    this.skyMat.uniforms.uSunGlow.value = p.sunGlow;
+    this.skyMat.uniforms.uStars.value = p.stars;
+    this.rim.color.set(p.rimColor);
+    this.rim.intensity = p.rimIntensity;
     const fog = this.scene.fog as THREE.Fog;
     fog.color.set(p.fogColor); fog.near = p.fogNear; fog.far = p.fogFar;
     this.renderer.toneMappingExposure = p.exposure;
 
     // 하늘 그라디언트로 환경광(반사·은은한 하늘빛)을 굽는다
+    // 환경광은 진짜 수평선 기준·별 없이 굽는다
     const envScene = new THREE.Scene();
     envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), this.skyMat));
+    const u = this.skyMat.uniforms, keepH = u.uHorizon.value, keepS = u.uStars.value;
+    u.uHorizon.value = 0; u.uStars.value = 0;
     this.envRT?.dispose();
     this.envRT = this.pmrem.fromScene(envScene, 0.04);
+    u.uHorizon.value = keepH; u.uStars.value = keepS;
     this.scene.environment = this.envRT.texture;
     this.scene.environmentIntensity = p.envIntensity;
 
@@ -199,13 +286,14 @@ export class Engine {
     if (e) {
       e.bloom.intensity = p.bloomIntensity;
       e.bloom.luminanceMaterial.threshold = p.bloomThreshold;
-      e.hue.saturation = p.saturation;
+      e.hue.set(p.gradeLift, p.gradeGain, p.saturation);
       e.bc.contrast = p.contrast;
       e.bc.brightness = p.brightness;
       e.vig.darkness = p.vignette;
       e.ao.configuration.intensity = p.aoIntensity;
       e.ao.configuration.color = new THREE.Color(p.aoColor);
     }
+    this.updateView();
     for (const fn of this.todHooks) fn(name, p);
   }
 
@@ -218,7 +306,7 @@ export class Engine {
     e.tilt.blendMode.opacity.value = f.tilt ? 1 : 0;
     for (const g of [e.hue, e.bc, e.vig]) g.blendMode.opacity.value = f.grade ? 1 : 0;
     this.sun.castShadow = f.shadows;
-    curveUniforms.uCurveK.value = f.curve ? (this.opts.curveK ?? 0.0045) : 0;
+    curveUniforms.uCurveK.value = f.curve ? (this.opts.curveK ?? CURVE_K) : 0;
   }
 
   resize() {
@@ -331,7 +419,9 @@ export class Engine {
       if (this.controls) {
         this.controls.update();
         curveUniforms.uCurveOrigin.value.set(this.controls.target.x, 0, this.controls.target.z);
+        this.viewTarget.copy(this.controls.target);
       }
+      this.updateView();
       for (const fn of this.updates) fn(t, this.opts.freezeT !== null ? 0 : dt);
       this.renderer.info.reset();
       this.composer.render(dt);

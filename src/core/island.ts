@@ -79,15 +79,52 @@ function segDist(px: number, pz: number, ax: number, az: number, bx: number, bz:
   return Math.hypot(dx, dz);
 }
 
+// 강 중심선을 캣멀롬으로 촘촘히 — 꺾인 마디 없이 둥글게 굽는다(굽이 공간 좌표)
+const RIVER_DENSE: Array<{ x: number; z: number }> = (() => {
+  const P = RIVER_PATH, out: Array<{ x: number; z: number }> = [];
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    const n = Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.z - p1.z) / 0.35));
+    for (let k = 0; k < n; k++) {
+      const t = k / n, t2 = t * t, t3 = t2 * t;
+      const f = (a: number, b: number, c: number, d: number) =>
+        0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      out.push({ x: f(p0.x, p1.x, p2.x, p3.x), z: f(p0.z, p1.z, p2.z, p3.z) });
+    }
+  }
+  out.push({ ...P[P.length - 1] });
+  return out;
+})();
+const RIVER_BOX = (() => {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of RIVER_DENSE) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+  }
+  return { minX, maxX, minZ, maxZ };
+})();
+
+const riverWarp = (z: number) => 0.8 * noise2(z * 0.08, 3.1);
+
 export function riverDistAt(x: number, z: number): number {
   // 굽이: 중심선 자체를 노이즈로 살짝 흔든다
-  const wx = x + 0.8 * noise2(z * 0.08, 3.1);
+  const wx = x + riverWarp(z);
+  // 멀리 있으면 상자 거리로 충분(소품 배치·굽기 속도)
+  const bx = Math.max(RIVER_BOX.minX - wx, 0, wx - RIVER_BOX.maxX);
+  const bz = Math.max(RIVER_BOX.minZ - z, 0, z - RIVER_BOX.maxZ);
+  if (bx * bx + bz * bz > 196) return Math.hypot(bx, bz);
   let d = Infinity;
-  for (let i = 0; i < RIVER_PATH.length - 1; i++) {
-    const a = RIVER_PATH[i], b = RIVER_PATH[i + 1];
+  for (let i = 0; i < RIVER_DENSE.length - 1; i++) {
+    const a = RIVER_DENSE[i], b = RIVER_DENSE[i + 1];
+    if (Math.abs(wx - a.x) > d + 0.5 && Math.abs(wx - b.x) > d + 0.5 && Math.sign(wx - a.x) === Math.sign(wx - b.x)) continue;
+    if (Math.abs(z - a.z) > d + 0.5 && Math.abs(z - b.z) > d + 0.5 && Math.sign(z - a.z) === Math.sign(z - b.z)) continue;
     d = Math.min(d, segDist(wx, z, a.x, a.z, b.x, b.z));
   }
   return d;
+}
+
+/** 강 중심선(월드 좌표, 상류 → 하구, 약 0.35 m 간격) */
+export function riverCenterline(): Array<{ x: number; z: number }> {
+  return RIVER_DENSE.map((p) => ({ x: p.x - riverWarp(p.z), z: p.z }));
 }
 
 /** 해안선 부호 거리(양수 = 육지) */
@@ -98,12 +135,16 @@ export function coastDistAt(x: number, z: number): number {
   return ISLAND_R + wobble - Math.hypot(dx, dz);
 }
 
-function plateauMask(x: number, z: number): number {
+/** 고원 가장자리까지 부호 거리 비슷한 값(양수 = 고원 안쪽, 0 = 절벽 한가운데) */
+export function plateauDistAt(x: number, z: number): number {
   const dx = x - PLATEAU_C.x, dz = z - PLATEAU_C.z;
   const wob = 2.2 * noise(x * 0.07 + 11, z * 0.07 - 4);
-  const d = PLATEAU_R + wob - Math.hypot(dx * 1.0, dz * 1.25);
+  return PLATEAU_R + wob - Math.hypot(dx * 1.0, dz * 1.25);
+}
+
+function plateauMask(x: number, z: number): number {
   // 절벽: 0.55 m 폭으로 급하게, 위 모서리만 둥글게
-  return smooth(-0.35, 0.35, d);
+  return smooth(-0.35, 0.35, plateauDistAt(x, z));
 }
 
 /** 강이 깎기 전 땅 높이 */
@@ -127,6 +168,16 @@ function baseHeight(x: number, z: number): { h: number; tier: number; coast: num
   return { h, tier: p > 0.5 ? 2 : 1, coast };
 }
 
+/** 강이 땅을 깎는다: 둑은 가파르게(동숲처럼 흙벽 — terrain 모듈이 둥근 테두리 벽을 씌운다),
+ *  하구 쪽은 둑이 완만해지고 바닥이 바다 바닥으로 이어진다 */
+function carveRiver(b: { h: number; coast: number }, rd: number): number {
+  if (b.coast < -2 || rd > RIVER_HALF_W + 1.5) return b.h;
+  const wide = 1 + 2.2 * (1 - smooth(0.5, 4.5, b.coast));
+  const bank = 1 - smooth(RIVER_HALF_W - 0.05, RIVER_HALF_W - 0.05 + 0.45 * wide, rd);
+  const depth = RIVER_DEPTH * smooth(-1.8, 0.4, b.coast);
+  return b.h * (1 - bank) + (b.h - depth) * bank;
+}
+
 export function surfaceAt(x: number, z: number): Surface {
   const b = baseHeight(x, z);
   const rd = riverDistAt(x, z);
@@ -137,12 +188,8 @@ export function surfaceAt(x: number, z: number): Surface {
   else kind = 'grass';
 
   // 강: 둑은 둥글게, 바닥은 평평하게
-  if (b.coast > -1 && rd < RIVER_HALF_W + 0.6) {
-    const bank = 1 - smooth(RIVER_HALF_W - 0.35, RIVER_HALF_W + 0.6, rd);
-    const bed = b.h - RIVER_DEPTH;
-    h = h * (1 - bank) + bed * bank;
-    if (rd < RIVER_HALF_W && b.coast > 0) kind = 'river';
-  }
+  h = carveRiver(b, rd);
+  if (rd < RIVER_HALF_W && b.coast > 0) kind = 'river';
 
   if (kind === 'grass') {
     // 경사가 급하면 절벽 면
@@ -155,7 +202,8 @@ export function surfaceAt(x: number, z: number): Surface {
 }
 
 export function heightAt(x: number, z: number): number {
-  return surfaceAt(x, z).h;
+  // surfaceAt 와 같은 값, 절벽 판정만 건너뛴다(빠름)
+  return fieldAt(x, z).h;
 }
 
 /** 강물 표면 높이(강 밖이면 NaN). 고원→들판 경계에서 계단(폭포)이 생긴다. */
@@ -165,6 +213,22 @@ export function riverWaterY(x: number, z: number): number {
   const base = baseHeight(x, z);
   if (base.coast < 0) return 0;
   return Math.max(0, base.h - RIVER_WATER_DROP);
+}
+
+/** 강물이 있다면 그 표면 높이(강 밖에서도 값이 이어진다 — 셰이더 굽기용). 바다 = 0. */
+export function riverLevelAt(x: number, z: number): number {
+  const base = baseHeight(x, z);
+  if (base.coast < 0) return 0;
+  return Math.max(0, base.h - RIVER_WATER_DROP);
+}
+
+/** 굽기용 한 번에: 높이·해안 거리·강 거리·물 높이 */
+export function fieldAt(x: number, z: number): { h: number; coast: number; river: number; level: number } {
+  const b = baseHeight(x, z);
+  const rd = riverDistAt(x, z);
+  const h = carveRiver(b, rd);
+  const level = b.coast < 0 ? 0 : Math.max(0, b.h - RIVER_WATER_DROP);
+  return { h, coast: b.coast, river: rd, level };
 }
 
 /** 위가 평평하고 물·절벽이 아닌 땅인가(소품 배치용) */

@@ -33,6 +33,8 @@ export interface FaceSpec {
   mouthY?: number;
   /** 작은 코 점 */
   nose?: { y: number; color: string };
+  /** 바탕 위 무늬(펭귄 얼굴 가면·여우 볼 등) — 볼터치·눈보다 먼저 그린다 */
+  paint?: (g: CanvasRenderingContext2D, n: number) => void;
 }
 
 function drawEyeOpen(g: G, cx: number, cy: number, w: number, h: number, iris: string, mirror: number, lashes: boolean) {
@@ -80,6 +82,7 @@ export function faceTexture(s: FaceSpec, closed: boolean, size = 1024): THREE.Ca
   return canvasTex(size, (g, n) => {
     g.fillStyle = s.skin;
     g.fillRect(0, 0, n, n);
+    s.paint?.(g, n);
     const sx = (v: number) => (v / 2) * n; // 길이 변환
     // 볼터치: 부드러운 원형 그라디언트
     for (const m of [-1, 1]) {
@@ -211,7 +214,9 @@ export function blobTexture(size = 256): THREE.CanvasTexture {
 }
 
 /** 감정 말풍선: 흰 구름 + 꼬리 + 기호(♪ 또는 !) */
-export function bubbleTexture(kind: 'note' | 'bang', size = 512): THREE.CanvasTexture {
+export type BubbleKind = 'note' | 'bang' | 'heart' | 'zzz' | 'question' | 'sweat' | 'sparkle';
+
+export function bubbleTexture(kind: BubbleKind, size = 512): THREE.CanvasTexture {
   return canvasTex(size, (g, n) => {
     const cx = n * 0.5, cy = n * 0.44, r = n * 0.33;
     const path = () => {
@@ -259,6 +264,46 @@ export function bubbleTexture(kind: 'note' | 'bang', size = 512): THREE.CanvasTe
       g.lineTo(s * 0.57, -s * 0.3);
       g.lineTo(-s * 0.15, -s * 0.18);
       g.closePath(); g.fill();
+    } else if (kind === 'heart') {
+      g.fillStyle = '#ff6f91';
+      const s = r * 0.42;
+      g.beginPath();
+      g.moveTo(0, s * 1.15);
+      g.bezierCurveTo(-s * 1.7, 0, -s * 0.95, -s * 1.3, 0, -s * 0.45);
+      g.bezierCurveTo(s * 0.95, -s * 1.3, s * 1.7, 0, 0, s * 1.15);
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.7)';
+      g.beginPath(); g.ellipse(-s * 0.55, -s * 0.45, s * 0.22, s * 0.14, -0.6, 0, TAU); g.fill();
+    } else if (kind === 'zzz' || kind === 'question' || kind === 'sparkle' || kind === 'sweat') {
+      if (kind === 'sweat') {
+        g.fillStyle = '#6fc3ff';
+        const s = r * 0.5;
+        g.beginPath();
+        g.moveTo(0, -s);
+        g.bezierCurveTo(s * 0.7, -s * 0.1, s * 0.75, s * 0.75, 0, s * 0.75);
+        g.bezierCurveTo(-s * 0.75, s * 0.75, -s * 0.7, -s * 0.1, 0, -s);
+        g.fill();
+      } else if (kind === 'sparkle') {
+        g.fillStyle = '#ffc93c';
+        const star = (x: number, y: number, s: number) => {
+          g.beginPath();
+          g.moveTo(x, y - s);
+          g.quadraticCurveTo(x, y, x + s, y);
+          g.quadraticCurveTo(x, y, x, y + s);
+          g.quadraticCurveTo(x, y, x - s, y);
+          g.quadraticCurveTo(x, y, x, y - s);
+          g.fill();
+        };
+        star(-r * 0.12, -r * 0.05, r * 0.42);
+        star(r * 0.38, r * 0.28, r * 0.2);
+      } else {
+        g.fillStyle = kind === 'zzz' ? '#8a9cff' : '#ff9f43';
+        g.font = `${Math.round(r * (kind === 'zzz' ? 0.62 : 1.0))}px Jua, system-ui, sans-serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        if (kind === 'zzz') { g.fillText('Z', -r * 0.25, r * 0.12); g.font = `${Math.round(r * 0.45)}px Jua, sans-serif`; g.fillText('z', r * 0.22, -r * 0.12); g.fillText('z', r * 0.5, -r * 0.36); }
+        else g.fillText('?', 0, r * 0.06);
+      }
     } else {
       g.fillStyle = '#ff6b5e';
       const s = r * 0.8;
@@ -272,4 +317,56 @@ export function bubbleTexture(kind: 'note' | 'bang', size = 512): THREE.CanvasTe
     }
     g.restore();
   });
+}
+
+/** 대화 말풍선: 둥근 흰 풍선 + 이름표 + 대사(줄바꿈) */
+export function speechTexture(name: string, text: string, accent: string): THREE.CanvasTexture {
+  const W = 1024, H = 512;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d')!;
+  const font = (px: number) => `${px}px Jua, system-ui, sans-serif`;
+  // 줄바꿈(글자 단위)
+  g.font = font(64);
+  const maxW = W * 0.84;
+  const lines: string[] = [];
+  let cur = '';
+  for (const ch of text) {
+    const t = cur + ch;
+    if (g.measureText(t).width > maxW && cur) { lines.push(cur); cur = ch.trimStart(); }
+    else cur = t;
+  }
+  if (cur) lines.push(cur);
+  const bx = 30, by = 70, bw = W - 60, bh = Math.min(H - 130, 64 + lines.length * 76);
+  const rr = 70;
+  g.save();
+  g.shadowColor = 'rgba(80,60,40,0.3)';
+  g.shadowBlur = 18;
+  g.shadowOffsetY = 8;
+  g.fillStyle = '#fffaf0';
+  g.beginPath();
+  g.roundRect(bx, by, bw, bh, rr);
+  // 꼬리
+  g.moveTo(W * 0.46, by + bh - 2);
+  g.quadraticCurveTo(W * 0.5, by + bh + 50, W * 0.47, by + bh + 64);
+  g.quadraticCurveTo(W * 0.56, by + bh + 30, W * 0.56, by + bh - 2);
+  g.fill();
+  g.restore();
+  // 이름표
+  g.font = font(48);
+  const nw = g.measureText(name).width + 56;
+  g.fillStyle = accent;
+  g.beginPath(); g.roundRect(bx + 50, by - 42, nw, 70, 35); g.fill();
+  g.fillStyle = '#ffffff';
+  g.textBaseline = 'middle';
+  g.fillText(name, bx + 78, by - 6);
+  // 대사
+  g.font = font(64);
+  g.fillStyle = '#4a3624';
+  g.textAlign = 'center';
+  lines.forEach((l, i) => g.fillText(l, W / 2, by + 70 + i * 76));
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
 }

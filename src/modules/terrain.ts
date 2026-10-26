@@ -191,8 +191,10 @@ export default function build(ctx: Ctx) {
   const mat = terrainMaterial(ctx);
 
   const b = island.ISLAND_BOUNDS;
-  const xs = gradedAxis(b.minX, b.maxX, 0.18, 110);
-  const zs = gradedAxis(b.minZ, b.maxZ, 0.18, 110);
+  // 게임: 마을 사각형 밖은 세계 지형(worldterrain)이 그린다. 룩 테스트(game=0): 예전처럼 마을 지형이 바깥 110 m 까지
+  const reach = ctx.game ? 0 : 110;
+  const xs = gradedAxis(b.minX, b.maxX, 0.18, reach);
+  const zs = gradedAxis(b.minZ, b.maxZ, 0.18, reach);
   const nx = xs.length, nz = zs.length;
   const pos = new Float32Array(nx * nz * 3);
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {

@@ -1,0 +1,180 @@
+// 섬 안 호수·강 물면 — world.ts 의 worldLakes/worldRivers 가 정한 물 높이에 판·띠를 깐다.
+// 정점마다 물 깊이(물 높이 − 땅)를 구워 두고, 얕은 민트 → 깊은 청록, 물가 거품, 강 흐름 대시, 폭포는 흰 커튼.
+import * as THREE from 'three';
+import type * as Island from '../../core/island';
+import { COMMON_GLSL } from '../terrain/glsl';
+import { getField, sharedUniforms } from '../terrain/field';
+
+function waterMat(island: typeof Island): THREE.MeshStandardMaterial {
+  const field = getField(island);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1, metalness: 0, transparent: true, side: THREE.DoubleSide });
+  mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -2;
+  const uniforms = { uField: { value: field.tex }, uFieldRect: { value: field.rect }, uTime: sharedUniforms.uTime };
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, uniforms);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 aW;\nvarying vec4 vW;\nvarying vec3 vWP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = aW;\nvWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec4 vW;
+        varying vec3 vWP;
+        ${COMMON_GLSL}
+        float dlRipple( vec2 q ) {
+          return 0.6 * dlNoise( q * 1.1 + uTime * vec2( 0.22, 0.13 ) ) + 0.4 * dlNoise( q * 2.7 - uTime * vec2( 0.17, 0.31 ) );
+        }`)
+      .replace('#include <color_fragment>', `
+        // vW = (깊이, 흐름 좌표(m), 가로 위치 -1..1, 경사)
+        float depth = vW.x;
+        float dlFall = 0.0;
+        if ( depth < -0.3 ) discard;
+        // 호수: 가장자리 밖(아래 계단으로 내려간 땅 위)은 물이 아니다
+        if ( vW.z < -5.0 && vW.y < -2.0 ) discard;
+        float slope = vW.w;
+        float lace = smoothstep( -0.4, 0.35, dlNoise( vWP.xz * 1.6 + vec2( uTime * 0.25, -uTime * 0.18 ) ) )
+                   * smoothstep( -0.6, 0.2, dlNoise( vWP.xz * 4.0 - uTime * 0.2 ) );
+        float dk = smoothstep( 0.0, 1.2, depth );
+        vec3 wc = mix( vec3( 0.62, 0.94, 0.86 ), vec3( 0.27, 0.78, 0.84 ), dk );
+        wc = mix( wc, vec3( 0.18, 0.56, 0.8 ), smoothstep( 1.4, 3.5, depth ) );
+        float alpha = mix( 0.3, 0.88, dk );
+        float aw = fwidth( depth ) + 0.01;
+        float foam = smoothstep( 0.12 + aw, 0.0, depth ) * mix( 0.55, 1.0, lace );
+        // 강: 흐름 방향 흰 대시
+        if ( vW.z > -5.0 ) {
+          if ( abs( vW.z ) > 1.3 ) discard;
+          vec2 fq = vec2( vW.y - uTime * ( 2.2 + slope * 8.0 ), vW.z * 6.0 ) / vec2( 2.4, 1.0 );
+          vec2 ci = floor( fq ), cf = fract( fq );
+          vec2 rp = dlHash2( ci );
+          vec2 dd = ( cf - vec2( 0.5, 0.3 + rp.y * 0.4 ) ) * vec2( 2.4, 1.0 );
+          float e = length( vec2( dd.x / ( 0.5 + rp.x * 0.5 ), dd.y / 0.06 ) );
+          float streak = smoothstep( 1.0, 0.5, e ) * step( 0.4, rp.y ) * ( 0.6 + 0.4 * sin( uTime * 1.3 + rp.x * 12.0 ) );
+          wc = mix( wc, vec3( 1.0 ), streak * 0.6 );
+          alpha = max( alpha, streak * 0.6 );
+          // 폭포·여울: 경사가 크면 하얗게 쏟아진다
+          float fall = smoothstep( 0.12, 0.5, slope );
+          vec2 fq2 = vec2( vW.z * 5.0, vW.y * 0.7 - uTime * 4.0 );
+          float st = dlNoise( fq2 ) * 0.6 + dlNoise( fq2 * vec2( 2.3, 1.7 ) + 3.0 ) * 0.4;
+          wc = mix( wc, mix( vec3( 0.7, 0.93, 0.95 ), vec3( 1.0 ), smoothstep( -0.2, 0.4, st ) ), fall );
+          dlFall = fall;
+          alpha = mix( alpha, 0.95, fall );
+          foam = max( foam, smoothstep( 0.04, 0.0, slope ) * smoothstep( 0.5, 0.15, vW.w + 0.0 ) * 0.0 );
+        }
+        wc = mix( wc, vec3( 1.0 ), foam );
+        alpha = max( alpha, foam * 0.95 );
+        diffuseColor = vec4( wc, alpha );
+      `)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        {
+          vec2 q = vWP.xz * 0.5 + vec2( vW.y * 0.2, 0.0 );
+          float e = 0.04, k = 0.07;
+          float h0 = dlRipple( q ), hx = dlRipple( q + vec2( e, 0.0 ) ), hz = dlRipple( q + vec2( 0.0, e ) );
+          vec3 nW = normalize( vec3( -( hx - h0 ) / e * k, 1.0, -( hz - h0 ) / e * k ) );
+          if ( vW.w < 0.12 ) normal = normalize( ( viewMatrix * vec4( nW, 0.0 ) ).xyz );
+        }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        {
+          vec3 V = normalize( vViewPosition );
+          float fr = pow( 1.0 - clamp( dot( V, normal ), 0.0, 1.0 ), 5.0 );
+          diffuseColor.a = mix( diffuseColor.a, 1.0, fr * 0.5 );
+      #if NUM_DIR_LIGHTS > 0
+          vec3 L = directionalLights[ 0 ].direction;
+          vec3 R = reflect( -V, normal );
+          float sunA = pow( max( dot( R, L ), 0.0 ), 14.0 );
+          vec2 cq = vWP.xz * 1.9;
+          vec2 ci = floor( cq ), cf = fract( cq );
+          vec2 rp = dlHash2( ci );
+          float tw = pow( 0.5 + 0.5 * sin( uTime * ( 2.0 + rp.x * 3.0 ) + rp.y * 6.2831 ), 10.0 ) * step( 0.45, dlHash( ci + 7.7 ) );
+          vec2 dd = ( cf - ( 0.2 + rp * 0.6 ) ) * vec2( 1.0, 2.2 );
+          float sp = smoothstep( 0.11, 0.0, length( dd ) ) * tw * sunA;
+          totalEmissiveRadiance += directionalLights[ 0 ].color * sp * 1.3;
+          totalEmissiveRadiance += diffuseColor.rgb * dlFall * 0.35;
+          diffuseColor.a = max( diffuseColor.a, sp );
+      #endif
+        }`);
+  };
+  mat.customProgramCacheKey = () => 'wt2-inland';
+  return mat;
+}
+
+export function buildInlandWater(island: typeof Island): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'inland-water';
+  const mat = waterMat(island);
+  // 호수: 격자판(곡률이 휘도록 정점을 충분히)
+  for (const L of island.worldLakes()) {
+    if (L.frozen) continue;
+    const R = L.r * 1.45, N = 56;
+    const pos: number[] = [], aw: number[] = [], idx: number[] = [];
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const x = L.x - R + (2 * R * i) / N, z = L.z - R + (2 * R * j) / N;
+      pos.push(x, L.level, z);
+      aw.push(L.level - island.heightAt(x, z), island.lakeEdge(L, x, z), -9, 0);
+    }
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, d = c + 1;
+      if (aw[a * 4] < -0.5 && aw[b * 4] < -0.5 && aw[c * 4] < -0.5 && aw[d * 4] < -0.5) continue;
+      idx.push(a, c, d, a, d, b);
+    }
+    g.add(mesh(pos, aw, idx, mat, 'lake-' + L.id));
+  }
+  // 강: 중심선을 따라 띠(폭포 마디는 촘촘히)
+  for (const Rv of island.worldRivers()) {
+    const pts = Rv.pts;
+    const cols = 12, half = Rv.halfW + 5;
+    const pos: number[] = [], aw: number[] = [], idx: number[] = [];
+    let along = 0, rows = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const segL = Math.hypot(b.x - a.x, b.z - a.z);
+      const tx = (b.x - a.x) / segL, tz = (b.z - a.z) / segL;
+      const drop = a.level - b.level;
+      const sub = drop > 1.2 ? 14 : 3;
+      for (let s = 0; s < sub || (i === pts.length - 2 && s === sub); s++) {
+        const t = s / sub;
+        const tt = drop > 1.2 ? sm(0.62, 0.72, t) : t;
+        const cx0 = a.x + (b.x - a.x) * t, cz0 = a.z + (b.z - a.z) * t;
+        // 땅이 물 높이보다 먼저 내려가면 물도 땅을 따라 내려간다(허공에 뜬 물판 방지)
+        const lv = Math.min(a.level + (b.level - a.level) * tt, island.heightAt(cx0, cz0) + 1.5);
+        const dl = drop > 1.2 ? (drop * 6 * Math.max(0, 1 - Math.abs(t - 0.67) / 0.08)) / segL : drop / segL;
+        const cx = a.x + (b.x - a.x) * t, cz = a.z + (b.z - a.z) * t;
+        for (let k = 0; k <= cols; k++) {
+          const off = (k / cols) * 2 - 1;
+          const x = cx - tz * off * half, z = cz + tx * off * half;
+          pos.push(x, lv, z);
+          aw.push(lv - island.heightAt(x, z), along + t * segL, (off * half) / Rv.halfW, Math.min(1, dl));
+        }
+        rows++;
+      }
+      along += segL;
+    }
+    for (let r = 0; r < rows - 1; r++) for (let k = 0; k < cols; k++) {
+      const a = r * (cols + 1) + k, b = a + 1, c = a + cols + 1, d = c + 1;
+      idx.push(a, c, d, a, d, b);
+    }
+    g.add(mesh(pos, aw, idx, mat, 'river-' + Rv.island));
+  }
+  return g;
+}
+
+const sm = (e0: number, e1: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+function mesh(pos: number[], aw: number[], idx: number[], mat: THREE.Material, name: string): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('aW', new THREE.Float32BufferAttribute(aw, 4));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  // 법선은 위로(폭포 커튼도 빛을 고르게)
+  const n = geo.getAttribute('normal') as THREE.BufferAttribute;
+  for (let i = 0; i < n.count; i++) if (n.getY(i) < 0) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+  geo.computeBoundingSphere();
+  const m = new THREE.Mesh(geo, mat);
+  m.name = name;
+  m.renderOrder = 2;
+  m.receiveShadow = true;
+  m.userData.world = 'earth';
+  return m;
+}

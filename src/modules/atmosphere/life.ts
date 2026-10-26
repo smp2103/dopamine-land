@@ -121,7 +121,9 @@ void main() {
   // 깜빡임(반딧불이) — uBlink = 0 이면 그대로
   float b = 0.5 + 0.5 * sin( uTime * ( 1.2 + aSeed ) + s * 3.0 );
   vA = mix( 1.0, smoothstep( 0.25, 0.95, b ), uBlink );
-  gl_PointSize = uSize * ( 0.6 + 0.8 * fract( aSeed * 13.7 ) ) * ( 300.0 / -mv.z );
+  gl_PointSize = min( uSize * ( 0.6 + 0.8 * fract( aSeed * 13.7 ) ) * ( 300.0 / -mv.z ), 7.0 );
+  // 카메라 4 m 안은 옅게(렌즈 먼지처럼 보이지 않게)
+  vA *= smoothstep( 1.5, 4.0, -mv.z );
 }`;
 
 const DOTS_FRAG = /* glsl */ `
@@ -198,7 +200,7 @@ export function buildLife(ctx: Ctx) {
   ctx.onTod((_n: string, p: TodPreset) => {
     pollen.uniforms.uAmount.value = p.pollen * 0.5;
     pollen.pts.visible = p.pollen > 0;
-    ff.uniforms.uAmount.value = p.fireflies * 2.2;
+    ff.uniforms.uAmount.value = p.fireflies * 1.3;
     ff.pts.visible = p.fireflies > 0;
     bf.visible = p.butterflies > 0;
     bf.children.forEach((c, i) => { c.visible = i < Math.round(p.butterflies * bf.children.length); });

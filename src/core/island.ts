@@ -305,5 +305,8 @@ export function waterLevelAt(x: number, z: number): number {
     if (f.river < RIVER_HALF_W + 0.2) return f.level;
     return -Infinity;
   }
-  return worldSample(x, z).coast < 0 ? 0 : -Infinity;
+  const ws = worldSample(x, z);
+  if (ws.coast < 0) return 0;
+  // 섬 안 호수·강(world.ts)
+  return ws.water !== undefined && ws.water > ws.h ? ws.water : -Infinity;
 }

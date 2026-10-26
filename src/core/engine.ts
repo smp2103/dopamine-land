@@ -14,6 +14,7 @@ import { rngFor } from './rng';
 import { TOD, CAMS, CURVE_K, type TodPreset } from './presets';
 import { MiniDofEffect } from '../modules/atmosphere/miniDof';
 import { SoftGradeEffect } from '../modules/atmosphere/grade';
+import '../modules/atmosphere/fogChunks'; // 높이 안개·공기 원근(전역 fog 청크 교체)
 import type { Ctx, ScatterOpts, ModuleBuild } from './types';
 import type { Game } from './game';
 
@@ -91,6 +92,8 @@ export class Engine {
         top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, bottom: { value: new THREE.Color() },
         uHorizon: { value: 0 }, uStars: { value: 0 },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color() }, uSunGlow: { value: 0 },
+        uMilky: { value: 0 }, uStarDensity: { value: 1 }, uSunDisc: { value: 0 }, uMoon: { value: 0 }, uHaze: { value: 0 },
+        uHazeColor: { value: new THREE.Color('#ffffff') },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -104,32 +107,80 @@ export class Engine {
         uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom;
         uniform float uHorizon; uniform float uStars;
         uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uSunGlow;
+        uniform float uMilky; uniform float uStarDensity; uniform float uSunDisc; uniform float uMoon;
+        uniform float uHaze; uniform vec3 uHazeColor;
         varying vec3 vDir;
         float hash13( vec3 p ) {
           p = fract( p * 0.1031 );
           p += dot( p, p.zyx + 31.32 );
           return fract( ( p.x + p.y ) * p.z );
         }
+        float vnoise( vec3 p ) {
+          vec3 i = floor( p ), f = fract( p );
+          f = f * f * ( 3.0 - 2.0 * f );
+          float n000 = hash13( i ), n100 = hash13( i + vec3( 1, 0, 0 ) ), n010 = hash13( i + vec3( 0, 1, 0 ) ), n110 = hash13( i + vec3( 1, 1, 0 ) );
+          float n001 = hash13( i + vec3( 0, 0, 1 ) ), n101 = hash13( i + vec3( 1, 0, 1 ) ), n011 = hash13( i + vec3( 0, 1, 1 ) ), n111 = hash13( i + vec3( 1, 1, 1 ) );
+          return mix( mix( mix( n000, n100, f.x ), mix( n010, n110, f.x ), f.y ), mix( mix( n001, n101, f.x ), mix( n011, n111, f.x ), f.y ), f.z );
+        }
+        float fbm3( vec3 p ) { float s = 0.0, a = 0.5; for ( int i = 0; i < 4; i++ ) { s += a * vnoise( p ); p *= 2.07; a *= 0.5; } return s; }
+        vec3 starLayer( vec3 d, float scale, float thr, float sizeK ) {
+          vec3 p = d * scale;
+          vec3 cell = floor( p );
+          float h = hash13( cell );
+          if ( h < thr ) return vec3( 0.0 );
+          vec3 sp = cell + 0.5 + 0.35 * ( vec3( hash13( cell + 7.1 ), hash13( cell + 3.7 ), hash13( cell + 1.3 ) ) - 0.5 );
+          float r = length( p - sp );
+          float b = ( 1.0 - smoothstep( 0.0, ( 0.16 + 0.12 * fract( h * 91.0 ) ) * sizeK, r ) ) * ( 0.45 + 0.55 * fract( h * 57.0 ) );
+          float tint = fract( h * 13.0 );
+          vec3 col = tint < 0.33 ? vec3( 0.75, 0.85, 1.0 ) : tint < 0.66 ? vec3( 1.0, 0.97, 0.88 ) : vec3( 1.0, 0.85, 0.75 );
+          return col * b;
+        }
         void main() {
           vec3 d = normalize( vDir );
           // 겉보기 지평선 기준 높이(위 = 양수)
           float y = ( d.y - uHorizon ) / ( 1.0 - uHorizon );
-          vec3 c = y > 0.0 ? mix( horizon, top, pow( smoothstep( 0.0, 0.7, y ), 0.75 ) )
+          vec3 c = y > 0.0 ? mix( horizon, top, pow( smoothstep( 0.0, 0.75, y ), 0.7 ) )
                            : mix( horizon, bottom, smoothstep( 0.0, -0.2, y ) );
+          // 지평선 바로 위 옅은 공기층(멀리 있는 것이 하늘에 녹는 띠)
+          c = mix( c, uHazeColor, uHaze * exp( -abs( y ) * 14.0 ) );
           // 해 쪽 번짐(아침·노을)
-          float sd = max( dot( d, normalize( uSunDir ) ), 0.0 );
+          vec3 sdir = normalize( uSunDir );
+          float sd = max( dot( d, sdir ), 0.0 );
           c += uSunColor * uSunGlow * ( pow( sd, 6.0 ) * 0.6 + pow( sd, 40.0 ) * 0.5 ) * ( 1.0 - smoothstep( 0.0, 0.6, y ) );
+          // 해 원반(둥글고 부드럽게) + 후광
+          if ( uSunDisc > 0.0 ) {
+            float disc = smoothstep( 0.9986, 0.9992, sd );
+            c = mix( c, vec3( 1.0, 0.98, 0.92 ) * 1.6, disc * uSunDisc );
+            c += uSunColor * uSunDisc * ( pow( sd, 300.0 ) * 0.5 + pow( sd, 24.0 ) * 0.12 );
+          }
+          float night = smoothstep( 0.03, 0.3, y );
+          // 은하수: 기울어진 큰 원을 따라 구름 같은 빛 띠
+          if ( uMilky > 0.0 ) {
+            vec3 axis = normalize( vec3( 0.35, 0.55, 0.76 ) );
+            float band = 1.0 - abs( dot( d, axis ) );
+            float core = pow( max( band, 0.0 ), 9.0 );
+            float n = fbm3( d * 5.0 );
+            float n2 = fbm3( d * 13.0 + 4.0 );
+            float m = core * ( 0.45 + 0.9 * n ) * ( 0.7 + 0.5 * n2 );
+            float dust = smoothstep( 0.55, 0.75, fbm3( d * 9.0 + 9.0 ) ) * pow( max( band, 0.0 ), 30.0 );
+            vec3 mc = mix( vec3( 0.55, 0.45, 0.95 ), vec3( 1.0, 0.82, 0.92 ), n2 );
+            c += mc * m * uMilky * 0.55 * night * ( 1.0 - dust * 0.7 );
+            // 은하수 안쪽은 작은 별이 촘촘
+            c += starLayer( d, 420.0, 1.0 - 0.18 * core, 1.4 ) * uMilky * core * 1.6 * night;
+          }
           // 별: 방향 격자마다 하나, 지평선 근처는 옅게
           if ( uStars > 0.0 ) {
-            vec3 p = d * 140.0;
-            vec3 cell = floor( p );
-            float h = hash13( cell );
-            if ( h > 0.985 ) {
-              vec3 sp = cell + 0.5 + 0.35 * ( vec3( hash13( cell + 7.1 ), hash13( cell + 3.7 ), hash13( cell + 1.3 ) ) - 0.5 );
-              float r = length( p - sp );
-              float b = ( 1.0 - smoothstep( 0.0, 0.16 + 0.12 * fract( h * 91.0 ), r ) ) * ( 0.5 + 0.5 * fract( h * 57.0 ) );
-              c += vec3( 1.0, 0.97, 0.88 ) * b * uStars * 2.2 * smoothstep( 0.03, 0.3, y );
-            }
+            vec3 s = starLayer( d, 140.0, 1.0 - 0.015 * uStarDensity, 1.0 ) * 2.2;
+            s += starLayer( d, 260.0, 1.0 - 0.02 * uStarDensity, 1.1 ) * 1.1;
+            c += s * uStars * night;
+          }
+          // 달: 해 방향(밤에는 달빛 방향)에 둥근 달 + 은은한 무리
+          if ( uMoon > 0.0 ) {
+            float md = dot( d, sdir );
+            float disc = smoothstep( 0.99955, 0.9997, md );
+            vec3 mcol = vec3( 1.0, 0.97, 0.86 ) * ( 0.9 + 0.25 * vnoise( d * 900.0 ) );
+            c = mix( c, mcol * 1.5, disc * uMoon );
+            c += vec3( 0.55, 0.65, 1.0 ) * uMoon * ( pow( max( md, 0.0 ), 60.0 ) * 0.35 + pow( max( md, 0.0 ), 8.0 ) * 0.08 );
           }
           gl_FragColor = vec4( c, 1.0 );
           #include <colorspace_fragment>
@@ -209,6 +260,7 @@ export class Engine {
   }
 
   camName = 'ac';
+  private lastAoColor = '';
   viewTarget = new THREE.Vector3();
   sunDir = new THREE.Vector3(0, 1, 0);
 
@@ -225,7 +277,8 @@ export class Engine {
       if (f.lengthSq() < 1e-6) f.set(0, 0, -1);
       f.normalize();
       let best = -Infinity;
-      for (let s = 2; s <= 420; s += 2) {
+      // 높이 날면 지평선이 멀어진다 → 가까이는 촘촘히, 멀리는 성기게 4 km 까지
+      for (let s = 2; s <= 4000; s = s < 120 ? s + 2 : s * 1.03) {
         const dx = cam.position.x + f.x * s - o.x, dz = cam.position.z + f.z * s - o.z;
         const yg = 0.6 - k * (dz * dz + 0.18 * dx * dx);
         best = Math.max(best, (yg - cam.position.y) / s);
@@ -251,7 +304,11 @@ export class Engine {
   }
 
   applyTod(name: string) {
-    const p = TOD[name] ?? TOD.day;
+    this.applyPreset(name, TOD[name] ?? TOD.day, true);
+  }
+
+  /** 프리셋 값을 그대로 적용(시간 흐름·날씨가 보간한 값). env=false 면 환경광 굽기를 건너뛴다(매 프레임용) */
+  applyPreset(name: string, p: TodPreset, env = true) {
     this.todName = name;
     const az = THREE.MathUtils.degToRad(p.sunAzimuth), el = THREE.MathUtils.degToRad(p.sunElevation);
     this.sunDir.set(Math.cos(el) * Math.cos(az), Math.sin(el), -Math.cos(el) * Math.sin(az));
@@ -268,22 +325,35 @@ export class Engine {
     this.skyMat.uniforms.uSunColor.value.set(p.sunColor);
     this.skyMat.uniforms.uSunGlow.value = p.sunGlow;
     this.skyMat.uniforms.uStars.value = p.stars;
+    this.skyMat.uniforms.uMilky.value = p.milky ?? 0;
+    this.skyMat.uniforms.uStarDensity.value = p.starDensity ?? 1;
+    this.skyMat.uniforms.uSunDisc.value = p.sunDisc ?? 0;
+    this.skyMat.uniforms.uMoon.value = p.moon ?? 0;
+    this.skyMat.uniforms.uHaze.value = p.hazeBand ?? 0;
+    this.skyMat.uniforms.uHazeColor.value.set(p.fogColor);
     this.rim.color.set(p.rimColor);
     this.rim.intensity = p.rimIntensity;
     const fog = this.scene.fog as THREE.Fog;
-    fog.color.set(p.fogColor); fog.near = this.fogOverride?.near ?? p.fogNear; fog.far = this.fogOverride?.far ?? p.fogFar;
+    const gf = this.fogOverride ? (p.worldFog ?? this.fogOverride) : null;
+    fog.color.set(p.fogColor); fog.near = gf?.near ?? p.fogNear; fog.far = gf?.far ?? p.fogFar;
     this.renderer.toneMappingExposure = p.exposure;
 
     // 하늘 그라디언트로 환경광(반사·은은한 하늘빛)을 굽는다
-    // 환경광은 진짜 수평선 기준·별 없이 굽는다
-    const envScene = new THREE.Scene();
-    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), this.skyMat));
-    const u = this.skyMat.uniforms, keepH = u.uHorizon.value, keepS = u.uStars.value;
-    u.uHorizon.value = 0; u.uStars.value = 0;
-    this.envRT?.dispose();
-    this.envRT = this.pmrem.fromScene(envScene, 0.04);
-    u.uHorizon.value = keepH; u.uStars.value = keepS;
-    this.scene.environment = this.envRT.texture;
+    // 환경광은 진짜 수평선 기준·별·해 원반 없이 굽는다
+    if (env || !this.envRT) {
+      const envScene = new THREE.Scene();
+      const envGeo = new THREE.SphereGeometry(10, 32, 16);
+      envScene.add(new THREE.Mesh(envGeo, this.skyMat));
+      const u = this.skyMat.uniforms;
+      const keep = [u.uHorizon.value, u.uStars.value, u.uMilky.value, u.uSunDisc.value, u.uMoon.value];
+      u.uHorizon.value = 0; u.uStars.value = 0; u.uMilky.value = 0; u.uSunDisc.value = 0; u.uMoon.value = 0;
+      const old = this.envRT;
+      this.envRT = this.pmrem.fromScene(envScene, 0.04);
+      old?.dispose();
+      envGeo.dispose();
+      [u.uHorizon.value, u.uStars.value, u.uMilky.value, u.uSunDisc.value, u.uMoon.value] = keep;
+      this.scene.environment = this.envRT.texture;
+    }
     this.scene.environmentIntensity = p.envIntensity;
 
     const e = this.effects;
@@ -295,7 +365,7 @@ export class Engine {
       e.bc.brightness = p.brightness;
       e.vig.darkness = p.vignette;
       e.ao.configuration.intensity = p.aoIntensity;
-      e.ao.configuration.color = new THREE.Color(p.aoColor);
+      if (this.lastAoColor !== p.aoColor) { this.lastAoColor = p.aoColor; e.ao.configuration.color = new THREE.Color(p.aoColor); }
     }
     this.updateView();
     for (const fn of this.todHooks) fn(name, p);

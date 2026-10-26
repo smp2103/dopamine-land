@@ -329,6 +329,10 @@ export interface PointInteractable {
   enabled?: () => boolean;
 }
 
+// ───────────── 공유 런타임 객체 타입(느슨하게) ─────────────
+export interface EnvApi { day?: number; hour: number; tod: string; weather: string; regionWeather?: (x: number, z: number) => string; moonPhase?: number; [k: string]: any }
+export interface GeoApi { zoneAt?: (x: number, z: number) => { island: string | null; zone: string }; landmarks?: unknown; [k: string]: any }
+
 // ───────────── 게임 ─────────────
 export interface GameOpts { spawn?: { x: number; z: number }; style?: CamStyle; world?: 'earth' | 'space' }
 
@@ -345,7 +349,18 @@ export class Game {
   cam: CameraRig;
   state = new GameState();
   ui: GameUI;
-  world: 'earth' | 'space' = 'earth';
+  private _world: 'earth' | 'space' = 'earth';
+  /** 지금 세계(지구/우주). 객체를 넣으면(옛 기획서 표기) geo 로 돌려보낸다 */
+  get world(): 'earth' | 'space' { return this._world; }
+  set world(v: 'earth' | 'space' | GeoApi) {
+    if (typeof v === 'object') { this.geo = v; return; }
+    this._world = v;
+  }
+  /** 담당끼리 런타임 공유 객체(GDD 0.6) — 만든 담당이 채운다. 없을 수 있으니 ?. 로 부른다 */
+  env: EnvApi | null = null;
+  econ: Record<string, any> | null = null;
+  geo: GeoApi | null = null;
+  ocean: { waveAt?: (x: number, z: number, t: number) => number; [k: string]: any } | null = null;
   time = 0;
   providers: Array<{ id: string; fn: InteractionProvider }> = [];
   points: PointInteractable[] = [];

@@ -8,8 +8,9 @@ const Y = V3(0, 1, 0), X = V3(1, 0, 0), Z = V3(0, 0, 1);
 const mat = (p: THREE.Vector3, q: THREE.Quaternion, s = 1) => new THREE.Matrix4().compose(p, q, V3(s, s, s));
 
 /** 해상도 단계(가까운 곳 = hi). 만들기 전에 flora.ts 가 바꾼다. */
-export const res = { hi: true };
-const RS = (hi: number, lo: number) => (res.hi ? hi : lo);
+export const res = { hi: true, lo: false };
+/** 해상도: hi(가까이) / 기본 lo / res.lo = 아주 먼 고리(더 거칠게) */
+const RS = (hi: number, lo: number) => (res.hi ? hi : res.lo ? (lo < 3 ? lo : Math.max(3, Math.round(lo * 0.6))) : lo);
 
 // ── 활엽수 ───────────────────────────────────────────
 export interface Anchor { p: THREE.Vector3; n: THREE.Vector3 }

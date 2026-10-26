@@ -212,8 +212,10 @@ function gradedAxis(min: number, max: number, step: number, reach: number): numb
   return [...left.reverse(), ...out];
 }
 
-function seaGeometry(b: { minX: number; maxX: number; minZ: number; maxZ: number }): THREE.BufferGeometry {
-  const xs = gradedAxis(b.minX - 4, b.maxX + 4, 0.5, 320), zs = gradedAxis(b.minZ - 4, b.maxZ + 4, 0.5, 320);
+function seaGeometry(b: { minX: number; maxX: number; minZ: number; maxZ: number }, inGame: boolean): THREE.BufferGeometry {
+  // 게임: 마을 사각형 + 14 m 까지만(밖은 세계 바다 worldterrain/sea.ts). 룩 테스트: 예전처럼 320 m 까지
+  const xs = inGame ? gradedAxis(b.minX - 14, b.maxX + 14, 0.5, 0) : gradedAxis(b.minX - 4, b.maxX + 4, 0.5, 320);
+  const zs = inGame ? gradedAxis(b.minZ - 14, b.maxZ + 14, 0.5, 0) : gradedAxis(b.minZ - 4, b.maxZ + 4, 0.5, 320);
   const nx = xs.length, nz = zs.length;
   const pos = new Float32Array(nx * nz * 3);
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) pos.set([xs[i], 0, zs[j]], (j * nx + i) * 3);
@@ -234,7 +236,7 @@ export default function build(ctx: Ctx) {
   const g = new THREE.Group();
   g.name = 'water';
 
-  const sea = new THREE.Mesh(seaGeometry(island.ISLAND_BOUNDS), waterMaterial(ctx, 'sea'));
+  const sea = new THREE.Mesh(seaGeometry(island.ISLAND_BOUNDS, !!ctx.game), waterMaterial(ctx, 'sea'));
   sea.name = 'sea';
   sea.receiveShadow = true;
   sea.renderOrder = 1;

@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createNoise3D } from 'simplex-noise';
 
-export type MatKey = 'matte' | 'wood' | 'paint' | 'gloss' | 'gold' | 'stone' | 'lampGlow' | 'window' | 'shell' | 'treasure';
+export type MatKey = 'matte' | 'wood' | 'paint' | 'gloss' | 'gold' | 'stone' | 'lampGlow' | 'window' | 'shell' | 'treasure' | 'cloth' | 'ice' | 'glow';
 
 // ───────── 지오메트리 ─────────
 
@@ -154,6 +154,12 @@ export function makeMaterials(rng: () => number): Record<MatKey, THREE.MeshStand
     // 상자 속 금화 더미: 스스로 빛나서 블룸이 걸린다
     treasure: new THREE.MeshStandardMaterial({ color: '#ffc23a', metalness: 0.5, roughness: 0.3, emissive: '#ff9a10', emissiveIntensity: 1.25 }),
     shell: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.45, sheen: 0.6, sheenColor: '#ffe6f0', sheenRoughness: 0.5 }),
+    // 천(차양·천막·돛): 보송한 sheen
+    cloth: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.75, sheen: 1, sheenColor: '#ffffff', sheenRoughness: 0.55 }),
+    // 얼음: 맑은 반짝임(투과 대신 클리어코트 — 가볍게)
+    ice: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08, emissive: '#bfe8ff', emissiveIntensity: 0.08 }),
+    // 스스로 빛나는 정점색(등대 불·관제탑 등)
+    glow: std({ vertexColors: false, color: '#fff6c8', roughness: 0.4, emissive: '#ffd36a', emissiveIntensity: 1.3 }),
     lampGlow: std({ vertexColors: false, color: '#fff3d6', roughness: 0.4, emissive: '#ffbf6a', emissiveIntensity: 0 }),
     window: std({ vertexColors: false, color: '#bfe6ff', roughness: 0.15, metalness: 0.05, emissive: '#ffb85c', emissiveIntensity: 0 }),
   };

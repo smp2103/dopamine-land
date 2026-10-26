@@ -70,6 +70,8 @@ export interface HairOpts {
   /** 머리색과 윤기 띠(천사 고리) 색 — 정점 색으로 칠한다 */
   color?: string;
   shine?: string;
+  /** 뒷머리 결: 덩어리 볼륨 + 결 사이 그늘 + 가마 소용돌이 + 뒤쪽 윤기 띠 */
+  backDetail?: boolean;
 }
 
 /**
@@ -104,12 +106,32 @@ export function hairCap(o: HairOpts): THREE.BufferGeometry {
     // 정수리·관자놀이 쪽이 더 부풀게, 앞머리는 이마 위로 살짝 떠 있게
     const side = (o.sidePuff ?? 0) * Math.pow(Math.abs(Math.sin(az)), 1.5) * Math.exp(-(((el - 0.4) / 0.45) ** 2));
     const fringe = 0.025 * bang * Math.exp(-(((el - line - 0.12) / 0.18) ** 2));
-    const top = 1 + o.puff + 0.025 * smooth(0.3, 1.2, el) + side + fringe;
+    let top = 1 + o.puff + 0.025 * smooth(0.3, 1.2, el) + side + fringe;
+    let groove = 0, backRing = 0, whorl = 0;
+    if (o.backDetail) {
+      const backness = smooth(0.1, -0.5, f);
+      const bk = az > 0 ? az - Math.PI : az + Math.PI; // 뒤 중앙 0
+      // 세로 덩어리 4개(아래로 갈수록 또렷하게), 끝은 살짝 바깥으로 삐친다
+      const lobe = Math.pow(Math.abs(Math.cos(bk * 2.6 + 0.35)), 0.55);
+      const low = smooth(0.95, -0.2, el);
+      top += backness * (0.028 * lobe * low + 0.035 * smooth(-0.35, -0.7, el) * lobe);
+      groove = backness * (1 - lobe) * smooth(1.1, 0.2, el);
+      backRing = backness * Math.exp(-(((el - 0.42 - 0.03 * Math.sin(bk * 9)) / 0.075) ** 2)) * (0.45 + 0.55 * lobe);
+      // 가마: 정수리 뒤쪽 한 점을 도는 소용돌이 결
+      const cx = Math.sin(-0.35) * Math.cos(0.95), cy = Math.sin(0.95), cz = -Math.cos(0.35) * Math.cos(0.95);
+      const dx = v.x - cx, dy = v.y - cy, dz = v.z - cz;
+      const r = Math.hypot(dx, dy, dz);
+      if (r < 0.42) {
+        const th = Math.atan2(dx, dz * 0.7 + dy * 0.7);
+        whorl = smooth(0.42, 0.08, r) * smooth(0.55, 1.0, Math.cos(th * 1 - r * 22));
+      }
+    }
     const s = THREE.MathUtils.lerp(0.9, top, t);
     p.setXYZ(i, v.x * o.rx * s, v.y * o.ry * s, v.z * o.rz * s);
     // 윤기 띠: 정수리 앞쪽에 물결치는 밝은 고리
     const ring = Math.exp(-(((el - 0.8 - 0.015 * Math.sin(az * 7)) / 0.085) ** 2)) * smooth(-0.3, 0.7, f);
-    cc.copy(cBase).lerp(cShine, ring * 0.65);
+    cc.copy(cBase).lerp(cShine, Math.min(1, ring * 0.65 + backRing * 0.6));
+    if (groove > 0 || whorl > 0) cc.multiplyScalar(1 - 0.32 * groove - 0.3 * whorl);
     col.set([cc.r, cc.g, cc.b], i * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));

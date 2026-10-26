@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import { floraMat, floraTime } from './flora/mat';
+import { setupWorldFlora, floraTod } from './flora/world';
 import { floraBad } from './flora/geo';
 import { broadleaf, cedar, palm, fruit, bush, flower, clover, weed, res, type Anchor, type FruitKind, type BushKind, type FlowerKind } from './flora/shapes';
 
@@ -291,6 +292,10 @@ export default function build(ctx: Ctx) {
   }
 
   ctx.onUpdate((t) => { floraTime.value = t; });
+  floraTod(ctx.tod);
+  ctx.onTod((name) => floraTod(name));
+  // 게임 모드: 모든 섬의 식생을 청크 스트리밍으로(마을 밖)
+  if (ctx.game) setupWorldFlora(ctx, ctx.game);
   (window as unknown as { __flora?: unknown }).__flora = {
     trees: trees.length, broad: trees.filter((t) => t.kind === 'broad').length, cedar: cedarPts.length, palm: palmPts.length,
     bushes: bushes.length, flowers: flowers.length, weeds: weeds.length, badVerts: floraBad.n,

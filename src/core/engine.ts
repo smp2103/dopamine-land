@@ -63,6 +63,7 @@ export class Engine {
     r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     r.setSize(window.innerWidth, window.innerHeight);
     r.shadowMap.enabled = true;
+    r.info.autoReset = false; // 모든 패스(그림자·AO·후처리) 합산 통계
     r.shadowMap.type = THREE.PCFShadowMap;
     r.toneMapping = THREE.NoToneMapping;
     r.outputColorSpace = THREE.SRGBColorSpace;
@@ -332,6 +333,7 @@ export class Engine {
         curveUniforms.uCurveOrigin.value.set(this.controls.target.x, 0, this.controls.target.z);
       }
       for (const fn of this.updates) fn(t, this.opts.freezeT !== null ? 0 : dt);
+      this.renderer.info.reset();
       this.composer.render(dt);
       onFrame?.(++n);
       requestAnimationFrame(loop);

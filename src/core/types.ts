@@ -1,0 +1,40 @@
+import type * as THREE from 'three';
+import type { PALETTE } from './palette';
+import type * as Island from './island';
+import type { TodPreset } from './presets';
+
+export interface Ctx {
+  scene: THREE.Scene;
+  renderer: THREE.WebGLRenderer;
+  camera: THREE.PerspectiveCamera;
+  island: typeof Island;
+  palette: typeof PALETTE;
+  /** 키별 고정 난수 */
+  rng: (key: string | number) => () => number;
+  /** 매 프레임 호출(t = 경과 초, 촬영 모드에선 고정) */
+  onUpdate: (fn: (t: number, dt: number) => void) => void;
+  /** 시간대가 바뀔 때 호출(밤에 불 켜기 등) */
+  onTod: (fn: (name: string, p: TodPreset) => void) => void;
+  /** 푸아송 원반 배치: 조건을 만족하는 점들을 최소 간격으로 */
+  scatter: (opts: ScatterOpts) => Array<{ x: number; z: number; y: number }>;
+  /** 시간대 이름 */
+  tod: string;
+}
+
+export interface ScatterOpts {
+  key: string;
+  count: number;
+  minDist: number;
+  bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
+  accept: (x: number, z: number) => boolean;
+  /** 다른 모듈이 이미 차지한 점을 피한다(기본 true) */
+  avoidOccupied?: boolean;
+  /** 이 배치를 다른 모듈이 피하도록 등록(기본 true) */
+  occupy?: number;
+}
+
+/** 모듈 기본 내보내기: 씬에 넣을 오브젝트를 돌려준다. */
+export type ModuleBuild = (ctx: Ctx) => Promise<THREE.Object3D | void> | THREE.Object3D | void;
+
+/** 모듈이 원하면 내보내는 로드 순서(작을수록 먼저). terrain=0, 나머지 기본 10. */
+export type ModuleOrder = number;

@@ -1,14 +1,32 @@
 // 식물: 활엽수(과일)·삼나무·야자수·덤불·꽃·클로버/잡초. 모두 InstancedMesh, 바람은 정점 셰이더.
+// 마을(룩 테스트 장면) 식물은 여기서, 섬 식생은 flora/world.ts 청크가 만든다. 채집(흔들기 E·베기 F·돌 두드리기 E·꽃/버섯 줍기)은 flora/harvest.ts·rocks.ts.
+//
+// game.ext.flora = {
+//   trees(): Array<{key, kind, island, x, z, fruit?, shaken, chopsLeft}>   — 지금 가까이 살아 있는(흔들·벨 수 있는) 나무
+//   rocks(): Array<{key, id, island, x, z, hits, left, broken}>            — 섬마다 두드릴 돌 5개(전부)
+//   nearestTree(x?, z?, maxD?): 위 한 줄 | null
+//   shakeNearest(), chopNearest(): {key, kind, x, z} | null                — 가장 가까운 나무(4 m 안)를 흔들기/베기
+//   hitNearest(maxD = 6): {ok, key, item, n, combo, left, broken, why?} | null
+//   breakRock(key): boolean                                                — 공룡 돌진 등으로 그날 돌을 부순다(이미 부서졌으면 false)
+//   gatherNearest(): {key, kind, ok} | null
+// }
+// window.__flora = 위 + 마을 통계(trees·broad·cedar·palm·bushes·flowers·weeds·badVerts·tris)
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import { floraMat, floraTime } from './flora/mat';
 import { setupWorldFlora, floraTod } from './flora/world';
 import { floraBad } from './flora/geo';
-import { broadleaf, cedar, palm, fruit, bush, flower, clover, weed, res, type Anchor, type FruitKind, type BushKind, type FlowerKind } from './flora/shapes';
+import { broadleaf, cedar, palm, bush, flower, clover, weed, res, type Anchor, type BushKind, type FlowerKind } from './flora/shapes';
+import { makeServices, setupHarvest, treeKey, type Harvest, type TreeRec, type PickRec } from './flora/harvest';
+import { setupRocks, type Rocks } from './flora/rocks';
+import { makeFx } from './flora/fx';
+import { chopsLeft, shakenToday } from './flora/logic';
+import type { WFruit } from './flora/data';
 
 export const order = 6;
 
 interface Item { x: number; z: number; y: number; rot: number; s: number; variant: number; tint?: THREE.Color; extra?: number }
+type Refs = Map<Item, { mesh: THREE.InstancedMesh; i: number }>;
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
 function itemMatrix(it: Item, sink: number, out = _m) {
@@ -18,12 +36,13 @@ function itemMatrix(it: Item, sink: number, out = _m) {
   return out.compose(_p, _q, _s);
 }
 
-function instanced(geo: THREE.BufferGeometry, mat: THREE.Material, items: Item[], sink: number, opts: { shadow?: boolean; receive?: boolean } = {}) {
+function instanced(geo: THREE.BufferGeometry, mat: THREE.Material, items: Item[], sink: number, opts: { shadow?: boolean; receive?: boolean } = {}, refs?: Refs) {
   const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, items.length));
   mesh.count = items.length;
   items.forEach((it, i) => {
     mesh.setMatrixAt(i, itemMatrix(it, sink));
     if (it.tint) mesh.setColorAt(i, it.tint);
+    refs?.set(it, { mesh, i });
   });
   if (items.some((i) => i.tint)) for (let i = 0; i < items.length; i++) if (!items[i].tint) mesh.setColorAt(i, new THREE.Color(1, 1, 1));
   mesh.castShadow = opts.shadow ?? true;
@@ -36,13 +55,13 @@ function instanced(geo: THREE.BufferGeometry, mat: THREE.Material, items: Item[]
 const FOCUS = [{ x: 0, z: -0.6 }, { x: -4.6, z: 2 }, { x: 12.5, z: 3.5 }, { x: -3, z: -8 }];
 const isNear = (it: { x: number; z: number }) => FOCUS.some((f) => (it.x - f.x) ** 2 + (it.z - f.z) ** 2 < 12 * 12);
 
-/** 가까운 것·먼 것을 다른 해상도로 */
-function addLod(root: THREE.Group, make: () => THREE.BufferGeometry, mat: THREE.Material, items: Item[], sink: number, opts: { shadow?: boolean; farShadow?: boolean } = {}) {
+/** 가까운 것·먼 것을 다른 해상도로(refs 를 주면 항목 → 인스턴스 자리를 적는다) */
+function addLod(root: THREE.Group, make: () => THREE.BufferGeometry, mat: THREE.Material, items: Item[], sink: number, opts: { shadow?: boolean; farShadow?: boolean } = {}, refs?: Refs) {
   const nearIts = items.filter(isNear), farIts = items.filter((i) => !isNear(i));
   for (const [hi, its] of [[true, nearIts], [false, farIts]] as const) {
     if (!its.length) continue;
     res.hi = hi;
-    root.add(instanced(make(), mat, its, sink, { ...opts, shadow: hi ? opts.shadow : (opts.farShadow ?? opts.shadow) }));
+    root.add(instanced(make(), mat, its, sink, { ...opts, shadow: hi ? opts.shadow : (opts.farShadow ?? opts.shadow) }, refs));
   }
   res.hi = true;
 }
@@ -75,9 +94,9 @@ export default function build(ctx: Ctx) {
   const inFrame = (x: number, z: number, pad = 0) => x > -8 - pad && x < 9 + pad && z > -8.5 - pad && z < 5 + pad;
 
   // ── 나무 자리 ─────────────────────────────────────
-  const trees: Array<Item & { kind: 'broad' | 'cedar' | 'palm'; fruit?: FruitKind }> = [];
+  const trees: Array<Item & { kind: 'broad' | 'cedar' | 'palm'; fruit?: WFruit }> = [];
   // 'ac' 화면 안 주인공 나무들(플레이어 뒤·옆)
-  const HERO_TREES: Array<{ x: number; z: number; fruit?: FruitKind; s: number }> = [
+  const HERO_TREES: Array<{ x: number; z: number; fruit?: WFruit; s: number }> = [
     { x: -4.0, z: -4.0, s: 1.0 },
     { x: 3.8, z: -5.2, fruit: 'peach', s: 0.95 },
     { x: 7.0, z: 1.4, fruit: 'apple', s: 0.92 },
@@ -87,7 +106,7 @@ export default function build(ctx: Ctx) {
     const p = pin('flora-hero-tree-' + i, t.x, t.z, 1.6, (x, z) => grassOK(x, z, 0.6) && heroFree(x, z, 1.8));
     if (p) trees.push({ kind: 'broad', x: p.x, z: p.z, y: p.y, rot: rnd() * 6.28, s: t.s, variant: i % 4, fruit: t.fruit });
   }
-  const FRUITS: FruitKind[] = ['apple', 'peach', 'orange', 'pear'];
+  const FRUITS: WFruit[] = ['apple', 'peach', 'orange', 'pear'];
   // 숲: 무리(그로브) 중심을 뿌리고 둘레에 3~5그루씩 — 사이사이 빈 들판이 남는다
   const broadOK = (x: number, z: number) => {
     const s = island.surfaceAt(x, z);
@@ -154,41 +173,26 @@ export default function build(ctx: Ctx) {
     .lerp(new THREE.Color(r() < 0.5 ? '#f4ffd8' : '#e2fff0'), 0.25);
 
   const broadAnchors: Anchor[][] = [];
+  // 나무 → 인스턴스 자리(흔들기·베기 등록용)
+  const treeRefs: Refs = new Map();
+  const tinted = new Map<Item, Item>();
+  const withTint = (t: Item) => { const c = { ...t, tint: leafTint(rv) }; tinted.set(c, t); return c; };
   for (let v = 0; v < 4; v++) {
     broadAnchors.push(broadleaf(rng('flora-broad-v' + v), 18, 100 + v, true).anchors);
-    const its = trees.filter((t) => t.kind === 'broad' && t.variant === v).map((t) => ({ ...t, tint: leafTint(rv) }));
-    addLod(root, () => broadleaf(rng('flora-broad-v' + v), res.hi ? 18 : 9, 100 + v, res.hi).geo, broadMat, its, 0.04);
+    const its = trees.filter((t) => t.kind === 'broad' && t.variant === v).map(withTint);
+    addLod(root, () => broadleaf(rng('flora-broad-v' + v), res.hi ? 18 : 9, 100 + v, res.hi).geo, broadMat, its, 0.04, {}, treeRefs);
   }
   for (let v = 0; v < 3; v++) {
-    const its = trees.filter((t) => t.kind === 'cedar' && t.variant === v).map((t) => ({ ...t, tint: leafTint(rv) }));
-    addLod(root, () => cedar(rng('flora-cedar-v' + v), 200 + v).geo, cedarMat, its, 0.04);
+    const its = trees.filter((t) => t.kind === 'cedar' && t.variant === v).map(withTint);
+    addLod(root, () => cedar(rng('flora-cedar-v' + v), 200 + v).geo, cedarMat, its, 0.04, {}, treeRefs);
   }
   for (let v = 0; v < 3; v++) {
-    const its = trees.filter((t) => t.kind === 'palm' && t.variant === v).map((t) => ({ ...t, tint: leafTint(rv) }));
-    addLod(root, () => palm(rng('flora-palm-v' + v)).geo, palmMat, its, 0.04);
+    const its = trees.filter((t) => t.kind === 'palm' && t.variant === v).map(withTint);
+    addLod(root, () => palm(rng('flora-palm-v' + v)).geo, palmMat, its, 0.04, {}, treeRefs);
   }
-
-  // 과일: 나무 행렬 × 매달린 자리
-  const fruitMat = floraMat('fruit', { sway: 0.05, swayBase: 1.6, swayH: 2.6, speed: 1.1, rough: 0.55 });
-  for (const kind of FRUITS) {
-    const mats: THREE.Matrix4[] = [];
-    for (const t of trees) {
-      if (t.kind !== 'broad' || t.fruit !== kind) continue;
-      const tm = itemMatrix(t, 0.04, new THREE.Matrix4());
-      for (const a of broadAnchors[t.variant].slice(0, 4)) {
-        const lm = new THREE.Matrix4().compose(
-          a.p.clone().addScaledVector(a.n, 0.06).add(new THREE.Vector3(0, -0.04, 0)),
-          new THREE.Quaternion().setFromAxisAngle(_Y, Math.atan2(a.n.x, a.n.z)), new THREE.Vector3(1, 1, 1));
-        mats.push(tm.clone().multiply(lm));
-      }
-    }
-    if (!mats.length) continue;
-    const mesh = new THREE.InstancedMesh(fruit(kind), fruitMat, mats.length);
-    mats.forEach((m, i) => mesh.setMatrixAt(i, m));
-    mesh.castShadow = false; mesh.receiveShadow = true;
-    mesh.computeBoundingSphere();
-    root.add(mesh);
-  }
+  /** 원래 나무 항목 → 인스턴스 자리 */
+  const refOf = new Map<Item, { mesh: THREE.InstancedMesh; i: number }>();
+  for (const [c, r] of treeRefs) refOf.set(tinted.get(c) ?? c, r);
 
   // ── 덤불 ──────────────────────────────────────────
   const BUSH_TINT: Record<BushKind, string[]> = {
@@ -269,10 +273,11 @@ export default function build(ctx: Ctx) {
     plantCluster(c.x, c.z, k, 6 + Math.floor(rf() * 7), rf() < 0.6 ? [c1] : [c1, c2], 0.7);
   }
   const flowerMat = floraMat('flower', { sway: 0.035, swayBase: 0.05, swayH: 0.32, speed: 1.9, rough: 0.7, side: THREE.DoubleSide });
+  const flowerRefs: Refs = new Map();
   for (let v = 0; v < 12; v++) {
     const its = flowers.filter((f) => f.variant === v);
     if (!its.length) continue;
-    addLod(root, () => flower(KINDS[Math.floor(v / 4)], rng('flora-flowergeo-' + v)), flowerMat, its, 0.0, { farShadow: false });
+    addLod(root, () => flower(KINDS[Math.floor(v / 4)], rng('flora-flowergeo-' + v)), flowerMat, its, 0.0, { farShadow: false }, flowerRefs);
   }
 
   // ── 클로버·잡초 ───────────────────────────────────
@@ -294,15 +299,79 @@ export default function build(ctx: Ctx) {
   ctx.onUpdate((t) => { floraTime.value = t; });
   floraTod(ctx.tod);
   ctx.onTod((name) => floraTod(name));
-  // 게임 모드: 모든 섬의 식생을 청크 스트리밍으로(마을 밖)
-  if (ctx.game) setupWorldFlora(ctx, ctx.game);
+  // 게임 모드: 채집 + 모든 섬의 식생을 청크 스트리밍으로(마을 밖)
+  let api: Record<string, unknown> = {};
+  if (ctx.game) {
+    const game = ctx.game;
+    const S = makeServices(ctx, game);
+    const fx = makeFx(game, (k) => ctx.rng(k));
+    const H = setupHarvest(S, fx);
+    // 마을 나무(주인공 나무 포함)도 흔들고 벨 수 있게 등록
+    const recs: TreeRec[] = [];
+    const fl: Parameters<Harvest['hangFruit']>[1] = [];
+    const fruitRoot = new THREE.Group();
+    fruitRoot.name = 'flora-village-fruit';
+    for (const t of trees) {
+      const ref = refOf.get(t);
+      if (!ref) continue;
+      const tm = itemMatrix(t, 0.04, new THREE.Matrix4());
+      const key = treeKey(t.x, t.z);
+      const rec: TreeRec = {
+        key, kind: t.kind + t.variant, island: 'home', x: t.x, y: t.y, z: t.z, s: t.s, fruit: t.fruit,
+        shake: true, chop: true, base: tm, ref, fruits: [], wobT: -1, wobA: 0,
+      };
+      recs.push(rec);
+      if (t.fruit && t.kind === 'broad') fl.push({ rec, tm, fruit: t.fruit, key, anchors: broadAnchors[t.variant] });
+    }
+    H.hangFruit(fruitRoot, fl);
+    root.add(fruitRoot);
+    const B = island.ISLAND_BOUNDS;
+    H.addTrees('flora-village', recs, { x0: B.minX, z0: B.minZ, size: Math.max(B.maxX - B.minX, B.maxZ - B.minZ) });
+    // 마을 꽃도 줍기(오늘 주운 꽃은 숨김)
+    const picks: PickRec[] = [];
+    const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const [f, ref] of flowerRefs) {
+      const key = `p:${Math.round(f.x * 10)},${Math.round(f.z * 10)}`;
+      picks.push({ key, kind: 'flower', island: 'home', x: f.x, y: f.y, z: f.z, base: itemMatrix(f, 0, new THREE.Matrix4()), ref });
+      if (H.pickHidden(key)) ref.mesh.setMatrixAt(ref.i, ZERO);
+    }
+    H.addPicks('flora-village-flowers', picks, { x0: B.minX, z0: B.minZ, size: Math.max(B.maxX - B.minX, B.maxZ - B.minZ) });
+    const W = setupWorldFlora(ctx, game, H);
+    const R: Rocks = setupRocks(S, fx, W.keepOut);
+    const treeInfo = (r: TreeRec) => ({
+      key: r.key, kind: r.kind, island: r.island, x: r.x, z: r.z, fruit: r.fruit,
+      shaken: shakenToday(S.flags(), r.key, S.day()), chopsLeft: chopsLeft(S.flags(), r.key, S.day()),
+    });
+    const near = (want: (r: TreeRec) => boolean) => H.nearestTree(game.player.pos.x, game.player.pos.z, 4, want)?.rec ?? null;
+    const ext = {
+      trees: () => H.trees().map(treeInfo),
+      rocks: () => R.rocks(),
+      nearestTree: (x = game.player.pos.x, z = game.player.pos.z, maxD = 4) => { const h = H.nearestTree(x, z, maxD); return h ? { ...treeInfo(h.rec), d: h.d } : null; },
+      shakeNearest: () => { const r = near((t) => t.shake); if (r) H.shake(r); return r ? treeInfo(r) : null; },
+      chopNearest: () => { const r = near((t) => t.chop); if (r) H.chop(r); return r ? treeInfo(r) : null; },
+      hitNearest: (maxD?: number) => R.hitNearest(maxD),
+      hitRock: (key: string) => R.hit(key),
+      breakRock: (key: string) => R.breakRock(key),
+      gatherNearest: () => (H as Harvest & { gatherNearest?: () => unknown }).gatherNearest?.() ?? null,
+      drops: () => H.drops(),
+      fx: () => fx.live(),
+      homeTrees: () => W.homeTrees.map((t) => ({ kind: t.kind, x: t.x, z: t.z, s: t.s })),
+      flags: () => S.flags(),
+      day: () => S.day(),
+    };
+    game.ext.flora = ext;
+    api = ext;
+  }
   (window as unknown as { __flora?: unknown }).__flora = {
-    trees: trees.length, broad: trees.filter((t) => t.kind === 'broad').length, cedar: cedarPts.length, palm: palmPts.length,
-    bushes: bushes.length, flowers: flowers.length, weeds: weeds.length, badVerts: floraBad.n,
-    tris: root.children.map((m) => {
-      const im = m as THREE.InstancedMesh;
-      return (im.material as THREE.Material).customProgramCacheKey().split('|')[0] + ':' + (im.geometry.index!.count / 3) + 'x' + im.count;
-    }),
+    ...api,
+    village: {
+      trees: trees.length, broad: trees.filter((t) => t.kind === 'broad').length, cedar: cedarPts.length, palm: palmPts.length,
+      bushes: bushes.length, flowers: flowers.length, weeds: weeds.length, badVerts: floraBad.n,
+      tris: root.children.filter((m) => (m as THREE.InstancedMesh).isInstancedMesh).map((m) => {
+        const im = m as THREE.InstancedMesh;
+        return (im.material as THREE.Material).customProgramCacheKey().split('|')[0] + ':' + (im.geometry.index!.count / 3) + 'x' + im.count;
+      }),
+    },
   };
   return root;
 }

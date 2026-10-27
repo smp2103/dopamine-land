@@ -6,12 +6,37 @@ import type { EconApi, PanelCtx } from '../../../core/api';
 import { splitVariant } from '../../../core/api';
 import { MAT, GOODS, SHOP_ITEMS, RECIPES, CAT_ICON, RARITY_COLOR, ANY_NEEDS, itemDef } from '../../economy/data';
 import { PLANET_NAME, variantName } from '../logic';
+import type { Thumbs } from '../thumbs';
+import type { IslandShapes } from '../map';
+import { silhouetteURL } from '../models';
 
-/** 패널이 받는 것 */
+/** 패널이 받는 것 — thumbs(모델 썸네일)·shapes(지도 섬 모양)는 hud.ts 가 만들어 넘긴다(시험에선 없어도 된다) */
 export interface PanelEnv {
   game: Game;
   look: Look;
+  thumbs?: Thumbs | null;
+  shapes?: IslandShapes | null;
 }
+
+/**
+ * 칸 그림 HTML: 썸네일이 있으면 <img>, 없으면 이모지(+ 줄 세우기). 썸네일이 다 되면 렌더러가 data-th 칸을 바꿔 끼운다.
+ * 종이 아닌 물건(재료 등)은 늘 이모지.
+ */
+export function thumbHtml(env: PanelEnv, id: string, fallback: string): string {
+  const s = env.look.species(id);
+  const base = splitVariant(id).id;
+  const T = env.thumbs;
+  if (!s || !T || !T.enabled() || s.category === 'item' && !s.tags?.includes('vehicle')) return fallback;
+  const url = T.get(base);
+  if (url) return `<img class="th" src="${url}" alt="" draggable="false">`;
+  T.want(base, s);
+  return `<span class="th-wait" data-th="${base.replace(/"/g, '')}">${fallback}</span>`;
+}
+/** 못 잡은 칸 실루엣(분류 모양 2D 캔버스) */
+export const silHtml = (s: { category: string; tags?: string[] }) => {
+  const u = silhouetteURL(s);
+  return u ? `<img class="sil-img" src="${u}" alt="" draggable="false">` : '';
+};
 
 export interface Look {
   /** 변이 꼬리 없는 이름 */

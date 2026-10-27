@@ -309,8 +309,11 @@ export class FakePhysics {
     return b;
   }
   add(opts: Record<string, unknown>) { return this.make(this.bodies, opts); }
-  addStatic(shape: unknown, pos?: { x: number; y: number; z: number }, extra?: Record<string, unknown>) {
-    return this.make(this.statics, { shape, position: pos, ...(extra ?? {}) }, pos);
+  /** 진짜와 같은 모양(shape, pos, rotation?, tag?) — 예전 호출(셋째 칸에 객체)도 받아 준다 */
+  addStatic(shape: unknown, pos?: { x: number; y: number; z: number }, rotation?: unknown, tag?: string) {
+    const isQuat = !!rotation && typeof (rotation as { isQuaternion?: boolean }).isQuaternion === 'boolean';
+    const extra = rotation && !isQuat ? rotation as Record<string, unknown> : {};
+    return this.make(this.statics, { shape, position: pos, ...(isQuat ? { rotation } : {}), ...(tag !== undefined ? { tag } : {}), ...extra }, pos);
   }
   setGravity(g: number) { this.gravity = g; }
   update(_dt: number) { /* 물리 없음 */ }

@@ -111,6 +111,8 @@ export function cuesFor(e: LooseEvent): Cue[] {
     case 'clap': return [{ sfx: 'clap', ...at(e) }];
     case 'discover': return [{ sfx: 'discover' }];
     case 'secret-found': return [{ sfx: 'discover', pitch: 1.12 }];
+    // hudfx 발견 팡파레: 큰 섬을 처음 찾았을 때만 discover 뒤에 짧은 축하음을 덧댄다(명소는 discover 하나로 충분)
+    case 'fanfare': return e.island && e.place === e.island ? [{ sfx: 'achievement', delay: 0.35 }] : [];
     case 'launch-wave':
       // 6.2: 0.5초에 손 흔들기 → 1~4초 "3·2·1" → 4초 발사
       return [{ sfx: 'rocket-countdown', delay: 0.5 }, { sfx: 'rocket-launch', delay: 3.5 }];

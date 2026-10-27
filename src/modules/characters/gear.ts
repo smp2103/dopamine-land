@@ -1,8 +1,10 @@
-// 플레이어 소품: 패러글라이더 천, 낚싯대, 잠자리채, 삽 — 전부 둥글고 장난감 같은 파스텔.
+// 플레이어 소품: 패러글라이더 천, 낚싯대, 잠자리채, 삽, 도끼, 뿅망치, 물뿌리개, 사진기, 간식, 새싹 — 전부 둥글고 장난감 같은 파스텔.
+// 손 피벗 기준: 원점 = 손, 팔이 아래(-y)로 뻗은 자세에서 도구 끝이 앞(+z)을 향한다.
 import * as THREE from 'three';
 import { ellipsoid, capsule } from './geo';
 import { clothMat, glossMat, mesh } from './kit';
 import { canvasTex } from './tex';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /** 원통 막대: 원점에서 +y 로 len */
 function stick(r: number, len: number, mat: THREE.Material, r2 = r): THREE.Mesh {
@@ -195,5 +197,103 @@ export function buildShovel(): THREE.Group {
   const blade = mesh(ellipsoid(0.11, 0.15, 0.035, 28, 18), glossMat('#9fd0ff', 0.3), 0, 0.82, 0.01);
   shaft.add(blade);
   shaft.add(mesh(capsule(0.03, 0.08), glossMat('#9fd0ff', 0.3), 0, 0.69, 0));
+  return root;
+}
+
+// ───────── 도끼(나무 베기) ─────────
+export function buildAxe(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'axe';
+  const shaft = new THREE.Group();
+  shaft.rotation.x = 1.87;
+  root.add(shaft);
+  shaft.add(stick(0.022, 0.62, glossMat('#c98b55', 0.5)));
+  shaft.add(mesh(capsule(0.03, 0.12), glossMat('#ff8fb1', 0.5), 0, 0.04, 0));
+  // 둥근 날(통통한 반달) + 뒤 혹
+  const head = new THREE.Group();
+  head.position.set(0, 0.58, 0);
+  shaft.add(head);
+  head.add(mesh(ellipsoid(0.05, 0.075, 0.03, 24, 14), glossMat('#9fd0ff', 0.3), 0, 0, 0.07));
+  head.add(mesh(ellipsoid(0.035, 0.05, 0.035, 16, 12), glossMat('#ffd36e', 0.4), 0, 0, -0.02));
+  return root;
+}
+
+// ───────── 뿅망치(돌 두드리기) ─────────
+export function buildHammer(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'hammer';
+  const shaft = new THREE.Group();
+  shaft.rotation.x = 1.87;
+  root.add(shaft);
+  shaft.add(stick(0.02, 0.5, glossMat('#ffd36e', 0.45)));
+  // 통통한 원통 머리(양끝 분홍 고무)
+  const hm = new THREE.Group();
+  hm.position.set(0, 0.5, 0);
+  hm.rotation.x = Math.PI / 2;
+  shaft.add(hm);
+  hm.add(mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.18, 24), glossMat('#ff8fb1', 0.4)));
+  for (const s of [-1, 1]) hm.add(mesh(ellipsoid(0.062, 0.025, 0.062, 20, 10), glossMat('#ffffff', 0.4), 0, s * 0.095, 0));
+  return root;
+}
+
+// ───────── 물뿌리개 ─────────
+export function buildCan(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'can';
+  const body = new THREE.Group();
+  body.position.set(0, -0.08, 0.06);
+  root.add(body);
+  const blue = glossMat('#8cc8ff', 0.35);
+  body.add(mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.13, 28), blue));
+  body.add(mesh(ellipsoid(0.075, 0.025, 0.075, 24, 10), blue, 0, 0.065, 0));
+  // 손잡이(위 고리) + 주둥이(앞으로 비스듬히) + 해바라기 꼭지
+  const grip = mesh(new THREE.TorusGeometry(0.05, 0.012, 10, 24, Math.PI), glossMat('#ffd36e', 0.4), 0, 0.075, 0);
+  grip.rotation.y = Math.PI / 2;
+  body.add(grip);
+  const spout = mesh(capsule(0.016, 0.15), blue, 0, 0.03, 0.1);
+  spout.rotation.x = 1.0;
+  body.add(spout);
+  body.add(mesh(ellipsoid(0.03, 0.012, 0.03, 16, 8), glossMat('#ffd36e', 0.4), 0, 0.07, 0.17));
+  return root;
+}
+
+// ───────── 사진기 ─────────
+export function buildCamera(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'camera';
+  const b = new THREE.Group();
+  b.position.set(0.06, -0.02, 0.05);
+  root.add(b);
+  b.add(mesh(new RoundedBoxGeometry(0.2, 0.13, 0.08, 4, 0.03), glossMat('#ffb3c8', 0.35)));
+  const lens = mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.05, 24), glossMat('#ffffff', 0.25), 0, 0, 0.055);
+  lens.rotation.x = Math.PI / 2;
+  b.add(lens);
+  b.add(mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.01, 20).rotateX(Math.PI / 2), glossMat('#6a8fd8', 0.15), 0, 0, 0.082));
+  b.add(mesh(ellipsoid(0.02, 0.012, 0.02, 12, 8), glossMat('#ffd36e', 0.35), 0.06, 0.07, 0));
+  return root;
+}
+
+// ───────── 간식(먹기: 주먹밥) ─────────
+export function buildSnack(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'snack';
+  const rice = mesh(ellipsoid(0.06, 0.055, 0.04, 20, 14), clothMat('#fffaf2'), 0, -0.01, 0.06);
+  root.add(rice);
+  root.add(mesh(ellipsoid(0.045, 0.03, 0.043, 16, 10), glossMat('#5a8a6a', 0.6), 0, -0.045, 0.06));
+  return root;
+}
+
+// ───────── 새싹(심기) ─────────
+export function buildSprout(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'sprout';
+  root.add(mesh(ellipsoid(0.04, 0.035, 0.04, 16, 10), clothMat('#c98f55'), 0, -0.04, 0.05));
+  const leafM = clothMat('#86d16f');
+  root.add(mesh(capsule(0.006, 0.05), leafM, 0, 0.0, 0.05));
+  for (const s of [-1, 1]) {
+    const lf = mesh(ellipsoid(0.03, 0.012, 0.018, 14, 8), leafM, s * 0.025, 0.03, 0.05);
+    lf.rotation.z = s * 0.5;
+    root.add(lf);
+  }
   return root;
 }

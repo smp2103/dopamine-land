@@ -1,10 +1,13 @@
-// hud — 화면 UI(계약 v2 5장의 렌더러). game.hud 레지스트리에 그리기(HudView)를 붙이고, 기본 패널 6개
-// (도감 B · 가방 Tab/I · 상점 · 제작 · 박물관 · 게시판)와 칩(시계 · 가방 칸), 단축키, 행동 안내 칩, 게이지(두근·콤보)를 건다.
+// hud — 화면 UI(계약 v2 5장의 렌더러). game.hud 레지스트리에 그리기(HudView)를 붙이고, 기본 패널 7개
+// (도감 B · 가방 Tab/I · 상점 · 제작 · 박물관 · 게시판 · 큰 지도 M)와 칩(시계 · 가방 칸), 단축키, 행동 안내 칩, 게이지(두근·콤보)를 건다.
+// 종 모델 썸네일(hud/thumbs — 엔진 렌더러로 한 프레임에 하나) · 지도 섬 모양(hud/map — 쉬는 시간에 굽기)도 여기서 만든다.
+// 가방을 상점·박물관 창에서 Tab 으로 열면 그 자리를 실어 연다(팔기·기증 버튼은 거기서만).
 // 시계는 game.env 만 읽는다(없으면 '—'). 돈·별·열쇠·가방은 game.econ 만 읽는다. 섬 이름은 game.geo.
 // 날씨 배너 글·잡기 특수 연출은 hudfx(wave 3) 몫 — 여기는 기본 잡았다/상자/대화/토스트만.
 //
 // flags.ui = { tutorial: 처음 안내를 봤나, hudHidden: HUD 숨김(` 키) }   flags.hud = { dexFilter: 도감 섬 필터 }
-// window.__hud = { open(kind, tab?, arg?), close(), current(), cards(), banners(), gauges(), hide(on?), view }
+// window.__hud = { open(kind, tab?, arg?), close(), current(), cards(), banners(), gauges(), hide(on?), view,
+//                 thumbs() {drawn, pending, cached}, map() {baked, progress}, bakeMap() }
 import type { Ctx } from '../core/types';
 import type { ChipDef, EconApi, GaugeOpts, HotkeyDef } from '../core/api';
 import { isTypingTarget } from '../core/registry';
@@ -13,7 +16,9 @@ import { CSS } from './hud/style';
 import { HudView } from './hud/renderer';
 import { registerBuiltinPanels, makeLook } from './hud/panels';
 import { BAG } from './economy/data';
-import { HUD_KEYS, bagView, clockView, promptChips, selectHotkeys, unlockCard } from './hud/logic';
+import { HUD_KEYS, bagArgFrom, bagView, clockView, promptChips, selectHotkeys, unlockCard } from './hud/logic';
+import { Thumbs } from './hud/thumbs';
+import { IslandShapes } from './hud/map';
 
 export const order = 12;
 
@@ -46,8 +51,14 @@ export default function build(ctx: Ctx) {
   view.setHidden(!!uiF.hudHidden);
   const setHidden = (on: boolean) => { uiF.hudHidden = on; view.setHidden(on); st.save(); game.ui.toast(on ? 'HUD 를 숨겼어요 ( ` 로 다시 보기)' : 'HUD 가 돌아왔어요!'); };
 
+  // ── 썸네일(엔진 렌더러 공유) · 지도 섬 모양
+  const thumbs = new Thumbs(game.engine);
+  view.attachThumbs(thumbs);
+  const shapes = new IslandShapes(ctx.island.ISLANDS, (x, z) => ctx.island.heightAt(x, z));
+  view.shapes = shapes;
+
   // ── 패널(그리기는 각 패널의 render)
-  registerBuiltinPanels(game, look);
+  const { map: mapPanel } = registerBuiltinPanels(game, look, { thumbs, shapes });
 
   // ── 칩: 시계(env 만) · 가방 칸
   const clockChip: ChipDef = {
@@ -97,7 +108,11 @@ export default function build(ctx: Ctx) {
       id: k.id, code: k.code, label: k.label, hint: k.hint, panel: k.panel,
       when: k.action === 'close' ? () => game.hud.isOpen() : undefined,
       run: () => {
-        if (k.action === 'toggle') game.hud.toggle(k.kind!, k.tab);
+        // 가방은 상점·박물관 창에서 열면 그 자리를 싣는다(팔기·기증 버튼)
+        if (k.action === 'toggle' && k.kind === 'bag' && !game.hud.isOpen('bag')) {
+          const cur = game.hud.current();
+          game.hud.open('bag', k.tab, bagArgFrom(cur ? { kind: cur.kind, arg: cur.arg } : null));
+        } else if (k.action === 'toggle') game.hud.toggle(k.kind!, k.tab);
         else if (k.action === 'close') game.hud.close();
         else setHidden(!uiF.hudHidden);
       },
@@ -135,14 +150,16 @@ export default function build(ctx: Ctx) {
   const feedGauges = () => {
     const E = econ();
     if (!E) { view.setCombo(0); return; }
-    if (typeof E.pity === 'function') {
+    // hudfx 가 있으면 두근 게이지(상황별로 보였다 숨김)는 hudfx 몫 — 여기선 콤보만
+    const fx = !!(window as unknown as { __hudfx?: unknown }).__hudfx;
+    if (!fx && typeof E.pity === 'function') {
       for (const p of PITY_GAUGES) {
         let v = 0;
         try { v = Number(E.pity(p.act)?.gauge) || 0; } catch { v = 0; }
         gauge(p.id, { label: p.label, value: v, color: '#ff9fb8', show: v > 0 });
       }
     }
-    if (typeof E.chestPity === 'function') {
+    if (!fx && typeof E.chestPity === 'function') {
       let v = 0;
       try { v = Number(E.chestPity()?.gauge) || 0; } catch { v = 0; }
       gauge('pity:chest', { label: '🎁 두근 상자', value: v, color: '#ffcf4a', show: v > 0 });
@@ -177,7 +194,10 @@ export default function build(ctx: Ctx) {
         if (c) game.hud.card(c);
         break;
       }
-      case 'chest-open': view.showLoot(String(e.tier ?? 'wood'), (e.loot as Array<{ id: string; n: number; name?: string }>) ?? [], e.mimic === true || e.source === 'mimic'); break;
+      // hudfx 가 흔들림 뒤에 전리품을 쏟아 주니 그때는 바로 뜨는 카드를 생략(미믹·빈 상자는 hud 카드 그대로)
+      case 'chest-open':
+        if ((window as unknown as { __hudfx?: unknown }).__hudfx && e.mimic !== true && e.source !== 'mimic' && Array.isArray(e.loot) && e.loot.length) break;
+        view.showLoot(String(e.tier ?? 'wood'), (e.loot as Array<{ id: string; n: number; name?: string }>) ?? [], e.mimic === true || e.source === 'mimic'); break;
       case 'catch': case 'catch-fail': feedGauges(); break;
     }
     if (REDRAW.has(e.type)) rerender();
@@ -185,6 +205,7 @@ export default function build(ctx: Ctx) {
 
   // ── 매 프레임: 단축키 디스패치(코어가 E/F 를 먼저 고른 뒤) + 그리기
   let gaugeAt = -1;
+  let bakeAt = -1;
   game.onUpdate((_t, dt) => {
     const pressed = game.input.pressed;
     if (pressed.size) {
@@ -196,7 +217,12 @@ export default function build(ctx: Ctx) {
       for (const hk of picked) { try { hk.run(); } catch (err) { console.error(`[hotkey ${hk.code}]`, err); } }
     }
     view.tick(dt);
+    thumbs.pump();
+    if (game.hud.isOpen('map')) mapPanel.tick();
     const n = performance.now();
+    // 놀기 시작하고 20초 뒤 미니맵용 섬 모양을 쉬는 시간에 굽는다(큰 지도를 먼저 열면 그때)
+    if (bakeAt < 0) bakeAt = n + 20000;
+    else if (n > bakeAt && bakeAt > 0) { bakeAt = 0; shapes.start(game.player.pos); }
     if (gaugeAt < 0 || n - gaugeAt > 1000) { gaugeAt = n; feedGauges(); }
   });
 
@@ -226,5 +252,9 @@ export default function build(ctx: Ctx) {
     gauges: () => Object.fromEntries(game.hud.gauges),
     hide: (on?: boolean) => { setHidden(on ?? !uiF.hudHidden); return !!uiF.hudHidden; },
     view,
+    thumbs: () => ({ drawn: thumbs.q.drawn, pending: thumbs.pending(), enabled: thumbs.enabled() }),
+    thumb: (id: string) => thumbs.get(id),
+    map: () => ({ baked: shapes.done(), progress: shapes.progress() }),
+    bakeMap: () => { shapes.start(game.player.pos); return shapes.progress(); },
   };
 }

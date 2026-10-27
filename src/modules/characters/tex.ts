@@ -27,7 +27,10 @@ export interface FaceSpec {
   iris: string;
   lashes?: boolean;
   brow?: { color: string; y: number; w: number };
-  blush: { x: number; y: number; w: number; h: number; color: string };
+  /** 볼터치(없으면 안 그린다 — art.ts addBlush 를 따로 붙이는 얼굴) */
+  blush?: { x: number; y: number; w: number; h: number; color: string };
+  /** false 면 눈을 안 그린다(art.ts addEyes 로 따로 붙이는 얼굴) */
+  eyes?: boolean;
   /** 입: 'smile'(작게 벌린 웃음) | 'none'(주둥이에 따로 그림) */
   mouth: 'smile' | 'none';
   mouthY?: number;
@@ -67,6 +70,20 @@ function drawEyeOpen(g: G, cx: number, cy: number, w: number, h: number, iris: s
   }
 }
 
+/** 잡혔을 때 '> <' 눈(GDD 7.2) — mirror 는 바깥쪽 방향(-1 왼눈) */
+function drawEyeHappy(g: G, cx: number, cy: number, w: number, h: number, mirror: number) {
+  g.strokeStyle = '#3d3a4a';
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.lineWidth = w * 0.42;
+  const ox = w * 0.75, oy = h * 0.55;
+  g.beginPath();
+  g.moveTo(cx + mirror * ox, cy - oy);
+  g.lineTo(cx - mirror * ox * 0.55, cy);
+  g.lineTo(cx + mirror * ox, cy + oy);
+  g.stroke();
+}
+
 function drawEyeClosed(g: G, cx: number, cy: number, w: number, h: number) {
   // 감은 눈: 아래로 휜 부드러운 곡선
   g.strokeStyle = '#2a1a16';
@@ -77,24 +94,31 @@ function drawEyeClosed(g: G, cx: number, cy: number, w: number, h: number) {
   g.stroke();
 }
 
-/** 얼굴 텍스처(배경 = 피부색). closed = 눈 감은 판 */
-export function faceTexture(s: FaceSpec, closed: boolean, size = 1024): THREE.CanvasTexture {
+/** 얼굴 표정: 뜬 눈 · 감은 눈 · '> <'(볼 0.8 로 진하게) */
+export type FaceMode = 'open' | 'closed' | 'happy';
+
+/** 얼굴 텍스처(배경 = 피부색). closed = 눈 감은 판(true) 또는 표정 이름 */
+export function faceTexture(s: FaceSpec, closed: boolean | FaceMode, size = 1024): THREE.CanvasTexture {
+  const mode: FaceMode = closed === true ? 'closed' : closed === false ? 'open' : closed;
   return canvasTex(size, (g, n) => {
     g.fillStyle = s.skin;
     g.fillRect(0, 0, n, n);
     s.paint?.(g, n);
     const sx = (v: number) => (v / 2) * n; // 길이 변환
-    // 볼터치: 부드러운 원형 그라디언트
-    for (const m of [-1, 1]) {
-      const cx = fx(n, m * s.blush.x), cy = fy(n, s.blush.y);
+    // 볼터치: 부드러운 원형 그라디언트('> <' 표정이면 진하고 조금 크게)
+    for (const m of s.blush ? [-1, 1] : []) {
+      const B = s.blush!;
+      const hot = mode === 'happy';
+      const cx = fx(n, m * B.x), cy = fy(n, B.y);
       g.save();
       g.translate(cx, cy);
-      g.scale(1, s.blush.h / s.blush.w);
-      const r = sx(s.blush.w);
+      g.scale(1, B.h / B.w);
+      const r = sx(B.w) * (hot ? 1.12 : 1);
+      const col = hot ? '#ff8fae' : B.color;
       const rg = g.createRadialGradient(0, 0, 0, 0, 0, r);
-      rg.addColorStop(0, s.blush.color);
-      rg.addColorStop(0.55, s.blush.color + 'b0');
-      rg.addColorStop(1, s.blush.color + '00');
+      rg.addColorStop(0, col);
+      rg.addColorStop(0.55, col + (hot ? 'e0' : 'b0'));
+      rg.addColorStop(1, col + '00');
       g.fillStyle = rg;
       g.beginPath(); g.arc(0, 0, r, 0, TAU); g.fill();
       g.restore();
@@ -115,10 +139,11 @@ export function faceTexture(s: FaceSpec, closed: boolean, size = 1024): THREE.Ca
       }
     }
     // 눈
-    for (const m of [-1, 1]) {
+    for (const m of s.eyes === false ? [] : [-1, 1]) {
       const cx = fx(n, m * s.eyeX), cy = fy(n, s.eyeY);
       const w = sx(s.eyeW), h = sx(s.eyeH);
-      if (closed) drawEyeClosed(g, cx, cy, w, h);
+      if (mode === 'closed') drawEyeClosed(g, cx, cy, w, h);
+      else if (mode === 'happy') drawEyeHappy(g, cx, cy, w, h, m);
       else drawEyeOpen(g, cx, cy, w, h, s.iris, -m, !!s.lashes);
     }
     // 코

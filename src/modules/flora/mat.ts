@@ -29,6 +29,8 @@ export interface FloraMatOpts {
   fade?: number;
   /** 얇은 잎(풀)의 뒷면도 위를 보는 법선으로(어둡게 뒤집히지 않게) */
   upNormal?: number;
+  /** 바람개비: aSpin=1 인 정점을 축(로컬 xy 의 hub, z 축) 둘레로 돌린다(초당 라디안) */
+  spin?: { hubY: number; speed: number };
 }
 
 /** 밤에 버섯·요정 꽃이 빛나는 세기(0..1) */
@@ -107,11 +109,15 @@ export function floraMat(key: string, o: FloraMatOpts): THREE.MeshStandardMateri
       sh.fragmentShader = 'varying float vGlowM;\nuniform float uGlow, uGlowLevel;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
         '#include <emissivemap_fragment>\n  totalEmissiveRadiance *= vColor.rgb * vGlowM * uGlow * (0.06 + uGlowLevel);');
     }
+    const spin = o.spin
+      ? `\n{\n  vec2 sIp = vec2( 0.0 );\n  #ifdef USE_INSTANCING\n    sIp = instanceMatrix[3].xz;\n  #endif\n  float sA = uTime * ${o.spin.speed.toFixed(3)} * ( 0.8 + 0.4 * fract( dot( sIp, vec2( 0.13, 0.29 ) ) ) ) + dot( sIp, vec2( 1.7, 2.3 ) );\n  vec2 sD = vec2( transformed.x, transformed.y - ${o.spin.hubY.toFixed(3)} );\n  float sc = cos( sA ), ss = sin( sA );\n  vec2 sR = vec2( sc * sD.x - ss * sD.y, ss * sD.x + sc * sD.y );\n  transformed.xy = mix( transformed.xy, vec2( sR.x, sR.y + ${o.spin.hubY.toFixed(3)} ), aSpin );\n}\n`
+      : '';
     sh.vertexShader =
+      (o.spin ? 'attribute float aSpin;\n' : '') +
       'attribute float aTint;\nvarying float vGlowM;\nuniform vec2 uFoot;\nuniform float uTime, uSway, uSwayBase, uSwayH, uSpeed, uRustle, uJit, uGust, uFade;\nuniform vec2 uWave;\n' +
       sh.vertexShader
         .replace('#include <color_vertex>', COLOR_VERTEX)
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + WIND);
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + spin + WIND);
   };
   m.customProgramCacheKey = () => 'flora:' + key;
   return m;

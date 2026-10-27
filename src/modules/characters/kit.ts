@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { faceHeadGeo } from './geo';
-import { faceTexture, blobTexture, type FaceSpec } from './tex';
+import { faceTexture, blobTexture, type FaceSpec, type FaceMode } from './tex';
 
 /** 피부·털: 거칠고 살짝 보송한 표면 */
 export function skinMat(color: string, map?: THREE.Texture, fill = 0.16): THREE.MeshPhysicalMaterial {
@@ -41,22 +41,31 @@ export interface FaceHead {
   group: THREE.Group;
   /** 눈 감김 전환 */
   setBlink: (closed: boolean) => void;
+  /** 표정 전환('happy' = '> <' 눈 + 진한 볼, 처음 쓸 때 텍스처를 만든다) */
+  setMode: (m: FaceMode) => void;
 }
 
 /** 머리: 앞쪽 = 얼굴 그림(정면 투영), 나머지 = 피부색. 한 메시라 이음매가 없다. */
 export function faceHead(rx: number, ry: number, rz: number, skin: string, face: FaceSpec, cheek = 0.05): FaceHead {
   const group = new THREE.Group();
-  const open = faceTexture(face, false);
-  const shut = faceTexture(face, true);
-  const fm = skinMat(skin, open);
+  const tex: Partial<Record<FaceMode, THREE.Texture>> = { open: faceTexture(face, 'open') };
+  // 눈을 따로 붙이는 얼굴(art.ts)은 표정 판이 하나면 된다
+  const plain = face.eyes === false;
+  const fm = skinMat(skin, tex.open);
   group.add(mesh(faceHeadGeo(rx, ry, rz, cheek), [fm, skinMat(skin)]));
-  let cur = false;
+  let cur: FaceMode = 'open';
+  const setMode = (m: FaceMode) => {
+    if (plain || m === cur) return;
+    cur = m;
+    const t = (tex[m] ??= faceTexture(face, m));
+    fm.map = fm.emissiveMap = t;
+  };
   return {
     group,
+    setMode,
     setBlink(closed) {
-      if (closed === cur) return;
-      cur = closed;
-      fm.map = fm.emissiveMap = closed ? shut : open;
+      if (cur === 'happy') return;
+      setMode(closed ? 'closed' : 'open');
     },
   };
 }

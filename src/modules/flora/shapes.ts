@@ -178,7 +178,7 @@ export function cedar(rnd: Rnd, seed: number): { geo: THREE.BufferGeometry; heig
 }
 
 // ── 야자수 ───────────────────────────────────────────
-export function palm(rnd: Rnd): { geo: THREE.BufferGeometry; height: number } {
+export function palm(rnd: Rnd, o: { nuts?: boolean } = {}): { geo: THREE.BufferGeometry; height: number; top: THREE.Vector3 } {
   const H = 3.0 + rnd() * 0.5;
   const bend = 0.7 + rnd() * 0.5;
   const pts = [V3(0, -0.25, 0), V3(0.05 * bend, H * 0.3, 0), V3(0.35 * bend, H * 0.65, 0), V3(0.9 * bend, H, 0)];
@@ -207,8 +207,8 @@ export function palm(rnd: Rnd): { geo: THREE.BufferGeometry; height: number } {
   bulb.translate(top.x, top.y + 0.02, top.z);
   paint(bulb, () => C('#7d8a3a'));
   parts.push(bulb);
-  // 코코넛
-  for (let i = 0; i < 3; i++) {
+  // 코코넛(열매 나무는 따로 매단다 — nuts:false)
+  for (let i = 0; i < (o.nuts === false ? 0 : 3); i++) {
     const a = (i / 3) * Math.PI * 2 + 0.4;
     const cc = ball(0.13, RS(3, 2));
     cc.translate(top.x + Math.cos(a) * 0.18, top.y - 0.14, top.z + Math.sin(a) * 0.18);
@@ -261,7 +261,7 @@ export function palm(rnd: Rnd): { geo: THREE.BufferGeometry; height: number } {
     }, 1);
     parts.push(g);
   }
-  return { geo: merge(parts), height: top.y + 0.6 };
+  return { geo: merge(parts), height: top.y + 0.6, top: top.clone() };
 }
 
 // ── 덤불 ─────────────────────────────────────────────

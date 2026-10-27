@@ -8,6 +8,19 @@ import { econOf, call, bind, type PanelEnv } from './common';
 const KIND_ICON: Record<string, string> = { 도구: '🎣', 미끼: '🪱', 요리: '🍳', '탈것 부품': '⛵', '로켓 부품': '🚀', '섬 개발': '🏝️', 가구: '🛋️' };
 const KIND_ORDER = ['도구', '미끼', '요리', '가구', '탈것 부품', '로켓 부품', '섬 개발'];
 
+/** 뚝딱 연출: 창 가운데 망치가 두 번 콩콩 → '뚝딱!' 도장 → 만든 물건이 톡 튀어나온다(창을 다시 그려도 남게 .win 에 붙인다) */
+function ttak(body: HTMLElement, icon: string) {
+  const host = (body.closest('.win') as HTMLElement | null) ?? body;
+  host.querySelector('.ttak')?.remove();
+  const el = document.createElement('div');
+  el.className = 'ttak';
+  el.innerHTML = `<span class="hm">🔨</span><b>뚝딱!</b><span class="gv"></span>`;
+  (el.querySelector('.gv') as HTMLElement).textContent = icon || '✨';
+  host.appendChild(el);
+  setTimeout(() => el.classList.add('out'), 1150);
+  setTimeout(() => el.remove(), 1500);
+}
+
 type RecipeRow = ApiRecipe & { gate?: string; p0Gate?: string | null; hint?: string; pri?: string; extra?: boolean };
 
 export function craftPanel(env: PanelEnv): PanelDef {
@@ -66,8 +79,8 @@ export function craftPanel(env: PanelEnv): PanelDef {
       body.innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr))">${list.map(({ r, lock, ok }) => {
         const ns = Object.entries(needs(r)).map(([k, v]) => {
           const h = have(k);
-          return `<span style="color:${h >= v ? '#5aa864' : '#d77a7a'}">${look.ico(k)} ${esc(look.name(k))} ${fmt(Math.min(h, 999))}/${fmt(v)}</span>`;
-        }).join('<br>');
+          return `<span class="need ${h >= v ? 'ok' : 'lack'}">${look.ico(k)} ${esc(look.name(k))} <b>${fmt(Math.min(h, 999))}/${fmt(v)}</b></span>`;
+        }).join('');
         // 재료는 다 있는데 못 만들 때(한 번만 만드는 도구 등)는 까닭을 적는다
         const enough = Object.entries(needs(r)).every(([k, v]) => have(k) >= v);
         const gv = (r as { gives?: unknown }).gives;
@@ -75,7 +88,7 @@ export function craftPanel(env: PanelEnv): PanelDef {
         const why = lock ?? (!ok && enough ? (gives.some((g) => g.startsWith('tool_') && (st.bag[g] ?? 0) > 0) || (r.unlock && call<boolean>(E, 'isUnlocked', r.unlock)) ? '이미 가지고 있어요' : '지금은 만들 수 없어요') : null);
         return `<div class="cell${ok ? '' : ' dim'}" style="--cc:${ok ? '#d8f5c8' : '#f3e6cf'}"><div class="ico">${lock ? '🔒' : r.icon}</div>
           <div class="nm">${esc(r.name)}</div>${r.desc ? `<div class="sm">${esc(r.desc)}</div>` : ''}
-          <div class="sm" style="line-height:1.35;margin:4px 0">${ns}</div>
+          <div class="needs">${ns}</div>
           ${lock ? `<div class="why">${esc(lock)}</div>` : `<button class="btn${ok ? '' : ' off'}" data-craft="${esc(r.id)}">만들기</button>${why ? `<div class="why">${esc(why)}</div>` : ''}`}</div>`;
       }).join('') || '<div class="note">아직 아는 레시피가 없어요</div>'}</div>`;
       bind(body, 'craft', (id) => {
@@ -83,6 +96,7 @@ export function craftPanel(env: PanelEnv): PanelDef {
         if (!r) return;
         if (!call<boolean>(econOf(game), 'canCraft', id)) { game.ui.toast('재료가 모자라요 💦'); return; }
         if (call<boolean>(econOf(game), 'craft', id)) {
+          ttak(body, r.icon);
           game.ui.toast(`뚝딱뚝딱… ${r.name} 완성!`);
           pc.h.confetti(body, ['#9bd77a', '#ffe58a', '#fff'], 30);
         }

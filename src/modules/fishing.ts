@@ -1,82 +1,114 @@
-// 낚시: 물가에서 E → 낚싯대·찌 → 물고기 그림자가 다가와 톡톡 → "!" 순간 E → 잡았다(머리 위 들기 + 배너 + 말장난).
-// 물 위 물고기 그림자는 플레이어 주변 물에 청크로 흘려 보낸다(바다 멀리는 큰 그림자).
+// 낚시: 물가(강·연못·호수·바다·늪·온천·크레이터·달 연못)에서 E 를 꾹 눌러 충전 → 떼면 휙! 3~10m 앞에 찌가 떨어진다.
+// 찌 둘레 6~12m 에 물그림자 1~3개(미리 econ.rollCatch 로 정해 둔 종 — ★4 이상 지느러미, ★5·반짝이는 금빛 반짝)가 나타나고
+// 하나가 다가와 톡 · 톡 · 꾹! 꾹 뒤 입질 창(★1~3 0.7초 · ★4 0.55초 · ★5 0.45초, 좋은·황금 낚싯대 +0.1초) 안에 E → 잡았다.
+// 톡에 누르거나 창을 놓치면 도망(econ.catchFail). 쓰레기는 카드 + econ.give. 성공은 showCatch(크기·변이·활동) 다음 reportCatch.
+// 통통배가 멈춰 있으면(속도 < 1) 갑판에서도 낚시하고, 먼바다·심해 후보는 배 위에서만 열린다. 우주에선 달 연못(space.pondAt)만.
+// 달리면(> 6.3 m/s) 물가 그림자가 놀라 달아난다(살금살금). 두근 게이지 80% 를 넘으면 낚싯줄·찌가 분홍으로 반짝.
+// 규칙은 fishing/logic.ts(순수), 그림자 그림은 fishing/shadows.ts. 미끼는 X 로 고른다(가진 미끼 + 미끼 없음).
+//
+// flags.fishing = { bait?: 고른 미끼 id | 'none', casts: 던진 수, catches: 잡은 수, junk: 쓰레기 수 }
+// window.__fishingDebug = { catchNow(id?, size?, variant?), goto(zone | x, z), cast(dist?), bite(), spook(), state(), shadows(), setBait(id), … }
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import type { Game } from '../core/game';
+import type { Activity, RollResult, RollSpecies, Variant } from '../core/api';
 import { applyCurve } from '../core/curve';
-import { FISH, FISH_BY_ID, PUNS, timeMatches, type FishSpecies, type Habitat } from './fishing/data';
-import { buildFishModel, displayScale, disposeModel } from './fishing/model';
+import * as FD from './fishing/data';
+import { FISH, FISH_BY_ID, PUNS, type FishSpecies } from './fishing/data';
+import { buildFishModel, disposeModel, worldLength } from './fishing/model';
+import { rollCatch as rollPure, newRollState, type RollQuery as PureQuery } from './economy/roll';
+import { itemDef } from './economy/data';
+import * as L from './fishing/logic';
+import { CastShadows, canvasTex, glowTex, makeAmbient, overWater, ringGeo, ringTex, shadowLenFor, sparkTex } from './fishing/shadows';
 
 export const order = 30;
 
-const RARITY_W = [0, 50, 26, 13, 5, 1.6];
-const BITE_WINDOW = [0, 0.95, 0.85, 0.72, 0.6, 0.5];
+/** 데이터 담당(fishing-data)이 내보내는 구역 후보 함수 — 아직 없으면 logic.zonePool 이 데이터에서 직접 고른다 */
+const poolFor = (FD as unknown as { poolFor?: L.PoolFn }).poolFor ?? null;
+const FISH_BY_GDD = (FD as unknown as { FISH_BY_GDD?: Map<string, FishSpecies> }).FISH_BY_GDD ?? null;
 
-// ───── 캔버스 텍스처 ─────
-function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
-}
-
-const shadowTex = canvasTex(256, 128, (g) => {
-  g.filter = 'blur(6px)';
-  g.fillStyle = '#06263c';
-  g.beginPath(); g.ellipse(120, 64, 70, 30, 0, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.moveTo(60, 64); g.quadraticCurveTo(40, 44, 20, 38); g.quadraticCurveTo(30, 64, 20, 90); g.quadraticCurveTo(40, 84, 60, 64); g.fill();
-});
-const ringTex = canvasTex(256, 256, (g) => {
-  g.filter = 'blur(2px)';
-  g.strokeStyle = '#ffffff'; g.lineWidth = 10;
-  g.beginPath(); g.arc(128, 128, 104, 0, Math.PI * 2); g.stroke();
-});
+// ───── 말풍선 텍스처 ─────
 const bangTex = canvasTex(256, 256, (g) => {
   g.fillStyle = '#ffffff';
   g.strokeStyle = '#6b4a2b'; g.lineWidth = 10;
-  g.beginPath();
-  g.ellipse(128, 118, 96, 92, 0, 0, Math.PI * 2);
-  g.fill(); g.stroke();
+  g.beginPath(); g.ellipse(128, 118, 96, 92, 0, 0, Math.PI * 2); g.fill(); g.stroke();
   g.beginPath(); g.moveTo(98, 196); g.lineTo(128, 238); g.lineTo(140, 200); g.closePath(); g.fill();
   g.font = 'bold 150px Jua, sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.lineWidth = 14; g.strokeStyle = '#ffffff';
   g.fillStyle = '#ff5a6a';
   g.fillText('!', 128, 124);
 });
-const dotsTex = canvasTex(256, 128, (g) => {
+const tokTex = canvasTex(256, 128, (g) => {
   g.fillStyle = '#fffaf0';
   g.strokeStyle = '#c9a77a'; g.lineWidth = 6;
   g.beginPath(); g.roundRect(14, 14, 228, 96, 46); g.fill(); g.stroke();
+  g.font = 'bold 64px Jua, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillStyle = '#8a6a4a';
-  for (const x of [78, 128, 178]) { g.beginPath(); g.arc(x, 62, 13, 0, Math.PI * 2); g.fill(); }
+  g.fillText('톡!', 128, 66);
 });
-const sparkTex = canvasTex(128, 128, (g) => {
-  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 60);
-  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,240,180,0.9)'); gr.addColorStop(1, 'rgba(255,220,120,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+const ggukTex = canvasTex(256, 128, (g) => {
+  g.fillStyle = '#ff7eb6';
+  g.strokeStyle = '#ffffff'; g.lineWidth = 8;
+  g.beginPath(); g.roundRect(14, 14, 228, 96, 46); g.fill(); g.stroke();
+  g.font = 'bold 66px Jua, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillStyle = '#ffffff';
-  g.beginPath(); g.moveTo(64, 4); g.quadraticCurveTo(70, 58, 124, 64); g.quadraticCurveTo(70, 70, 64, 124); g.quadraticCurveTo(58, 70, 4, 64); g.quadraticCurveTo(58, 58, 64, 4); g.fill();
+  g.fillText('꾹!', 128, 66);
 });
 
-// ───── 공유 지오메트리·재질 ─────
-const planeGeo = new THREE.PlaneGeometry(1, 0.5).rotateX(-Math.PI / 2);
-planeGeo.userData.shared = true;
-const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity: 0.62, depthWrite: false });
-const ringGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+/** 분홍 반짝(두근 게이지 80%+) */
+const PINK = new THREE.Color('#ff7eb6');
+const WHITE = new THREE.Color('#ffffff');
 
-/** 물고기 그림자 크기(m): 몸 길이에서 */
-function shadowLen(sp: FishSpecies): number {
-  const cm = (sp.size[0] + sp.size[1]) / 2;
-  return THREE.MathUtils.clamp(0.35 + Math.log2(1 + cm / 20) * 0.38, 0.35, 3.2);
+// ───── 쓰레기 모델(코드로, 통통하게) ─────
+function buildJunkModel(id: string): THREE.Group {
+  const g = new THREE.Group();
+  const std = (c: string, o: Partial<THREE.MeshPhysicalMaterialParameters> = {}) => new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.6, clearcoat: 0.3, ...o });
+  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+  switch (id) {
+    case 't_boot': {
+      const brown = std('#b08463');
+      add(new THREE.CapsuleGeometry(0.16, 0.36, 8, 20), brown, 0, 0.34, 0);
+      const toe = add(new THREE.SphereGeometry(0.19, 24, 16), brown, 0.14, 0.14, 0); toe.scale.set(1.4, 0.8, 1);
+      add(new THREE.TorusGeometry(0.15, 0.035, 10, 24), std('#ffd3a0'), 0, 0.62, 0).rotation.x = Math.PI / 2;
+      break;
+    }
+    case 't_can': {
+      add(new THREE.CylinderGeometry(0.17, 0.17, 0.42, 28, 1), std('#dfe5ee', { metalness: 0.6, roughness: 0.3 }), 0, 0.21, 0);
+      add(new THREE.CylinderGeometry(0.175, 0.175, 0.2, 28, 1, true), std('#ff9fb8'), 0, 0.21, 0);
+      break;
+    }
+    case 't_tire': {
+      add(new THREE.TorusGeometry(0.24, 0.1, 14, 28), std('#6f6a7a', { roughness: 0.9 }), 0, 0.34, 0);
+      break;
+    }
+    case 'm_seaweed': {
+      const green = std('#7fd39a', { sheen: 0.6 });
+      for (let k = 0; k < 3; k++) {
+        const pts = Array.from({ length: 6 }, (_, i) => new THREE.Vector3(Math.sin(i * 1.3 + k) * 0.07 + (k - 1) * 0.08, i * 0.12, Math.cos(i + k) * 0.04));
+        add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.035 - k * 0.004, 8, false), green);
+      }
+      break;
+    }
+    case 't_rustykey': {
+      const rust = std('#d9a36b', { metalness: 0.5, roughness: 0.45 });
+      add(new THREE.TorusGeometry(0.12, 0.04, 12, 24), rust, 0, 0.5, 0);
+      add(new THREE.CylinderGeometry(0.035, 0.035, 0.36, 12), rust, 0, 0.22, 0);
+      add(new THREE.BoxGeometry(0.1, 0.05, 0.05), rust, 0.05, 0.08, 0);
+      add(new THREE.BoxGeometry(0.08, 0.05, 0.05), rust, 0.04, 0.16, 0);
+      break;
+    }
+    default: { // t_bottle 병편지
+      add(new THREE.CapsuleGeometry(0.13, 0.26, 8, 20), std('#bfeee3', { transmission: 0.6, transparent: true, opacity: 0.7, roughness: 0.1 }), 0, 0.27, 0);
+      add(new THREE.CylinderGeometry(0.05, 0.06, 0.14, 16), std('#bfeee3', { transparent: true, opacity: 0.75 }), 0, 0.53, 0);
+      add(new THREE.CylinderGeometry(0.052, 0.052, 0.06, 16), std('#c99a6b'), 0, 0.62, 0);
+      const paper = add(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 16), std('#fff3d6'), 0, 0.27, 0);
+      paper.rotation.z = 0.2;
+    }
+  }
+  return g;
 }
-
-type Phase = 'idle' | 'cast' | 'approach' | 'nibble' | 'bite' | 'reel' | 'catch' | 'miss';
-
-interface AmbientSet { mesh: THREE.InstancedMesh; fish: Array<{ x: number; z: number; y: number; rx: number; rz: number; ph: number; sp: number; s: number }> }
 
 export default function build(ctx: Ctx) {
   const game = ctx.game;
@@ -88,83 +120,113 @@ export default function build(ctx: Ctx) {
   let tod = ctx.tod;
   ctx.onTod((n) => { tod = n; });
   const rng = ctx.rng('fishing-session');
+  let modelSeq = 0;
+  const W = window as unknown as Record<string, unknown>;
+
+  // ── 저장(flags.fishing) ──
+  type Flags = { bait?: string; casts: number; catches: number; junk: number };
+  const F = (): Flags => {
+    const fl = game.state.flags as Record<string, unknown>;
+    let f = fl.fishing as Flags | undefined;
+    if (!f || typeof f !== 'object') { f = { casts: 0, catches: 0, junk: 0 }; fl.fishing = f; }
+    f.casts ??= 0; f.catches ??= 0; f.junk ??= 0;
+    return f;
+  };
+  const save = () => game.state.save();
+  const count = (id: string) => game.state.bag[id] ?? 0;
 
   // ── 물 판정 ──
-  const waterAt = (x: number, z: number): number | null => {
+  /** 지구: 낚시되는 깊이(0.35m 이상)의 물 높이 */
+  const earthWater = (x: number, z: number): number | null => {
     const wl = island.waterLevelAt(x, z);
     if (!Number.isFinite(wl)) return null;
     if (wl - island.heightAt(x, z) < 0.35) return null;
     return wl;
   };
-
-  const habitatAt = (x: number, z: number): Habitat[] => {
-    const s = island.surfaceAt(x, z);
-    if (s.kind === 'river' || (s.coastDist > 0 && Number.isFinite(island.waterLevelAt(x, z)))) return ['river', 'lake', 'pond'];
-    const off = -s.coastDist;
-    if (off > 520) return ['deep', 'offshore'];
-    if (off > 220) return ['offshore', 'deep'];
-    const d = s.island ? island.islandById(s.island) : undefined;
-    const theme = d?.theme ?? 'home';
-    const near: Habitat[] = theme === 'ice' ? ['ice', 'coast'] : theme === 'desert' ? ['oasis', 'coast'] : theme === 'dino' ? ['hotspring', 'coast']
-      : theme === 'coral' ? ['reef', 'coast'] : theme === 'mushroom' ? ['pond', 'lake', 'coast'] : ['coast'];
-    if (off > 90) near.push('offshore');
-    return near;
+  /** 우주: 달 연못만(달 밑 지구 바다를 보지 않게) */
+  const pondWater = (x: number, z: number): number | null => {
+    try { return game.space?.pondAt?.(x, z)?.y ?? null; } catch { return null; }
+  };
+  const waterAt = (x: number, z: number): number | null => (game.world === 'space' ? pondWater(x, z) : earthWater(x, z));
+  /** 수면 높이(바다는 파도를 탄다) */
+  const ripple = (x: number, z: number, t: number) => 0.05 * Math.sin(x * 0.23 + z * 0.11 + t * 0.9) + 0.04 * Math.sin(-x * 0.13 + z * 0.29 + t * 1.25);
+  const surfaceY = (x: number, z: number, base: number, t: number): number => {
+    if (game.world === 'earth' && island.waterLevelAt(x, z) === 0) {
+      const oc = game.ocean;
+      if (oc && typeof oc.waveAt === 'function') { const y = oc.waveAt(x, z, t); if (Number.isFinite(y)) return y; }
+      return base + ripple(x, z, t);
+    }
+    return base + 0.2 * ripple(x, z, t);
+  };
+  /** 발밑이 물 속이면 못 한다(수영·물에 선 채) */
+  const standingInWater = (pl: Game['player']) => {
+    if (game.world === 'space') { const y = pondWater(pl.pos.x, pl.pos.z); return y !== null && y > pl.pos.y + 0.2; }
+    const wl = island.waterLevelAt(pl.pos.x, pl.pos.z);
+    return Number.isFinite(wl) && wl > pl.pos.y + 0.2;
+  };
+  /** 바라보는 방향 3~10m 안에 물이 있나 */
+  const waterAhead = (pl: Game['player']): boolean => {
+    const f = pl.facing();
+    for (let d = L.CAST_MIN; d <= L.CAST_MAX; d += 1) if (waterAt(pl.pos.x + f.x * d, pl.pos.z + f.z * d) !== null) return true;
+    return false;
+  };
+  /** 근처(14m)에 물이 있나 — 살금살금 판정 */
+  const nearWater = (x: number, z: number): boolean => {
+    if (waterAt(x, z) !== null) return true;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      for (const r of [5, 10, L.SPOOK_NEAR]) if (waterAt(x + Math.cos(a) * r, z + Math.sin(a) * r) !== null) return true;
+    }
+    return false;
   };
 
-  const pickSpecies = (habs: Habitat[], r: () => number): FishSpecies => {
-    let cands = FISH.filter((f) => f.hab.some((h) => habs.includes(h)) && timeMatches(f.time, tod));
-    if (!cands.length) cands = FISH.filter((f) => f.hab.some((h) => habs.includes(h)));
-    if (!cands.length) cands = FISH;
-    const w = cands.map((f) => RARITY_W[f.rarity] * (f.hab.includes(habs[0]) ? 1.4 : 1));
-    let sum = w.reduce((a, b) => a + b, 0) * r();
-    for (let i = 0; i < cands.length; i++) { sum -= w[i]; if (sum <= 0) return cands[i]; }
-    return cands[cands.length - 1];
+  // ── 경제(늦게 읽기) ──
+  const econ = () => game.econ ?? null;
+  const isUnlocked = () => { const e = econ(); return e ? (k: string) => e.isUnlocked(k) : null; };
+  // 경제가 없을 때(룩 테스트 등) 쓰는 자리 굴림 상태 — 저장하지 않는다
+  const localRoll = newRollState();
+  const roll = (q: L.PreRollQuery): RollResult => {
+    const e = econ();
+    if (e) return e.rollCatch(q);
+    const env = game.env;
+    return rollPure(q as unknown as PureQuery, localRoll, {
+      day: env?.day ?? 0, hour: env?.hour ?? 12, tod: env?.tod ?? tod, weather: env?.weather ?? 'clear', p0: true, rng: (k) => ctx.rng(k),
+    }) as unknown as RollResult;
+  };
+  const gaugeOf = (a: Activity) => { try { return econ()?.pity(a).gauge ?? 0; } catch { return 0; } };
+
+  /** 지금 이 자리 후보 */
+  const placeFor = (zone: string, isl: string | null): L.PoolPlace => {
+    const env = game.env;
+    const hour = env?.hour ?? 12;
+    return {
+      island: isl, zone, hour, tod: env?.tod ?? tod, noon: env?.noon ?? (hour >= 11 && hour < 13), midnight: env?.midnight ?? hour < 2,
+      weather: (env?.regionWeather?.(game.player.pos.x, game.player.pos.z) ?? env?.weather ?? 'clear') as string, moonPhase: env?.moonPhase ?? 0.25,
+    };
+  };
+  const poolAt = (zone: string, isl: string | null): L.PoolFish[] => L.zonePool(FISH as unknown as L.PoolFish[], placeFor(zone, isl), poolFor);
+  const speciesOf = (r: RollResult | RollSpecies | null | undefined): FishSpecies | undefined => {
+    const id = (r && 'species' in r ? r.species?.id : (r as RollSpecies | null)?.id) ?? '';
+    return FISH_BY_ID.get(id) ?? (game.state.species.get(id) as FishSpecies | undefined);
   };
 
-  // ── 주변 물고기 그림자(청크) ──
-  const ambient = new Set<AmbientSet>();
-  game.chunks.add({
-    key: 'fishing-shadows', size: 96, radius: 140,
-    build: ({ cx, cz, x0, z0, size }) => {
-      const r = ctx.rng(`fishing-shadows:${cx},${cz}`);
-      const fish: AmbientSet['fish'] = [];
-      for (let i = 0; i < 40 && fish.length < 12; i++) {
-        const x = x0 + r() * size, z = z0 + r() * size;
-        const wl = waterAt(x, z);
-        if (wl === null) continue;
-        const s = island.surfaceAt(x, z);
-        const off = Math.max(0, -s.coastDist);
-        const river = s.kind === 'river' || s.coastDist > 0;
-        const base = river ? 0.6 + r() * 0.4 : 0.5 + r() * 0.6 + Math.min(2.4, off / 160) * (0.4 + r());
-        fish.push({ x, z, y: wl + 0.1, rx: river ? 0.8 : 2 + r() * 3, rz: river ? 0.4 : 1.5 + r() * 2, ph: r() * 6.28, sp: 0.15 + r() * 0.2, s: base });
-        if (river && fish.length >= 5) break;
+  // ── 장식 그림자(청크, 구역 후보 크기) ──
+  const ambient = makeAmbient({
+    rng: (k) => ctx.rng(k),
+    waterAt: earthWater,
+    isRiver: (x, z) => { const s = island.surfaceAt(x, z); return s.kind === 'river' || s.coastDist > 0; },
+    moonPonds: () => game.space?.ponds ?? [],
+    speciesAt: (x, z, u) => {
+      let zone = 'moonpond', isl: string | null = 'moon';
+      if (game.world !== 'space' || !game.space?.pondAt?.(x, z)) {
+        const zi = game.geo?.zoneAt?.(x, z);
+        zone = L.fishingZone(zi?.zone, false); isl = zi?.island ?? null;
       }
-      if (!fish.length) return null;
-      const mesh = new THREE.InstancedMesh(planeGeo, shadowMat, fish.length);
-      mesh.frustumCulled = false;
-      mesh.castShadow = false; mesh.receiveShadow = false;
-      mesh.renderOrder = 4;
-      const set: AmbientSet = { mesh, fish };
-      mesh.userData.fishSet = set;
-      ambient.add(set);
-      updateAmbient(set, game.time);
-      return mesh;
+      const sp = L.pickAmbient(poolAt(zone, isl), u);
+      return sp ? { ...(speciesOf(sp) ?? {}), rarity: sp.rarity } : null;
     },
-    dispose: (o) => { ambient.delete(o.userData.fishSet as AmbientSet); (o as THREE.InstancedMesh).dispose(); },
   });
-  const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpS = new THREE.Vector3(), tmpP = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
-  function updateAmbient(set: AmbientSet, t: number) {
-    set.fish.forEach((f, i) => {
-      const a = f.ph + t * f.sp;
-      const x = f.x + Math.cos(a) * f.rx, z = f.z + Math.sin(a * 1.3) * f.rz;
-      const vx = -Math.sin(a) * f.rx, vz = Math.cos(a * 1.3) * 1.3 * f.rz;
-      tmpQ.setFromAxisAngle(UP, Math.atan2(-vz, vx));
-      tmpS.set(f.s * (1 + 0.04 * Math.sin(t * 6 + f.ph)), 1, f.s);
-      tmpP.set(x, f.y, z);
-      set.mesh.setMatrixAt(i, tmpM.compose(tmpP, tmpQ, tmpS));
-    });
-    set.mesh.instanceMatrix.needsUpdate = true;
-  }
+  for (const layer of ambient.layers) game.chunks.add(layer);
 
   // ── 낚싯대·줄·찌 ──
   const rod = new THREE.Group();
@@ -188,48 +250,57 @@ export default function build(ctx: Ctx) {
   root.add(rod);
 
   const bobber = new THREE.Group();
+  const bobRed = new THREE.MeshPhysicalMaterial({ color: '#ff5a6a', roughness: 0.3, clearcoat: 1, emissive: '#ff5a6a', emissiveIntensity: 0.15 });
+  const bobWhite = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.3, clearcoat: 1, emissive: '#ffffff', emissiveIntensity: 0.1 });
   {
-    const red = new THREE.MeshPhysicalMaterial({ color: '#ff5a6a', roughness: 0.3, clearcoat: 1, emissive: '#ff5a6a', emissiveIntensity: 0.15 });
-    const white = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.3, clearcoat: 1, emissive: '#ffffff', emissiveIntensity: 0.1 });
     const topG = new THREE.SphereGeometry(0.11, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
     const botG = new THREE.SphereGeometry(0.11, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-    bobber.add(new THREE.Mesh(topG, red), new THREE.Mesh(botG, white));
-    const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.12, 8), red); stick.position.y = 0.15; bobber.add(stick);
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.022, 12, 8), white); ball.position.y = 0.22; bobber.add(ball);
+    bobber.add(new THREE.Mesh(topG, bobRed), new THREE.Mesh(botG, bobWhite));
+    const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.12, 8), bobRed); stick.position.y = 0.15; bobber.add(stick);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.022, 12, 8), bobWhite); ball.position.y = 0.22; bobber.add(ball);
   }
+  // 분홍 후광(두근 게이지 80%+)
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: PINK, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+  halo.scale.set(0.9, 0.9, 1); halo.renderOrder = 8; halo.visible = false;
+  bobber.add(halo);
   bobber.visible = false;
   root.add(bobber);
 
   const lineGeo = new THREE.BufferGeometry();
   const LINE_N = 24;
   lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(LINE_N * 3), 3));
-  const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85 }));
+  const lineMat = new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85 });
+  const line = new THREE.Line(lineGeo, lineMat);
   line.frustumCulled = false;
   line.visible = false;
   root.add(line);
 
-  const target = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity: 0.85, depthWrite: false }));
-  target.renderOrder = 4;
-  target.visible = false;
-  root.add(target);
+  // 던질 자리 표적 고리(충전 중)
+  const aimRing = new THREE.Mesh(ringGeo, overWater(new THREE.MeshBasicMaterial({ map: ringTex, color: '#ffd6e8', transparent: true, opacity: 0.9, depthWrite: false })));
+  aimRing.renderOrder = 7; aimRing.visible = false; root.add(aimRing);
 
-  const rings = Array.from({ length: 5 }, () => {
-    const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, opacity: 0, depthWrite: false }));
-    m.renderOrder = 5; m.visible = false; root.add(m);
+  const rings = Array.from({ length: 6 }, () => {
+    const m = new THREE.Mesh(ringGeo, overWater(new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, opacity: 0, depthWrite: false })));
+    m.renderOrder = 7; m.visible = false; root.add(m);
     return { m, born: -99, x: 0, z: 0, y: 0, big: 1 };
   });
   let ringI = 0;
-  const ripple = (x: number, y: number, z: number, big = 1) => {
+  const splash = (x: number, y: number, z: number, big = 1) => {
     const r = rings[ringI++ % rings.length];
     r.born = game.time; r.x = x; r.y = y + 0.03; r.z = z; r.big = big; r.m.visible = true;
   };
 
-  const bang = new THREE.Sprite(new THREE.SpriteMaterial({ map: bangTex, depthTest: false, transparent: true }));
-  bang.scale.set(0.7, 0.7, 1); bang.renderOrder = 10; bang.visible = false; root.add(bang);
-  const dots = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotsTex, depthTest: false, transparent: true }));
-  dots.scale.set(0.7, 0.35, 1); dots.renderOrder = 10; dots.visible = false; root.add(dots);
+  const sprite = (map: THREE.Texture, w: number, h: number) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false, transparent: true }));
+    s.scale.set(w, h, 1); s.renderOrder = 10; s.visible = false; root.add(s);
+    return s;
+  };
+  const bang = sprite(bangTex, 0.7, 0.7);
+  const tok = sprite(tokTex, 1.0, 0.5);
+  const gguk = sprite(ggukTex, 1.2, 0.6);
+  let tokAt = -99;
 
-  // 반짝이(희귀도 연출)
+  // 잡았다 반짝이(★3 이상)
   const SPARK_N = 60;
   const sparkGeo = new THREE.BufferGeometry();
   sparkGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(SPARK_N * 3), 3));
@@ -239,28 +310,25 @@ export default function build(ctx: Ctx) {
   const sparkSeed = Array.from({ length: SPARK_N }, (_, i) => ({ a: (i * 2.399) % 6.283, r: 0.4 + ((i * 0.618) % 1) * 1.2, v: 0.6 + ((i * 0.37) % 1) * 1.4, h: (i * 0.13) % 1 }));
   let sparkBorn = -99, sparkLevel = 0;
 
-  // 화면 반짝(전설)
-  const flashEl = document.createElement('div');
-  flashEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;opacity:0;z-index:5;display:none;';
-  let flashTimer = 0;
-  document.body.appendChild(flashEl);
-  const flash = (level: number) => {
-    flashEl.style.background = level >= 5
-      ? 'radial-gradient(ellipse at 50% 40%, rgba(255,255,255,0) 22%, rgba(255,236,170,0.45) 48%, rgba(255,190,120,0.8) 78%, rgba(255,150,200,0.9) 100%)'
-      : 'radial-gradient(ellipse at 50% 40%, rgba(255,255,255,0) 30%, rgba(210,240,255,0.4) 60%, rgba(180,220,255,0.7) 100%)';
-    flashEl.style.transition = 'none';
-    flashEl.style.display = 'block';
-    flashEl.style.opacity = '0.85';
-    window.clearTimeout(flashTimer);
-    flashTimer = window.setTimeout(() => { flashEl.style.display = 'none'; }, 1800);
-    requestAnimationFrame(() => requestAnimationFrame(() => { flashEl.style.transition = 'opacity 1.4s ease-out'; flashEl.style.opacity = '0'; }));
-  };
+  // 찌 둘레 그림자
+  const shadows = new CastShadows();
+  root.add(shadows.root);
 
-  // ── 상태 ──
-  const S = {
-    phase: 'idle' as Phase, t0: 0, cast: new THREE.Vector3(), waterY: 0, sp: null as FishSpecies | null, size: 0,
-    from: new THREE.Vector3(), nibbles: 0, nibbleAt: 0, approachDur: 3, frozen: false,
+  // ── 세션 ──
+  const S = L.newSession();
+  const cur = {
+    rod: 'rod' as L.RodTier, deck: false, onBoat: false,
+    cast: new THREE.Vector3(), waterY: 0,
+    plan: null as L.CastPlan | null, bait: undefined as string | undefined,
+    rolls: [] as RollResult[], target: -1, glow: false,
+    /** 잡은 결과 — 물고기가 뛰어올라 손에 닿을 때(0.4초 뒤) 처리 */
+    pending: null as null | { r: RollResult; at: number },
+    leap: null as null | { obj: THREE.Object3D; t0: number; from: THREE.Vector3 },
+    frozen: false,
   };
+  let spookUntil = 0, spookHinted = false, nearCheckAt = -1;
+  /** 디버그: 분홍 반짝 줄 고정(던질 때 게이지 값으로 덮이지 않게) */
+  let forceGlow = false;
 
   /** 캐릭터가 손에 드는 낚싯대(있으면 그걸 쓰고 내 낚싯대는 숨긴다) — 끝(tip)과 기본 줄·찌 */
   let avRod: { root: THREE.Object3D; tip: THREE.Object3D } | null = null;
@@ -279,114 +347,269 @@ export default function build(ctx: Ctx) {
   };
   const setAvatarLine = (show: boolean) => { const r = findAvatarRod(); if (r) for (const c of r.tip.children) c.visible = show; };
 
+  // 매 프레임 쓰는 임시 벡터(쓰레기 줄이기)
+  const _hand = new THREE.Vector3();
+  const UP55 = new THREE.Vector3(0, 0.55, 0);
+  const _right = new THREE.Vector3();
   const handPos = () => {
     const p = game.player;
     const f = p.facing();
-    const right = new THREE.Vector3(-f.z, 0, f.x);
-    return p.pos.clone().addScaledVector(right, 0.24).addScaledVector(f, 0.18).add(new THREE.Vector3(0, 0.55, 0));
+    _right.set(-f.z, 0, f.x);
+    return _hand.copy(p.pos).addScaledVector(_right, 0.24).addScaledVector(f, 0.18).add(UP55);
   };
 
-  /** 바라보는 앞 물 위 찌 자리 */
-  const castPointFor = (pl: Game['player']): { p: THREE.Vector3; wy: number } | null => {
-    const f = pl.facing();
-    for (const d of [4.2, 3.4, 2.6, 5.2]) {
-      const x = pl.pos.x + f.x * d, z = pl.pos.z + f.z * d;
-      const wy = waterAt(x, z);
-      if (wy !== null) return { p: new THREE.Vector3(x, wy, z), wy };
-    }
-    return null;
-  };
+  /** 탄 것: 통통배 갑판 낚시가 되나, 배 위인가 */
+  const vehicleNow = () => { try { return game.vehicles?.current?.() ?? null; } catch { return null; } };
 
-  const start = (force?: { p: THREE.Vector3; wy: number }) => {
+  const begin = (tier: L.RodTier, deck: boolean) => {
     const pl = game.player;
-    const cp = force ?? castPointFor(pl);
-    if (!cp) return false;
-    S.cast.copy(cp.p); S.waterY = cp.wy;
-    S.phase = 'cast'; S.t0 = game.time;
-    S.sp = pickSpecies(habitatAt(cp.p.x, cp.p.z), rng);
-    S.size = Math.round((S.sp.size[0] + (S.sp.size[1] - S.sp.size[0]) * Math.pow(rng(), 1.6)) * 10) / 10;
-    S.nibbles = 1 + Math.floor(rng() * 3);
-    S.approachDur = 2.2 + rng() * 2.4;
-    const a = rng() * Math.PI * 2;
-    const L = shadowLen(S.sp) * (S.sp.hab.includes('offshore') || S.sp.hab.includes('deep') ? 1.4 : 1);
-    S.from.set(cp.p.x + Math.cos(a) * (2.6 + L), cp.wy, cp.p.z + Math.sin(a) * (2.6 + L));
-    // 찌 자리가 물 밖이면 가깝게
-    if (waterAt(S.from.x, S.from.z) === null) S.from.lerp(cp.p, 0.6);
-    target.scale.set(L, 1, L);
-    pl.action = 'fish'; pl.locked = true;
-    rod.visible = true; line.visible = true; bobber.visible = true;
+    const v = deck ? vehicleNow() : null;
+    cur.rod = tier; cur.deck = deck; cur.onBoat = !!v?.boat || deck;
+    cur.plan = null; cur.rolls = []; cur.target = -1; cur.pending = null;
+    L.beginCharge(S);
+    pl.lock('fishing');
+    pl.act('fish');
+    rod.visible = true;
     return true;
   };
 
   const end = () => {
+    if (cur.pending) flushPending();
     S.phase = 'idle';
-    rod.visible = line.visible = bobber.visible = target.visible = bang.visible = dots.visible = false;
+    rod.visible = line.visible = bobber.visible = bang.visible = tok.visible = gguk.visible = aimRing.visible = false;
+    halo.visible = false;
+    shadows.clear();
     setAvatarLine(true);
-    game.player.action = null; game.player.locked = false;
+    game.hud?.gauge?.('fishing-cast', { label: '던지기', value: 0, color: '#ff9fb8', show: false });
+    const pl = game.player;
+    pl.unlock('fishing', true);
+    if (pl.action === 'fish' || pl.action === 'hold') pl.act(null);
+    cur.frozen = false;
   };
 
-  const success = () => {
-    const sp = S.sp!;
-    S.phase = 'catch'; S.t0 = game.time;
-    bobber.visible = false; target.visible = false; bang.visible = false; line.visible = false;
-    ripple(S.cast.x, S.waterY, S.cast.z, 1.6); ripple(S.cast.x, S.waterY, S.cast.z, 1);
-    const model = buildFishModel(sp);
-    const holder = new THREE.Group();
-    const sc = displayScale(sp, S.size);
-    model.scale.setScalar(sc);
-    model.rotation.y = 0;
-    // 머리 위에 얹히게: 모델 바닥을 손잡이 자리 위로
-    const bb = new THREE.Box3().setFromObject(model);
-    model.position.y = -bb.min.y * 0.55;
-    holder.add(model);
-    applyCurve(holder);
-    const lines = PUNS[sp.rarity] ?? PUNS[1];
-    const pun = lines[Math.floor(rng() * lines.length)].replace('{n}', sp.name);
-    game.ui.showCatch({ species: sp, sizeText: `${S.size}cm`, model: holder, line: pun });
-    game.player.action = 'fish-catch';
-    if (sp.rarity >= 3) { sparkBorn = game.time; sparkLevel = sp.rarity; }
-    if (sp.rarity >= 4) flash(sp.rarity);
-    // 들고 있는 동안 모델이 사라지면 정리
-    const cleanup = () => { if (!holder.parent) { disposeModel(holder); return; } setTimeout(cleanup, 1000); };
-    setTimeout(cleanup, 4000);
+  /** 찌가 떨어진 자리 정하기 + 미끼 쓰기 + 활동·구역 */
+  const onCast = (dist: number): boolean => {
+    const pl = game.player;
+    const f = pl.facing();
+    const d = L.landingDistance(dist, (k) => waterAt(pl.pos.x + f.x * k, pl.pos.z + f.z * k) !== null);
+    if (d === null) { game.ui.toast('물이 너무 멀어요! 물가로 조금 더 가 봐요 🌊'); return false; }
+    const x = pl.pos.x + f.x * d, z = pl.pos.z + f.z * d;
+    cur.waterY = waterAt(x, z) ?? pl.pos.y;
+    cur.cast.set(x, cur.waterY, z);
+    const space = game.world === 'space';
+    cur.plan = L.planCast({ world: space ? 'space' : 'earth', pond: space, zone: space ? null : game.geo?.zoneAt?.(x, z) ?? null, onBoat: cur.onBoat });
+    const fl = F();
+    // 미끼는 고르기만 — 실제로 쓰는 건 착수 때 그림자가 하나라도 있을 때(빈 물에서 미끼만 날리지 않게)
+    cur.bait = L.chooseBait(fl.bait, count);
+    fl.casts++; save();
+    cur.glow = forceGlow || gaugeOf(cur.plan.activity) > 0.8;
+    bobber.visible = true; line.visible = true;
+    game.audio?.sfx('cast', { x: pl.pos.x, z: pl.pos.z });
+    return true;
   };
 
-  const fail = (msg: string) => {
-    S.phase = 'miss'; S.t0 = game.time;
-    bang.visible = false; dots.visible = false;
-    ripple(target.position.x, S.waterY, target.position.z, 1.2);
-    game.ui.toast(msg);
+  /** 착수: 그림자 1~3개를 미리 굴려 놓고 하나를 고른다 */
+  const onLand = () => {
+    const plan = cur.plan!;
+    const t = game.time;
+    splash(cur.cast.x, cur.waterY, cur.cast.z, 0.7);
+    game.audio?.sfx('splash', { x: cur.cast.x, z: cur.cast.z, vol: 0.4, pitch: 1.3 });
+    const pool = poolAt(plan.zone, plan.island);
+    const spooked = L.isSpooked(spookUntil, t);
+    const n = L.shadowCount(rng(), spooked);
+    const rolls = L.rollShadows({ n, plan, pool, bait: cur.bait, roll });
+    if (!rolls.length) { game.ui.toast('여긴 물고기가 없나 봐요… 다른 물가로 가 볼까요?'); L.reelIn(S); return; }
+    if (cur.bait) game.state.addItem(cur.bait, -1);
+    // 그림자 자리: 찌 둘레 6~12m 물 위(없으면 더 가까이)
+    const spawns: Parameters<CastShadows['spawn']>[0] = [];
+    const kept: RollResult[] = [];
+    for (const r of rolls) {
+      const sp = speciesOf(r);
+      const len = r.junk ? 0.5 : shadowLenFor(sp ?? null);
+      const R = L.shadowRadius(rng());
+      const a0 = rng() * Math.PI * 2;
+      let pos: { x: number; z: number; y: number } | null = null;
+      for (const k of [1, 0.75, 0.5, 0.32]) {
+        for (let i = 0; i < 10 && !pos; i++) {
+          const a = a0 + (i / 10) * Math.PI * 2;
+          const x = cur.cast.x + Math.cos(a) * R * k, z = cur.cast.z + Math.sin(a) * R * k;
+          const y = waterAt(x, z);
+          if (y !== null) pos = { x, z, y };
+        }
+        if (pos) break;
+      }
+      if (!pos) pos = { x: cur.cast.x + Math.cos(a0) * 1.2, z: cur.cast.z + Math.sin(a0) * 1.2, y: cur.waterY };
+      spawns.push({ len, rarity: r.rarity, junk: !!r.junk, shiny: r.variant === 'shiny', ...pos });
+      kept.push(r);
+    }
+    cur.rolls = kept;
+    shadows.spawn(spawns, cur.cast, t, rng);
+    cur.target = Math.floor(rng() * kept.length);
+    const tg = spawns[cur.target];
+    const far = Math.hypot(tg.x - cur.cast.x, tg.z - cur.cast.z);
+    const speed = (1.8 + rng() * 0.8) / Math.sqrt(Math.max(0.6, tg.len));
+    L.arm(S, {
+      wait: 0.5 + rng() * 1.1 + (spooked ? L.SPOOK_DELAY : 0),
+      approach: THREE.MathUtils.clamp(far / speed, 2.2, 7),
+      window: L.biteWindow(kept[cur.target].rarity, cur.rod),
+    });
+    if (spooked) game.ui.toast('쉿! 뛰어오는 바람에 물고기가 놀랐어요… 🤫');
+  };
+
+  /** 결과 처리(쓰레기 카드 + give / showCatch + reportCatch) */
+  const hooks: L.OutcomeHooks = {
+    catchFail: (a) => {
+      const e = econ();
+      if (e) e.catchFail(a);
+      else game.state.emit({ type: 'catch-fail', activity: a });
+    },
+    reportCatch: (r) => { econ()?.reportCatch(r); },
+    showCatch: (o) => {
+      const sp = FISH_BY_ID.get(o.speciesId) ?? (game.state.species.get(o.speciesId) as FishSpecies | undefined);
+      if (!sp) return;
+      const holder = new THREE.Group();
+      holder.add(buildFishModel(sp, ctx.rng(`fish:model:${modelSeq++}`)));
+      applyCurve(holder);
+      game.ui.showCatch({ species: sp, sizeText: `${o.size}cm`, size: o.size, variant: o.variant, activity: o.activity, model: holder, line: o.line });
+      const fl = F(); fl.catches++; save();
+      if (sp.rarity >= 3 || o.variant === 'shiny') { sparkBorn = game.time; sparkLevel = Math.max(sp.rarity, o.variant === 'shiny' ? 4 : 0); }
+      // 들고 있는 동안 모델이 사라지면 정리
+      const cleanup = () => { if (!holder.parent) { disposeModel(holder); return; } setTimeout(cleanup, 1000); };
+      setTimeout(cleanup, 4000);
+    },
+    give: (id, n, why) => {
+      const e = econ();
+      if (e) return e.give(id, n, why);
+      game.state.addItem(id, n);
+      return n;
+    },
+    card: (o) => {
+      game.hud.card({ title: o.title, body: o.body, icon: o.icon ?? '🗑️', color: '#9fb8c8', ms: 2600 });
+      const model = buildJunkModel(o.junk);
+      applyCurve(model);
+      game.ui.hold(model, 2.2);
+      const cleanup = () => { if (!model.parent) { disposeModel(model); return; } setTimeout(cleanup, 1000); };
+      setTimeout(cleanup, 3200);
+      const zi = game.world === 'earth' ? game.geo?.zoneAt?.(cur.cast.x, cur.cast.z) : null;
+      game.state.emit({ type: 'harvest', kind: 'junk', item: o.junk, n: 1, island: zi?.island ?? (game.world === 'space' ? 'moon' : 'sea') });
+      const fl = F(); fl.junk++; save();
+    },
+    prevBest: (id) => game.state.dex[id]?.best,
+    pun: (r) => {
+      const sp = speciesOf(r);
+      const lines = PUNS[r.rarity] ?? PUNS[1];
+      return lines[Math.floor(rng() * lines.length)].replace('{n}', sp?.name ?? r.species?.name ?? '물고기');
+    },
+    itemName: (id) => { const d = itemDef(id); return d ? { name: d.name, icon: d.icon } : undefined; },
+  };
+  const sizeFallback = (r: RollResult) => { const sp = speciesOf(r); return sp ? L.fallbackSize(sp, rng()) : 20; };
+  const flushPending = () => {
+    const p = cur.pending;
+    if (!p) return;
+    cur.pending = null;
+    if (cur.leap) { cur.leap.obj.removeFromParent(); disposeModel(cur.leap.obj); cur.leap = null; }
+    L.resolveCatch(p.r, cur.plan?.activity ?? 'fish', hooks, p.r.size ?? sizeFallback(p.r));
+    game.player.act('hold', 1.2);
+  };
+
+  /** 잡았다! — 물고기가 물에서 튀어 올라 손으로(0.4초) → 결과 */
+  const onCatch = () => {
+    const t = game.time;
+    const r = cur.rolls[cur.target];
+    const sp = speciesOf(r);
+    const pos = shadows.pos(cur.target) ?? { x: cur.cast.x, z: cur.cast.z, y: cur.waterY };
+    shadows.hide(cur.target);
+    shadows.flee(t);
+    bang.visible = gguk.visible = false;
+    line.visible = false; bobber.visible = false;
+    splash(pos.x, cur.waterY, pos.z, 1.6); splash(pos.x, cur.waterY, pos.z, 1);
+    game.audio?.sfx('reel', { x: pos.x, z: pos.z });
+    game.audio?.sfx('splash', { x: pos.x, z: pos.z, vol: 0.8 });
+    // 튀어 오르는 모습
+    const obj = r.junk || !sp ? buildJunkModel(r.junk ?? 't_boot') : buildFishModel(sp, ctx.rng(`fish:model:${modelSeq++}`));
+    const size = r.size ?? (sp ? L.fallbackSize(sp, 0.5) : 30);
+    if (!r.size && !r.junk) r.size = sizeFallback(r);
+    // 튀어 오르는 물고기: 세상 길이(0.35~2m로 잡아 둠) ÷ 모델 길이 — 크기 등급마다 달라 보이게
+    const leapLen = sp ? THREE.MathUtils.clamp(worldLength(sp, size), 0.35, 2) : 0;
+    obj.scale.setScalar(r.junk || !sp ? 0.8 : leapLen / ((obj.userData.modelLen as number | undefined) ?? 1));
+    applyCurve(obj);
+    root.add(obj);
+    cur.leap = { obj, t0: t, from: new THREE.Vector3(pos.x, cur.waterY, pos.z) };
+    cur.pending = { r, at: t + 0.42 };
+  };
+
+  const onFail = (why: L.FailWhy) => {
+    const t = game.time;
+    shadows.flee(t);
+    bang.visible = tok.visible = gguk.visible = false;
+    splash(cur.cast.x, cur.waterY, cur.cast.z, 1.2);
+    game.ui.toast(L.FAIL_TOAST[why]);
+    L.resolveFail(cur.plan?.activity ?? 'fish', hooks);
   };
 
   // ── 상호작용 ──
-  /** 통통배가 멈춰 있으면(속도 < 1) 갑판에서 낚시(GDD 3.8) */
-  const onDeck = (pl: Game['player']) => {
-    if (!pl.mounted) return false;
-    const v = game.vehicles?.current?.();
-    return !!v && v.kind === 'tugboat' && Math.abs(v.speed) < 1;
-  };
+  /** 이번 프레임 '낚시할 수 있는 물가' 였나(미끼 바꾸기 줄이 따라 뜬다) */
+  let canHere = false;
   game.addProvider('fishing', (pl) => {
-    // 우주(달 밑에도 지구 바다 높이가 잡힌다) — 달 연못 물고기 표가 생길 때까지 낚시는 쉰다
-    if (game.world === 'space') return null;
-    const deck = onDeck(pl);
-    // 갑판 낚시 중엔 player.locked 라 코어가 E 를 '내리기'로 쓰지 않는다(E 는 낚시가 직접 읽는다)
-    if (S.phase !== 'idle' || pl.action) return null;
-    if (deck) {
-      const cp = castPointFor(pl);
-      return cp ? { id: 'fishing:deck', label: '갑판에서 낚시하기 🎣', dist: 0.5, whileMounted: true, use: () => { start(cp); } } : null;
+    canHere = false;
+    if (S.phase !== 'idle' || cur.pending) return null;
+    // 탄 채로는 통통배가 멈췄을 때만(GDD 3.8)
+    const deck = !!pl.mounted && L.deckFishingOk(vehicleNow());
+    if (pl.mounted && !deck) return null;
+    if (!pl.mounted && (pl.mode !== 'ground' || pl.action)) return null;
+    if (!deck && standingInWater(pl)) return null;
+    if (!waterAhead(pl)) return null;
+    const tier = L.rodTier(isUnlocked());
+    if (tier === 'none') {
+      return { id: 'fishing:norod', label: '낚싯대가 필요해요 🎣', dist: 1.9, whileMounted: deck, use: () => { game.ui.toast('작업대에서 낚싯대를 만들어요! (나무 5) 🎣'); } };
     }
-    if (pl.mounted || pl.mode !== 'ground') return null;
-    // 발밑이 물이면 안 됨
-    if (Number.isFinite(island.waterLevelAt(pl.pos.x, pl.pos.z)) && island.waterLevelAt(pl.pos.x, pl.pos.z) > pl.pos.y + 0.2) return null;
-    const cp = castPointFor(pl);
-    if (!cp) return null;
-    return { label: '낚시하기', dist: 1.6, use: () => { start(cp); } };
+    canHere = true;
+    return deck
+      ? { id: 'fishing:deck', label: '갑판에서 낚시하기 🎣 (꾹 누르면 멀리)', dist: 0.5, whileMounted: true, use: () => { begin(tier, true); } }
+      : { id: 'fishing', label: '낚시하기 🎣 (꾹 누르면 멀리)', dist: 1.6, use: () => { begin(tier, false); } };
+  });
+  // X: 미끼 바꾸기(가진 미끼가 있을 때만)
+  game.addProvider('fishing-bait', (pl) => {
+    if (!canHere) return null;
+    const any = L.BAITS.some((b) => count(b) > 0);
+    if (!any) return null;
+    const f = F();
+    const now = L.chooseBait(f.bait, count);
+    const label = `미끼: ${now ? `${L.BAIT_NAME[now]} ×${count(now)}` : L.BAIT_NAME.none} (바꾸기)`;
+    return {
+      id: 'fishing:bait', label, key: 'KeyX', dist: 1.6, whileMounted: !!pl.mounted,
+      use: () => {
+        const fl = F();
+        fl.bait = L.cycleBait(fl.bait, count);
+        save();
+        const b = L.chooseBait(fl.bait, count);
+        game.ui.toast(b ? `🪱 ${L.BAIT_NAME[b]} 끼웠다! (${count(b)}개)` : '미끼 없이 낚시할래요');
+      },
+    };
   });
 
   // ── 매 프레임 ──
   const v = new THREE.Vector3();
+  const tipW = new THREE.Vector3();
+  const _to = new THREE.Vector3();
+  const bob = new THREE.Vector3();
+  const _tmp = new THREE.Vector3();
+  const end2 = new THREE.Vector3();
+  // 안내 줄(충전 줄만 매번 새로 만든다)
+  const DECK_LIVE = new Set<L.Phase>(['charge', 'cast', 'wait', 'approach', 'nibble', 'bite']);
+  const PROMPT: Partial<Record<L.Phase, string>> = {
+    cast: '휙~', wait: '두근두근… (E 줄 감기)', approach: '다가온다…! (E 줄 감기)',
+    nibble: '톡톡… 아직이야!', bite: 'E 지금!!',
+  };
   game.onUpdate((t, dt) => {
-    for (const set of ambient) updateAmbient(set, t);
+    const pl = game.player;
+    // 살금살금: 물가에서 달리면 그림자가 놀란다
+    const amb = ambient.update(t, { x: pl.pos.x, z: pl.pos.z, speed: S.phase === 'idle' ? pl.speed : 0 });
+    // 물가 검사는 달릴 때만, 0.25초에 한 번
+    if (S.phase === 'idle' && pl.speed > L.SPOOK_SPEED && (amb > 0 || (t - nearCheckAt > 0.25 && ((nearCheckAt = t), nearWater(pl.pos.x, pl.pos.z))))) {
+      spookUntil = L.spookUntil(spookUntil, t, pl.speed, true);
+      if (amb > 0 && !spookHinted) { spookHinted = true; game.ui.toast('쉿! 물가에서 뛰면 물고기가 도망가요 🤫'); }
+    }
     // 물결 고리
     for (const r of rings) {
       if (!r.m.visible) continue;
@@ -397,13 +620,13 @@ export default function build(ctx: Ctx) {
       r.m.scale.setScalar((0.3 + k * 1.6) * r.big);
       (r.m.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k);
     }
-    // 반짝이
+    // 잡았다 반짝이
     if (t - sparkBorn < 2.6 && t >= sparkBorn) {
       sparks.visible = true;
       const age = t - sparkBorn;
       const pa = sparkGeo.attributes.position as THREE.BufferAttribute;
       const n = sparkLevel >= 5 ? SPARK_N : sparkLevel >= 4 ? 40 : 24;
-      const p = game.player.pos;
+      const p = pl.pos;
       for (let i = 0; i < SPARK_N; i++) {
         const s = sparkSeed[i];
         if (i >= n) { pa.setXYZ(i, 0, -999, 0); continue; }
@@ -415,140 +638,230 @@ export default function build(ctx: Ctx) {
       sparkMat.size = sparkLevel >= 5 ? 0.5 : 0.35;
     } else sparks.visible = false;
 
+    // 튀어 오른 물고기 → 손
+    if (cur.leap) {
+      const k = Math.min(1, (t - cur.leap.t0) / 0.42);
+      const to = _to.copy(pl.pos); to.y += 1.3;
+      cur.leap.obj.position.copy(cur.leap.from).lerp(to, k);
+      cur.leap.obj.position.y += Math.sin(k * Math.PI) * 1.4;
+      cur.leap.obj.rotation.set(0, Math.atan2(to.x - cur.leap.from.x, to.z - cur.leap.from.z) - Math.PI / 2, Math.sin(k * Math.PI * 3) * 0.6);
+    }
+    if (cur.pending && t >= cur.pending.at) flushPending();
+
+    shadows.update(t, dt);
     if (S.phase === 'idle') return;
-    const pl = game.player;
+
+    // 갑판 낚시 중 배가 움직이기 시작하면 줄을 감는다(멈췄을 때만 낚시, GDD 3.8)
+    if (cur.deck && DECK_LIVE.has(S.phase) && !L.deckFishingOk(vehicleNow())) {
+      L.reelIn(S);
+      shadows.flee(t);
+      bang.visible = tok.visible = gguk.visible = false;
+      game.ui.toast('배가 움직여서 줄을 감았어요! 멈추고 다시 던져 봐요 ⛵');
+    }
+
+    // ── 상태 기계 한 걸음 ──
     const inp = game.input;
-    const age = t - S.t0;
+    if (!cur.frozen) {
+      // 충전 중엔 A·D 로 방향을 살짝 돌린다
+      if (S.phase === 'charge') { const ax = inp.axis().x; if (ax) pl.yaw -= ax * dt * 1.8; }
+      const evs = L.step(S, dt, { press: inp.hit('KeyE'), held: inp.down('KeyE'), cancel: inp.hit('Escape') }, rng);
+      for (const e of evs) {
+        switch (e.type) {
+          case 'cast': if (!onCast(e.dist)) { end(); return; } break;
+          case 'land': onLand(); break;
+          case 'approach': shadows.approach(cur.target, t, S.approach); break;
+          case 'nibble': {
+            shadows.poke(cur.target, t);
+            tokAt = t;
+            splash(cur.cast.x, cur.waterY, cur.cast.z, 0.45);
+            game.audio?.sfx('splash', { x: cur.cast.x, z: cur.cast.z, vol: 0.25, pitch: 1.7 });
+            break;
+          }
+          case 'bite': {
+            shadows.bite(cur.target);
+            splash(cur.cast.x, cur.waterY, cur.cast.z, 1.3); splash(cur.cast.x, cur.waterY, cur.cast.z, 0.6);
+            game.audio?.sfx('splash', { x: cur.cast.x, z: cur.cast.z, vol: 0.7, pitch: 0.9 });
+            break;
+          }
+          case 'catch': onCatch(); break;
+          case 'fail': onFail(e.why); break;
+          case 'reel': shadows.flee(t); break;
+          case 'end': end(); return;
+        }
+      }
+    }
+    if ((S.phase as L.Phase) === 'idle') return;
+    const age = S.t;
+
+    // 안내 줄
+    if (S.phase === 'charge') game.ui.setPrompt(`E 떼면 휙! ${Math.round(L.castDistance(S.charge))}m · A·D 방향 · ${L.BAIT_NAME[cur.bait ?? L.chooseBait(F().bait, count) ?? 'none']}`, null);
+    else { const pr = PROMPT[S.phase]; if (pr) game.ui.setPrompt(pr, null); }
+
+    // 충전 표적
+    if (S.phase === 'charge') {
+      const f = pl.facing();
+      const want = L.castDistance(S.charge);
+      const d = L.landingDistance(want, (k) => waterAt(pl.pos.x + f.x * k, pl.pos.z + f.z * k) !== null);
+      aimRing.visible = d !== null;
+      if (d !== null) {
+        const x = pl.pos.x + f.x * d, z = pl.pos.z + f.z * d;
+        const wy = waterAt(x, z) ?? pl.pos.y;
+        aimRing.position.set(x, surfaceY(x, z, wy, t) + 0.05, z);
+        aimRing.scale.setScalar(0.7 + 0.08 * Math.sin(t * 8));
+      }
+      game.hud?.gauge?.('fishing-cast', { label: '던지기', value: L.chargeFrac(S.charge), color: '#ff9fb8', show: true });
+    } else if (aimRing.visible) {
+      aimRing.visible = false;
+      game.hud?.gauge?.('fishing-cast', { label: '던지기', value: 0, color: '#ff9fb8', show: false });
+    }
 
     // 낚싯대: 오른손에서 앞으로 기울여 든다
-    const hp = handPos();
-    rod.position.copy(hp);
+    rod.position.copy(handPos());
     const f = pl.facing();
     const yaw = Math.atan2(f.x, f.z);
     let pitch = 0.95; // 앞으로 기울기(라디안, 0 = 똑바로 위)
-    if (S.phase === 'cast') pitch = age < 0.18 ? 0.95 - (age / 0.18) * 1.3 : -0.35 + Math.min(1, (age - 0.18) / 0.3) * 1.3;
-    if (S.phase === 'nibble') pitch = 0.95 + 0.04 * Math.sin(t * 20);
-    if (S.phase === 'bite') pitch = 1.05 + 0.06 * Math.sin(t * 40);
-    if (S.phase === 'catch') pitch = Math.max(0.2, 0.95 - age * 3);
+    if (S.phase === 'charge') pitch = 0.95 - Math.min(1, L.chargeFrac(S.charge)) * 1.25 + 0.03 * Math.sin(t * 30) * L.chargeFrac(S.charge);
+    if (S.phase === 'cast') pitch = age < 0.12 ? -0.3 + (age / 0.12) * 1.25 : 0.95;
+    if (S.phase === 'nibble') pitch = 0.95 + (t - tokAt < 0.2 ? 0.08 : 0.02 * Math.sin(t * 20));
+    if (S.phase === 'bite') pitch = 1.08 + 0.06 * Math.sin(t * 40);
+    if (S.phase === 'catch') pitch = Math.max(0.1, 0.95 - age * 3);
+    if (S.phase === 'reel' || S.phase === 'miss') pitch = 0.95 - Math.min(0.5, age);
     rod.rotation.set(0, 0, 0);
     rod.rotateY(yaw);
     rod.rotateX(pitch);
     rod.updateMatrixWorld(true);
     const ar = findAvatarRod();
-    let tip: THREE.Vector3;
     if (S.phase === 'catch') {
       rod.visible = false;
-      tip = new THREE.Vector3().setFromMatrixPosition(rodTip.matrixWorld);
+      tipW.setFromMatrixPosition(rodTip.matrixWorld);
     } else if (ar && ar.root.visible) {
       rod.visible = false;
       setAvatarLine(false);
       ar.tip.updateWorldMatrix(true, false);
-      tip = new THREE.Vector3().setFromMatrixPosition(ar.tip.matrixWorld);
+      tipW.setFromMatrixPosition(ar.tip.matrixWorld);
     } else {
-      rod.visible = S.phase !== 'miss' || age < 1;
-      tip = new THREE.Vector3().setFromMatrixPosition(rodTip.matrixWorld);
+      rod.visible = true;
+      tipW.setFromMatrixPosition(rodTip.matrixWorld);
     }
 
     // 찌 위치
-    let bob = S.cast.clone();
-    bob.y = S.waterY + 0.02 + 0.025 * Math.sin(t * 2.4);
-    if (S.phase === 'cast') {
-      const k = Math.min(1, Math.max(0, (age - 0.25) / 0.55));
-      bob = tip.clone().lerp(S.cast, k);
-      bob.y += Math.sin(k * Math.PI) * 1.6 - (1 - k) * 0.4;
-      if (k >= 1 && !S.frozen) { S.phase = 'approach'; S.t0 = t; ripple(S.cast.x, S.waterY, S.cast.z, 0.7); target.visible = true; }
+    const wy = surfaceY(cur.cast.x, cur.cast.z, cur.waterY, t);
+    bob.set(cur.cast.x, wy + 0.02 + 0.025 * Math.sin(t * 2.4), cur.cast.z);
+    if (S.phase === 'charge') {
+      bobber.visible = true;
+      bob.copy(tipW); bob.y -= 0.5;
+    } else if (S.phase === 'cast') {
+      const k = Math.min(1, age / L.CAST_FLIGHT);
+      bob.copy(tipW).lerp(_tmp.set(cur.cast.x, wy, cur.cast.z), k);
+      bob.y += Math.sin(k * Math.PI) * (0.8 + S.dist * 0.12) - (1 - k) * 0.4;
+    } else if (S.phase === 'reel' || S.phase === 'miss') {
+      const k = Math.min(1, age / (S.phase === 'reel' ? L.REEL_HOLD : 0.8));
+      _tmp.copy(tipW); _tmp.y -= 0.4;
+      bob.lerp(_tmp, k * k);
+      if (k >= 1) bobber.visible = line.visible = false;
+    } else if (S.phase === 'nibble') {
+      if (t - tokAt < 0.18) bob.y -= 0.07;
+    } else if (S.phase === 'bite') {
+      bob.y = wy - 0.16;
     }
-    // 물고기 그림자
-    if (S.phase === 'approach' || S.phase === 'nibble' || S.phase === 'bite' || S.phase === 'miss') {
-      const L = target.scale.x;
-      const toward = S.cast.clone().sub(S.from); toward.y = 0;
-      const stopAt = S.cast.clone().addScaledVector(toward.clone().normalize(), -L * 0.5);
-      let pos: THREE.Vector3;
-      if (S.phase === 'approach') {
-        const k = Math.min(1, (t - S.t0) / S.approachDur);
-        const e = 1 - Math.pow(1 - k, 2);
-        pos = S.from.clone().lerp(stopAt, e);
-        pos.addScaledVector(new THREE.Vector3(-toward.z, 0, toward.x).normalize(), Math.sin(t * 3) * 0.25 * (1 - e));
-        if (k >= 1 && !S.frozen) { S.phase = 'nibble'; S.t0 = t; S.nibbleAt = t + 0.5 + rng() * 0.6; }
-      } else if (S.phase === 'miss') {
-        pos = stopAt.clone().addScaledVector(toward.clone().normalize(), -age * 6);
-      } else {
-        pos = stopAt.clone().addScaledVector(toward.clone().normalize(), S.phase === 'bite' ? L * 0.2 : 0.06 * Math.max(0, Math.sin(t * 9)));
-      }
-      target.position.set(pos.x, S.waterY + 0.1, pos.z);
-      target.rotation.y = Math.atan2(-toward.z, toward.x);
-      (target.material as THREE.MeshBasicMaterial).opacity = S.phase === 'miss' ? Math.max(0, 0.85 - age * 0.85) : 0.85;
-      if (S.phase === 'miss' && age > 1.2) end();
-    }
-    // 톡톡
-    if (S.phase === 'nibble') {
-      dots.visible = true;
-      dots.position.copy(pl.pos).add(new THREE.Vector3(0, 2.05, 0));
-      const since = t - (S.nibbleAt - 0.9);
-      const dip = since > 0.9 && since < 1.05 ? 0.06 : 0;
-      bob.y -= dip;
-      if (!S.frozen && t > S.nibbleAt) {
-        ripple(S.cast.x, S.waterY, S.cast.z, 0.5);
-        S.nibbles--;
-        S.nibbleAt = t + 0.8 + rng() * 0.7;
-        if (S.nibbles <= 0) { S.phase = 'bite'; S.t0 = t; ripple(S.cast.x, S.waterY, S.cast.z, 1.3); ripple(S.cast.x, S.waterY, S.cast.z, 0.6); dots.visible = false; }
-      }
-      if (inp.hit('KeyE') && !S.frozen) { dots.visible = false; fail('앗, 너무 빨랐다! 물고기가 도망갔다…'); }
-    }
+
+    // 톡·꾹 말풍선
+    tok.visible = S.phase === 'nibble' && t - tokAt < 0.6;
+    if (tok.visible) tok.position.set(cur.cast.x, wy + 0.7 + (t - tokAt) * 0.6, cur.cast.z);
     if (S.phase === 'bite') {
+      const pop = Math.min(1, age / 0.08);
       bang.visible = true;
-      const bage = t - S.t0;
-      const pop = Math.min(1, bage / 0.08);
       bang.scale.setScalar(0.75 * (0.6 + 0.4 * pop) * (1 + 0.06 * Math.sin(t * 30)));
-      bang.position.copy(pl.pos).add(new THREE.Vector3(0, 2.15, 0));
-      bob.y = S.waterY - 0.16;
-      const win = BITE_WINDOW[S.sp!.rarity];
-      if (inp.hit('KeyE')) success();
-      else if (!S.frozen && bage > win) fail('놓쳤다… 물고기가 도망갔다!');
-    }
-    if (S.phase === 'catch') {
-      if (t - S.t0 > 1.6) end();
-    }
-    // 그만두기
-    if ((S.phase === 'approach' || S.phase === 'cast') && (inp.hit('Escape') || inp.hit('KeyE'))) {
-      if (S.phase === 'approach' && inp.hit('KeyE')) fail('앗, 너무 빨랐다! 물고기가 도망갔다…');
-      else end();
-    }
-    if ((S.phase as Phase) !== 'idle' && S.phase !== 'catch' && inp.hit('Escape')) end();
-    void dt;
+      bang.position.copy(pl.pos); bang.position.y += 2.15;
+      gguk.visible = true;
+      gguk.position.set(cur.cast.x, wy + 0.8, cur.cast.z);
+      gguk.scale.set(1.2 * (0.6 + 0.4 * pop), 0.6 * (0.6 + 0.4 * pop), 1);
+    } else { bang.visible = false; gguk.visible = false; }
+
+    // 두근 게이지 80%+: 분홍 반짝 줄·찌
+    const glowK = cur.glow ? 0.55 + 0.45 * Math.sin(t * 5) : 0;
+    lineMat.color.copy(WHITE).lerp(PINK, cur.glow ? 0.65 + 0.35 * Math.sin(t * 5) : 0);
+    lineMat.opacity = cur.glow ? 1 : 0.85;
+    bobRed.emissive.set(cur.glow ? '#ff7eb6' : '#ff5a6a');
+    bobRed.emissiveIntensity = cur.glow ? 0.5 + 0.4 * glowK : 0.15;
+    halo.visible = cur.glow && bobber.visible;
+    (halo.material as THREE.SpriteMaterial).opacity = 0.35 + 0.4 * glowK;
+    halo.scale.setScalar(0.8 + 0.25 * glowK);
 
     // 찌·줄
     bobber.position.copy(bob);
     bobber.rotation.z = S.phase === 'nibble' ? 0.25 * Math.sin(t * 14) : 0.06 * Math.sin(t * 1.7);
-    const pa = lineGeo.attributes.position as THREE.BufferAttribute;
-    const sag = S.phase === 'bite' ? 0.05 : S.phase === 'cast' ? 0.1 : 0.45;
-    for (let i = 0; i < LINE_N; i++) {
-      const k = i / (LINE_N - 1);
-      v.copy(tip).lerp(bob.clone().add(new THREE.Vector3(0, 0.22, 0)), k);
-      v.y -= Math.sin(k * Math.PI) * sag * Math.min(1, tip.distanceTo(bob) / 3);
-      pa.setXYZ(i, v.x, v.y, v.z);
+    if (line.visible) {
+      const pa = lineGeo.attributes.position as THREE.BufferAttribute;
+      const sag = S.phase === 'bite' ? 0.05 : S.phase === 'cast' || S.phase === 'charge' ? 0.08 : 0.45;
+      end2.copy(bob); end2.y += 0.22;
+      for (let i = 0; i < LINE_N; i++) {
+        const k = i / (LINE_N - 1);
+        v.copy(tipW).lerp(end2, k);
+        v.y -= Math.sin(k * Math.PI) * sag * Math.min(1, tipW.distanceTo(bob) / 3);
+        pa.setXYZ(i, v.x, v.y, v.z);
+      }
+      pa.needsUpdate = true;
     }
-    pa.needsUpdate = true;
   });
+  // 세계가 바뀌면(로켓) 낚시 그만
+  game.onWorld(() => { if (S.phase !== 'idle') end(); });
 
-  // ── 디버그(촬영용) ──
+  // ── 디버그(촬영·자동 루프) ──
   const gallery = new THREE.Group();
   root.add(gallery);
+  /** 물(wx,wz) 쪽을 보며 설 물가 자리 */
   const placeFacing = (wx: number, wz: number) => {
-    // 물(wx,wz) 쪽을 보며 설 물가 자리
-    for (let rr = 2.6; rr < 7; rr += 0.4) for (let k = 0; k < 24; k++) {
+    for (let rr = 2.6; rr < 9; rr += 0.4) for (let k = 0; k < 24; k++) {
       const a = (k / 24) * Math.PI * 2;
       const x = wx + Math.cos(a) * rr, z = wz + Math.sin(a) * rr;
-      if (Number.isFinite(island.waterLevelAt(x, z))) continue;
-      const s = island.surfaceAt(x, z);
-      if (s.kind === 'cliff' || s.kind === 'sea') continue;
+      if (game.world === 'space') { if (pondWater(x, z) !== null) continue; }
+      else {
+        if (Number.isFinite(island.waterLevelAt(x, z))) continue;
+        const s = island.surfaceAt(x, z);
+        if (s.kind === 'cliff' || s.kind === 'sea') continue;
+      }
       game.player.teleport(x, z);
       game.player.yaw = Math.atan2(-(wx - x), -(wz - z));
       return true;
     }
     return false;
   };
-  const W = window as unknown as Record<string, unknown>;
+  /** 호수(중심 cx,cz) 가장자리 안쪽 물 자리 */
+  const edgeWater = (cx: number, cz: number, ang: number, maxR: number, wf: (x: number, z: number) => number | null) => {
+    let last: { x: number; z: number } | null = null;
+    for (let r = 0; r < maxR; r += 0.75) {
+      const x = cx + Math.cos(ang) * r, z = cz + Math.sin(ang) * r;
+      if (wf(x, z) === null) break;
+      last = { x, z };
+    }
+    if (!last) return null;
+    // 가장자리에서 4m 안쪽(찌가 3~10m 에 떨어지게)
+    const back = Math.max(0, Math.hypot(last.x - cx, last.z - cz) - 4);
+    return { x: cx + Math.cos(ang) * back, z: cz + Math.sin(ang) * back };
+  };
+  const toEarth = () => { if (game.world !== 'earth') game.setWorld('earth'); };
+  const lookAt = (camSide: number) => { game.cam.yaw = game.player.yaw + camSide; };
+  const findSpecies = (id: string): FishSpecies | undefined => {
+    const tries = [id, id.startsWith('fish-') ? id : `fish-${id}`, id.replace(/^f_/, 'fish-')];
+    for (const k of tries) { const s = FISH_BY_ID.get(k); if (s) return s; }
+    return FISH_BY_GDD?.get(id) ?? (game.state.byGdd?.(id) as FishSpecies | undefined);
+  };
+  /** 바로 결과로(연출 포함) */
+  const fakeRoll = (id?: string, size?: number, variant?: Variant): RollResult | null => {
+    if (id && (id.startsWith('t_') || id === 'm_seaweed' || id === 'junk')) return { species: null, rarity: 0, junk: id === 'junk' ? 't_boot' : id, combo: 0 };
+    if (id) {
+      const sp = findSpecies(id);
+      if (!sp) return null;
+      return { species: sp, rarity: sp.rarity, size: size ?? L.fallbackSize(sp, 0.9), combo: 0, ...(variant ? { variant } : {}) };
+    }
+    const plan = cur.plan ?? L.planCast({ world: game.world, pond: game.world === 'space', zone: game.geo?.zoneAt?.(game.player.pos.x, game.player.pos.z) ?? null, onBoat: false });
+    const r = roll({ activity: plan.activity, pool: poolAt(plan.zone, plan.island), commit: false });
+    if (size) r.size = size;
+    if (variant) r.variant = variant;
+    return r.species || r.junk ? r : null;
+  };
+
   W.__fishingDebug = {
     list: () => FISH.map((f) => `${f.id} ${f.name} ★${f.rarity} ${f.look.shape}`),
     count: () => FISH.length,
@@ -581,47 +894,116 @@ export default function build(ctx: Ctx) {
       return list.map((f) => f.name).join(',');
     },
     clearGallery: () => { for (const c of [...gallery.children]) { gallery.remove(c); disposeModel(c); } },
-    /** 물가로 가서 물 쪽을 본다(기본: 마을 강 낚시 포인트) */
-    goto: (wx = island.HERO.fishing.x, wz = island.HERO.fishing.z, camSide = 0.9) => {
-      const ok = placeFacing(wx, wz);
-      game.cam.yaw = game.player.yaw + camSide;
-      return ok;
+    /**
+     * 낚시터로 가서 물 쪽을 본다. goto('heartpond'|'crater'|'hotspring'|… 호수 종류 · 'moonpond'[, 연못 번호] · 'river' · 'shore'|섬 id)
+     * 또는 goto(x, z). 기본: 마을 강 낚시 포인트.
+     */
+    goto: (zone: string | number = 'river', b?: number, camSide = 0.9) => {
+      if (typeof zone === 'number') { toEarth(); const ok = placeFacing(zone, b ?? 0); lookAt(camSide); return ok; }
+      if (zone === 'moonpond' || zone === 'moon') {
+        const sp = game.space;
+        if (!sp) return false;
+        if (game.world !== 'space') game.setWorld('space', sp.landingSpawn?.clone());
+        const p = sp.ponds[Math.max(0, Math.min(sp.ponds.length - 1, Math.floor(b ?? 0)))];
+        if (!p) return false;
+        const w = edgeWater(p.x, p.z, 0.4, p.r + 2, pondWater) ?? { x: p.x, z: p.z };
+        const ok = placeFacing(w.x, w.z);
+        lookAt(camSide);
+        return ok;
+      }
+      if (zone === 'river') { toEarth(); const ok = placeFacing(island.HERO.fishing.x, island.HERO.fishing.z); lookAt(camSide); return ok; }
+      const lakes = island.worldLakes();
+      const want = zone === 'ruin' ? 'oasis' : zone;
+      const lake = lakes.find((l) => l.kind === want && (zone !== 'ruin' || l.island === 'desert'));
+      if (lake) {
+        toEarth();
+        const w = edgeWater(lake.x, lake.z, b ?? 2.4, lake.r * 2.5, earthWater) ?? { x: lake.x, z: lake.z };
+        const ok = placeFacing(w.x, w.z);
+        lookAt(camSide);
+        return ok;
+      }
+      const isl = island.islandById(zone === 'shore' ? 'home' : zone);
+      if (isl) return (W.__fishingDebug as { gotoCoast: (id: string) => boolean }).gotoCoast(isl.id);
+      return false;
     },
     /** 섬 해안: 섬 중심에서 바깥으로 가다 처음 만나는 바다 + 물가에 선다 */
     gotoCoast: (id = 'coral', ang = 3.6, camSide = 0.9) => {
+      toEarth();
       const d = island.islandById(id);
       if (!d) return false;
       let wx = d.x, wz = d.z;
-      for (let r = d.r * 0.5; r < d.r * 2; r += 2) { wx = d.x + Math.cos(ang) * r; wz = d.z + Math.sin(ang) * r; if (waterAt(wx, wz) !== null && waterAt(wx + Math.cos(ang) * 4, wz + Math.sin(ang) * 4) !== null) break; }
+      for (let r = d.r * 0.5; r < d.r * 2; r += 2) { wx = d.x + Math.cos(ang) * r; wz = d.z + Math.sin(ang) * r; if (earthWater(wx, wz) !== null && earthWater(wx + Math.cos(ang) * 4, wz + Math.sin(ang) * 4) !== null) break; }
       const ok = placeFacing(wx + Math.cos(ang) * 1.5, wz + Math.sin(ang) * 1.5);
-      game.cam.yaw = game.player.yaw + camSide;
+      lookAt(camSide);
       return ok;
     },
-    start: (fast = false) => { const ok = start(); if (ok && fast) { S.approachDur = 0.6; S.nibbles = 1; } return ok; },
-    /** 장면 고정: 'cast'|'approach'|'nibble'|'bite' 단계에서 멈춘 그림 */
-    pose: (phase: Phase, id?: string) => {
-      if (S.phase === 'idle' && !start()) return 'no water ahead';
-      if (id && FISH_BY_ID.has(id)) S.sp = FISH_BY_ID.get(id)!;
-      const L = shadowLen(S.sp!); target.scale.set(L, 1, L);
-      S.frozen = true; S.phase = phase; target.visible = phase !== 'cast';
-      S.t0 = game.time - (phase === 'approach' ? S.approachDur * 0.6 : phase === 'cast' ? 0.5 : 0.04);
-      if (phase === 'nibble') S.nibbleAt = game.time + 0.4;
-      ripple(S.cast.x, S.waterY, S.cast.z, 0.8);
+    /** 낚시 시작(충전 없이 dist m 로 바로 던지기) */
+    cast: (dist = 6) => {
+      if (S.phase !== 'idle') end();
+      const tier = L.rodTier(isUnlocked());
+      if (tier === 'none') return 'no rod';
+      const deck = !!game.player.mounted && L.deckFishingOk(vehicleNow());
+      begin(tier, deck);
+      L.beginCast(S, dist);
+      if (!onCast(S.dist)) { end(); return 'no water'; }
+      return S.dist;
+    },
+    start: (fast = false) => {
+      const r = (W.__fishingDebug as { cast: (d?: number) => unknown }).cast(6);
+      if (fast && typeof r === 'number') S.approach = 0.6;
+      return typeof r === 'number';
+    },
+    /** 다가오는 그림자를 바로 꾹! 단계로 */
+    bite: () => {
+      if (S.phase === 'idle' || S.phase === 'charge' || S.phase === 'cast') return false;
+      if (cur.target < 0) return false;
+      shadows.approach(cur.target, game.time - 10, 0.2);
+      L.forceBite(S, L.biteWindow(cur.rolls[cur.target]?.rarity ?? 1, cur.rod));
+      return true;
+    },
+    /** 장면 고정: 'cast'|'wait'|'approach'|'nibble'|'bite' 에서 멈춘 그림(촬영) */
+    pose: (phase: L.Phase = 'approach') => {
+      if (S.phase === 'idle') { const r = (W.__fishingDebug as { cast: (d?: number) => unknown }).cast(6); if (typeof r !== 'number') return r; }
+      // 착수까지 바로
+      if (S.phase === 'cast') { S.t = L.CAST_FLIGHT; const ev = L.step(S, 0, { press: false, held: false, cancel: false }, rng); if (ev.some((e) => e.type === 'land')) onLand(); }
+      if (cur.target < 0) return 'no fish';
+      cur.frozen = true;
+      if (phase === 'approach' || phase === 'nibble' || phase === 'bite') shadows.approach(cur.target, game.time - (phase === 'approach' ? S.approach * 0.6 : 10), S.approach);
+      S.phase = phase; S.t = 0.04;
+      if (phase === 'nibble') { tokAt = game.time; shadows.poke(cur.target, game.time); }
+      if (phase === 'bite') shadows.bite(cur.target);
+      splash(cur.cast.x, cur.waterY, cur.cast.z, 0.8);
       rings[(ringI - 1) % rings.length].born = game.time - 0.35;
-      return S.sp!.name;
+      return speciesOf(cur.rolls[cur.target])?.name ?? cur.rolls[cur.target]?.junk ?? '?';
     },
-    /** 바로 잡기 */
-    catchNow: (id?: string, size?: number) => {
-      if (S.phase === 'idle') start();
-      if (id) { const sp = FISH_BY_ID.get(id.startsWith('fish-') ? id : 'fish-' + id); if (sp) S.sp = sp; }
-      if (!S.sp) S.sp = FISH[0];
-      if (size) S.size = size; else S.size = S.sp.size[1];
-      success();
-      if (game.time === S.t0 && S.sp.rarity >= 3) sparkBorn = game.time - 0.6;
-      return S.sp.name;
+    /** 바로 잡기: catchNow(id?, size?, variant?) — id 는 'fish-…'·GDD 'f_…'·쓰레기 't_…'. 없으면 이 자리 후보에서 굴린다 */
+    catchNow: (id?: string, size?: number, variant?: Variant) => {
+      const r = fakeRoll(id, size, variant);
+      if (!r) return null;
+      if (S.phase !== 'idle') end();
+      if (!cur.plan) cur.plan = L.planCast({ world: game.world, pond: game.world === 'space', zone: null, onBoat: false });
+      L.resolveCatch(r, cur.plan.activity, hooks, r.size ?? sizeFallback(r));
+      if (r.rarity >= 3) sparkBorn = game.time - 0.6;
+      return r.junk ?? speciesOf(r)?.name ?? null;
     },
+    /** 달리기 놀람 흉내 */
+    spook: () => { spookUntil = game.time + L.SPOOK_SEC; return ambient.update(game.time, { x: game.player.pos.x, z: game.player.pos.z, speed: L.SPOOK_SPEED + 1 }); },
+    setBait: (id: string) => { F().bait = id; save(); return L.chooseBait(id, count) ?? 'none'; },
+    /** 두근 게이지 분홍 반짝 강제(촬영) */
+    glow: (on = true) => { forceGlow = on; cur.glow = on || (!!cur.plan && gaugeOf(cur.plan.activity) > 0.8); return on; },
     stop: () => end(),
-    state: () => ({ phase: S.phase, fish: S.sp?.name, size: S.size }),
+    state: () => ({
+      phase: S.phase, t: Math.round(S.t * 100) / 100, dist: S.dist, window: S.window, rod: cur.rod, deck: cur.deck, bait: cur.bait,
+      activity: cur.plan?.activity, zone: cur.plan?.zone, glow: cur.glow, spooked: L.isSpooked(spookUntil, game.time),
+      target: cur.target, flags: { ...F() },
+    }),
+    shadows: () => cur.rolls.map((r, i) => ({ i, id: r.species?.id ?? r.junk, rarity: r.rarity, variant: r.variant, size: r.size, target: i === cur.target, pos: shadows.pos(i) })),
+    ambient: () => ambient.live(),
+    pool: (zone?: string) => {
+      const zi = game.world === 'earth' ? game.geo?.zoneAt?.(game.player.pos.x, game.player.pos.z) : null;
+      const z = zone ?? (game.world === 'space' ? 'moonpond' : L.fishingZone(zi?.zone, false));
+      return poolAt(z, zi?.island ?? null).map((s) => s.id);
+    },
   };
 
   return root;

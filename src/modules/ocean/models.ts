@@ -1,7 +1,8 @@
 // 귀여운 바다 생물 모델(코드로 빚기). 앞 = +Z, 위 = +Y, 바닥 생물은 y=0 에 앉는다.
 // 모델 하나 = 칠한 부품을 합친 지오메트리 하나(재질 공유, 드로우콜 하나).
+// 눈·볼은 굽지 않는다 — withEyeMarkers 로 자리 표식만 남기고, critter.ts 가 art.ts 눈(공용 캔버스 눈)·볼터치를 붙인다.
 import * as THREE from 'three';
-import { at, cap, cone, cyl, ell, ellZ, face, merge, paint, paintFn, sph, torus, type Geo } from './kit';
+import { at, cap, cone, cyl, ell, ellZ, eyeMarker, face, markingEyes, merge, paint, paintFn, sph, torus, withEyeMarkers, type Geo } from './kit';
 
 const PI = Math.PI;
 const C = (h: string) => new THREE.Color(h);
@@ -24,6 +25,12 @@ function tentacle(parts: Geo[], x: number, y: number, z: number, dir: number, le
 
 function eyeStalk(parts: Geo[], x: number, y: number, z: number, h: number, r: number, stalk: string) {
   parts.push(at(paint(cyl(r * 0.35, r * 0.45, h, 10), stalk), x, y + h / 2, z));
+  if (markingEyes()) {
+    // 하얀 눈알 구슬 + art 눈 자리
+    parts.push(at(paint(sph(r * 1.05, 18, 14), '#ffffff', '#eef0ff'), x, y + h + r * 0.4, z));
+    parts.push(eyeMarker(x, y + h + r * 0.45, z + r * 1.02, r * 0.72, x < 0 ? 'L' : 'R'));
+    return;
+  }
   parts.push(at(paint(sph(r * 1.05, 18, 14), '#ffffff', '#eef0ff'), x, y + h + r * 0.4, z));
   parts.push(at(paint(ell(r * 0.62, r * 0.75, r * 0.4, 16, 12), '#2a1e30'), x, y + h + r * 0.45, z + r * 0.75));
   parts.push(at(paint(sph(r * 0.24, 10, 8), '#ffffff'), x - r * 0.18, y + h + r * 0.75, z + r * 1.0));
@@ -292,7 +299,165 @@ const builders: Record<string, () => Geo> = {
     p.push(...face({ y: 0.15, z: 0.12, sep: 0.04, r: 0.026, zAt: ellZ(0.12, 0.15, 0.12, 0.15) }));
     return merge(p);
   },
+
+  // ───────── GDD 3.3.1 새 종 ─────────
+  seahare() {
+    const p: Geo[] = [];
+    // 갈색 젤리 몸 + 크림 점
+    const spots = (v: THREE.Vector3, o: THREE.Color) => {
+      o.copy(C('#c99a70')).lerp(C('#a8764f'), Math.min(1, Math.max(0, (0.1 - v.y) * 6)));
+      if (Math.sin(v.x * 70 + 1.3) * Math.sin(v.z * 52) > 0.72 && v.y > 0.04) o.set('#fff1cf');
+    };
+    p.push(at(paintFn(ell(0.12, 0.095, 0.2), spots), 0, 0.095, 0));
+    // 옆 주름(펄럭)
+    for (const s of [-1, 1]) p.push(at(paint(ell(0.03, 0.07, 0.15), '#d7aa80', '#b98a63'), s * 0.1, 0.13, -0.02, 0, 0, s * 0.55));
+    // 토끼 귀 2 + 분홍 속
+    for (const s of [-1, 1]) {
+      p.push(at(paint(cap(0.024, 0.075, 4, 12), '#d7aa80', '#b98a63'), s * 0.045, 0.235, 0.12, -0.35, 0, s * 0.35));
+      p.push(at(paint(ell(0.012, 0.03, 0.008), '#ffd0de'), s * 0.05, 0.25, 0.14, -0.35, 0, s * 0.35));
+    }
+    // 등 뒤 작은 꼬리 깃
+    for (let i = 0; i < 3; i++) p.push(at(paint(cone(0.018, 0.06, 8), '#e9c49a'), (i - 1) * 0.025, 0.18, -0.16, -0.9, 0, (i - 1) * 0.3));
+    p.push(...face({ y: 0.125, z: 0.19, sep: 0.045, r: 0.024, zAt: ellZ(0.12, 0.095, 0.2, 0.095) }));
+    return merge(p);
+  },
+  nudi_white() { return seaBunny('#fffaf2', '#ffd0de', '#3d3a4a'); },
+  nudi_pink() { return seaBunny('#ffd0de', '#ff9fb8', '#c25b8f'); },
+  nudi_yellow() { return seaBunny('#ffe98a', '#fff1cf', '#ffa24c'); },
+  nudi_purple() { return seaBunny('#c9b6f2', '#a77be0', '#3b5bb5'); },
+  nudi_sky() { return seaBunny('#8fd3f4', '#fffaf2', '#4a9cf0'); },
+  mantis() {
+    const p: Geo[] = [];
+    // 무지개 갑각 마디(앞 +Z → 꼬리 -Z)
+    const n = 7;
+    for (let i = 0; i < n; i++) {
+      const c = new THREE.Color().setHSL((i / n) * 0.83, 0.72, 0.68);
+      const c2 = new THREE.Color().setHSL((i / n) * 0.83, 0.6, 0.55);
+      const r = 0.068 - Math.abs(i - 2) * 0.006;
+      p.push(at(paint(ell(r, r * 0.78, 0.05), '#' + c.getHexString(), '#' + c2.getHexString()), 0, 0.075, 0.17 - i * 0.065));
+    }
+    // 꼬리 부채
+    for (const s of [-1, 0, 1]) p.push(at(paint(ell(0.035, 0.012, 0.06), '#ffa24c', '#ff6b6b'), s * 0.04, 0.06, -0.31, 0, s * 0.5, 0));
+    // 펀치 집게(둥근 곤봉)
+    for (const s of [-1, 1]) {
+      p.push(at(paint(cap(0.016, 0.07, 4, 10), '#3fc7b4'), s * 0.06, 0.07, 0.23, PI / 2.4, 0, s * 0.3));
+      p.push(at(paint(sph(0.034, 16, 12), '#ff8a7a', '#ff6b6b'), s * 0.075, 0.06, 0.29));
+      p.push(at(paint(sph(0.012, 8, 6), '#fffaf2'), s * 0.085, 0.085, 0.31));
+    }
+    // 다리
+    for (const s of [-1, 1]) for (let k = 0; k < 3; k++) p.push(at(paint(cap(0.009, 0.05, 3, 6), '#9ef0d2'), s * 0.065, 0.03, 0.08 - k * 0.06, 0, 0, s * 1.1));
+    eyeStalk(p, -0.03, 0.1, 0.2, 0.05, 0.024, '#3fc7b4');
+    eyeStalk(p, 0.03, 0.1, 0.2, 0.05, 0.024, '#3fc7b4');
+    p.push(at(paint(torus(0.018, 0.006, 6, 12, PI), '#7a2c3a'), 0, 0.085, 0.225, 0, 0, PI));
+    return merge(p);
+  },
+  babyocto() { return octo('#ff9d8a', '#ff8a7a', '#ffd0c4', 0.62); },
+  seaangel() {
+    const p: Geo[] = [];
+    // 투명 + 보라 몸, 배에 주황 하트(창자)
+    p.push(at(paint(ell(0.045, 0.1, 0.045, 24, 18), '#efe6ff', '#c9b6f2'), 0, 0.12, 0));
+    p.push(at(paint(sph(0.045, 20, 16), '#f6f0ff', '#e2d6ff'), 0, 0.235, 0));
+    p.push(at(paint(sph(0.02, 12, 10), '#ffa24c', '#ff8a7a'), 0, 0.1, 0.012));
+    // 날개 두 장(나비)
+    for (const s of [-1, 1]) {
+      p.push(at(paint(ell(0.1, 0.012, 0.055, 20, 8), '#e2d6ff', '#a77be0'), s * 0.085, 0.2, 0, 0, s * 0.15, s * 0.55));
+      p.push(at(paint(ell(0.03, 0.006, 0.02, 10, 6), '#ffd0de'), s * 0.12, 0.225, 0.01, 0, 0, s * 0.55));
+    }
+    p.push(at(paint(cone(0.03, 0.06, 12), '#d8c4ff', '#c9b6f2'), 0, 0.02, 0, PI, 0, 0));
+    p.push(...face({ y: 0.24, z: 0.04, sep: 0.018, r: 0.012, zAt: ellZ(0.045, 0.045, 0.045, 0.235) }));
+    return merge(p);
+  },
+  leafy() { return seahorse('#c8ff5a', '#9bb35a', '#fff1cf', true); },
+  ghostjelly() { return jelly('#e8dcff', '#c9b6f2', '#fbf8ff'); },
+  spyglass() {
+    // 선장의 망원경(유물) — 금 통 세 마디 + 갈색 가죽 띠
+    const p: Geo[] = [];
+    const segs: Array<[number, number, number, string, string]> = [[0.055, 0.06, 0.16, '#ffcf4a', '#e0a92e'], [0.045, 0.05, 0.14, '#ffe08a', '#ffcf4a'], [0.036, 0.04, 0.12, '#ffcf4a', '#d8a030']];
+    let z = 0;
+    for (const [r0, r1, l, a, b] of segs) {
+      p.push(at(paint(cyl(r0, r1, l, 24), a, b), 0, 0.07, z - l / 2, PI / 2, 0, 0));
+      p.push(at(paint(torus(r1, 0.008, 8, 24), '#fff1cf'), 0, 0.07, z));
+      z -= l;
+    }
+    p.push(at(paint(cyl(0.062, 0.062, 0.07, 24), '#a8764f', '#6e4a33'), 0, 0.07, -0.08, PI / 2, 0, 0));
+    p.push(at(paint(new THREE.CircleGeometry(0.05, 24), '#bfe9ff', '#8fd3f4'), 0, 0.07, 0.006));
+    p.push(at(paint(new THREE.CircleGeometry(0.03, 20), '#e8fbff'), 0, 0.07, z - 0.003, 0, PI, 0));
+    return merge(p);
+  },
+  plankton() {
+    // 반짝가루 플랑크톤 무리 — 가운데 대장 한 마리에 얼굴
+    const p: Geo[] = [];
+    p.push(at(paint(sph(0.055, 20, 16), '#e8fbff', '#8fd3f4'), 0, 0.12, 0));
+    for (let i = 0; i < 18; i++) {
+      const a = i * 2.39996, r = 0.07 + (i % 5) * 0.022, y = 0.12 + Math.sin(i * 1.7) * 0.07;
+      p.push(at(paint(sph(0.012 + (i % 3) * 0.006, 10, 8), i % 4 ? '#bfe9ff' : '#fffaf2', '#8fd3f4'), Math.cos(a) * r, y, Math.sin(a) * r));
+    }
+    p.push(...face({ y: 0.125, z: 0.05, sep: 0.02, r: 0.012, zAt: ellZ(0.055, 0.055, 0.055, 0.12) }));
+    return merge(p);
+  },
+  crinoid() {
+    // 깃털별바다나리 — 자주 컵 + 깃털 팔 10
+    const p: Geo[] = [];
+    p.push(at(paint(cyl(0.012, 0.018, 0.12, 10), '#c25b8f', '#9a4a74'), 0, 0.06, 0));
+    p.push(at(paint(ell(0.06, 0.05, 0.06), '#e58ab8', '#c25b8f'), 0, 0.15, 0));
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * PI * 2 + 0.3;
+      for (let k = 0; k < 5; k++) {
+        const t = k / 4, rr = 0.05 + t * 0.15, y = 0.17 + Math.sin(t * PI * 0.8) * 0.08 - t * t * 0.05;
+        const x = Math.sin(a) * rr, z = Math.cos(a) * rr;
+        p.push(at(paint(sph(0.013 - k * 0.0015, 8, 6), '#ffd0de', '#c25b8f'), x, y, z));
+        if (k > 0) for (const s of [-1, 1]) p.push(at(paint(cone(0.004, 0.035, 5), '#ffb3d0'), x + Math.cos(a) * s * 0.012, y + 0.01, z - Math.sin(a) * s * 0.012, 0, a, s * 1.1));
+      }
+    }
+    p.push(...face({ y: 0.16, z: 0.055, sep: 0.022, r: 0.014, zAt: ellZ(0.06, 0.05, 0.06, 0.15) }));
+    return merge(p);
+  },
+  deepcuke() {
+    // 투명심해해삼 — 분홍 투명 몸 + 속이 비치는 줄
+    const p: Geo[] = [];
+    p.push(at(paint(ell(0.1, 0.085, 0.26), '#ffe6f0', '#ffb3c8'), 0, 0.09, 0));
+    p.push(at(paint(cap(0.018, 0.34, 4, 10), '#ff8aa8'), 0, 0.08, 0, PI / 2, 0, 0));
+    for (let i = 0; i < 6; i++) p.push(at(paint(cone(0.016, 0.07, 8), '#ffd0de', '#ff9fb8'), (i % 2 ? 1 : -1) * 0.05, 0.16, -0.16 + i * 0.06, 0, 0, (i % 2 ? -0.4 : 0.4)));
+    for (let i = 0; i < 6; i++) p.push(at(paint(cap(0.01, 0.04, 3, 6), '#ffc4d6'), (i % 2 ? 1 : -1) * 0.07, 0.01, -0.15 + i * 0.06, 0, 0, (i % 2 ? 1.2 : -1.2)));
+    p.push(...face({ y: 0.11, z: 0.25, sep: 0.04, r: 0.022, zAt: ellZ(0.1, 0.085, 0.26, 0.09) }));
+    return merge(p);
+  },
+  moray() {
+    // 꿀꺽호 선체 구멍에서 빼꼼 — 노랑 점박이 곰치(장식: 낚시 종은 fishing 몫)
+    const p: Geo[] = [];
+    const spots = (v: THREE.Vector3, o: THREE.Color) => {
+      o.copy(C('#e6d56a')).lerp(C('#b8a84a'), Math.min(1, Math.max(0, -v.x * 4)));
+      if (Math.sin(v.y * 60) * Math.sin(v.z * 55) > 0.55) o.set('#fff1cf');
+    };
+    for (let i = 0; i < 6; i++) p.push(at(paintFn(ell(0.075 - i * 0.004, 0.08 - i * 0.004, 0.09), spots), 0, 0.05 + i * 0.01, -i * 0.12));
+    p.push(at(paintFn(ell(0.08, 0.075, 0.11), spots), 0, 0.12, 0.1));
+    p.push(at(paint(ell(0.05, 0.02, 0.05), '#ffd0de'), 0, 0.075, 0.17));
+    p.push(at(paint(ell(0.006, 0.05, 0.09), '#e6d56a'), 0, 0.2, -0.1));
+    p.push(...face({ y: 0.15, z: 0.18, sep: 0.04, r: 0.022, mouth: 'o', zAt: ellZ(0.08, 0.075, 0.11, 0.12, 0.1) }));
+    return merge(p);
+  },
 };
+
+function seaBunny(c1: string, c2: string, dot: string): Geo {
+  // 젤리바니(바다의 토끼): 보송한 몸 + 점 + 토끼 귀 2 + 꽁지 아가미
+  const p: Geo[] = [];
+  const dots = (v: THREE.Vector3, o: THREE.Color) => {
+    o.copy(C(c1)).lerp(C(c2), Math.min(1, Math.max(0, (0.03 - v.y) * 10)) * 0.5);
+    if (Math.sin(v.x * 95 + 0.7) * Math.sin(v.z * 80 + 0.3) > 0.82 && v.y > 0.05) o.set(dot);
+  };
+  p.push(at(paintFn(ell(0.075, 0.058, 0.12, 28, 20), dots), 0, 0.058, 0));
+  for (let i = 0; i < 16; i++) {
+    const a = i * 2.39996, r = 0.03 + (i % 4) * 0.012;
+    p.push(at(paint(sph(0.016, 10, 8), c1, c2), Math.cos(a) * r * 1.3, 0.1 + Math.sin(i) * 0.008, Math.sin(a) * r * 2 - 0.02));
+  }
+  for (const s of [-1, 1]) {
+    p.push(at(paint(cap(0.014, 0.05, 4, 10), c1, c2), s * 0.028, 0.13, 0.07, -0.25, 0, s * 0.35));
+    p.push(at(paint(sph(0.012, 10, 8), dot), s * 0.036, 0.165, 0.08));
+  }
+  for (let i = 0; i < 6; i++) p.push(at(paint(cone(0.008, 0.035, 6), c2, c1), Math.cos(i) * 0.02, 0.11, -0.09 - Math.sin(i) * 0.01, -0.6, 0, (i - 2.5) * 0.3));
+  p.push(...face({ y: 0.07, z: 0.11, sep: 0.026, r: 0.016, cheek: '#ff9fb8', zAt: ellZ(0.075, 0.058, 0.12, 0.058) }));
+  return merge(p);
+}
 
 function octo(c1: string, c2: string, c3: string, s: number): Geo {
   const p: Geo[] = [];
@@ -308,8 +473,21 @@ function octo(c1: string, c2: string, c3: string, s: number): Geo {
   return g;
 }
 
-function seahorse(c1: string, c2: string, c3: string): Geo {
+function seahorse(c1: string, c2: string, c3: string, leafy = false): Geo {
   const p: Geo[] = [];
+  if (leafy) {
+    // 나뭇잎해룡: 몸·머리 곳곳에 잎 모양 튜브(leaf-tubes)
+    const leaves: Array<[number, number, number, number, number]> = [
+      [0.07, 0.36, -0.02, 0.9, 0.3], [-0.07, 0.34, -0.03, -0.9, 0.2], [0.06, 0.24, -0.06, 1.1, -0.2], [-0.06, 0.22, -0.05, -1.1, -0.3],
+      [0.0, 0.42, -0.1, 0.1, 1.2], [0.05, 0.53, -0.02, 0.6, 0.6], [-0.05, 0.53, -0.02, -0.6, 0.6], [0.04, 0.12, -0.1, 0.7, -0.9],
+      [-0.05, 0.1, -0.07, -0.8, -0.8], [0.0, 0.3, -0.11, 0, 1.4],
+    ];
+    for (const [x, y, z, rz, rx] of leaves) {
+      p.push(at(paint(cyl(0.006, 0.008, 0.07, 6), '#9bb35a'), x * 0.7, y, z * 0.8, rx * 0.5, 0, rz * 0.6));
+      p.push(at(paint(ell(0.045, 0.012, 0.03, 14, 8), '#c8ff5a', '#a8e06a'), x * 1.25, y + 0.025, z * 1.3, rx * 0.4, 0, rz));
+      p.push(at(paint(ell(0.018, 0.008, 0.012, 10, 6), '#ffd84a'), x * 1.55, y + 0.035, z * 1.5, rx * 0.4, 0, rz));
+    }
+  }
   p.push(at(paint(ell(0.08, 0.13, 0.085), c1, c2), 0, 0.3, 0, 0.15, 0, 0));
   p.push(at(paint(ell(0.06, 0.1, 0.03), c3), 0, 0.3, 0.06, 0.15, 0, 0));
   for (let i = 0; i < 5; i++) p.push(at(paint(torus(0.075 - i * 0.006, 0.008, 6, 20).rotateX(PI / 2), c2), 0, 0.22 + i * 0.04, -0.005));
@@ -399,7 +577,8 @@ const cache = new Map<string, Geo>();
 export function seaModel(key: string): Geo {
   let g = cache.get(key);
   if (!g) {
-    g = (builders[key] ?? builders.starfish)();
+    const b = builders[key] ?? builders.starfish;
+    g = withEyeMarkers(b);
     g.userData.shared = true;
     cache.set(key, g);
   }

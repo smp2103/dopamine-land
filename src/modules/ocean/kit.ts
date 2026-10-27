@@ -98,13 +98,80 @@ function mergeVerts(g: Geo): Geo {
   return o;
 }
 
-/** 칠한 부품들을 하나로 */
+/** 칠한 부품들을 하나로. 눈 표식(eyeMarker)은 넓이 0 삼각형으로 끝까지 따라가고, 자리를 userData.eyeMarks 에 적는다 */
 export function merge(parts: Geo[]): Geo {
-  const g = mergeGeometries(parts.map(prepKeepColor), false)!;
+  const prepped = parts.map(prepKeepColor);
+  const marks: EyeMark[] = [];
+  let off = 0;
+  for (const g of prepped) {
+    const side = g.userData.eyeMarker as 'L' | 'R' | undefined;
+    if (side) marks.push({ side, start: off });
+    off += g.attributes.position.count;
+  }
+  const g = mergeGeometries(prepped, false)!;
   g.computeBoundingSphere();
   g.computeBoundingBox();
   g.userData.shared = true;
+  if (marks.length) g.userData.eyeMarks = marks;
   return g;
+}
+
+/** 좌우 뒤집은 사본(비색인) — 삼각형 감기도 되돌려 앞면이 그대로 보인다(인스턴스는 음수 배율을 못 뒤집는다) */
+export function mirrorX(src: Geo): Geo {
+  const g = (src.index ? src.toNonIndexed() : src.clone());
+  g.scale(-1, 1, 1);
+  for (const name of Object.keys(g.attributes)) {
+    const at = g.attributes[name] as THREE.BufferAttribute;
+    const n = at.itemSize, arr = at.array as Float32Array;
+    for (let t = 0; t + 2 < at.count; t += 3) {
+      for (let k = 0; k < n; k++) { const i1 = (t + 1) * n + k, i2 = (t + 2) * n + k; const v = arr[i1]; arr[i1] = arr[i2]; arr[i2] = v; }
+    }
+    at.needsUpdate = true;
+  }
+  g.computeBoundingSphere();
+  g.userData.shared = true;
+  return g;
+}
+
+// ───────── 눈 표식(계약 v2: 눈·볼은 art.ts 로 붙인다) ─────────
+/** 합친 지오메트리 안 눈 표식 자리(정점 6개: c,c,c+위·r, c,c,c+앞·r) */
+export interface EyeMark { side: 'L' | 'R'; start: number }
+let markEyes = false;
+/**
+ * 이 안에서 만든 face()·eyeMarker 는 눈·볼을 굽지 않고 표식만 남긴다(입은 그대로 굽는다).
+ * 표식은 넓이 0 삼각형이라 그려지지 않고, 부품을 옮기고 돌리고 키운 그대로 따라온다.
+ */
+export function withEyeMarkers<T>(fn: () => T): T {
+  const prev = markEyes;
+  markEyes = true;
+  try { return fn(); } finally { markEyes = prev; }
+}
+export const markingEyes = () => markEyes;
+
+/** 눈 하나 자리 표식(c = 눈 가운데, r = 눈 세로 반지름, 앞 = +Z) */
+export function eyeMarker(x: number, y: number, z: number, r: number, side: 'L' | 'R', fwd = new THREE.Vector3(0, 0, 1)): Geo {
+  const f = fwd.clone().normalize().multiplyScalar(r);
+  const v = [x, y, z, x, y, z, x, y + r, z, x, y, z, x, y, z, x + f.x, y + f.y, z + f.z];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(18).fill(0), 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(new Array(18).fill(1), 3));
+  g.userData.eyeMarker = side;
+  return g;
+}
+
+/** 눈 표식 → 눈 자리(가운데·반지름·바라보는 쪽·위쪽) */
+export interface EyeFrame { side: 'L' | 'R'; c: THREE.Vector3; r: number; n: THREE.Vector3; up: THREE.Vector3 }
+export function eyeFrames(g: Geo): EyeFrame[] {
+  const marks = (g.userData.eyeMarks as EyeMark[] | undefined) ?? [];
+  const pos = g.attributes.position;
+  const v = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, i);
+  return marks.map((m) => {
+    const c = v(m.start);
+    const up = v(m.start + 2).sub(c);
+    const n = v(m.start + 5).sub(c);
+    return { side: m.side, c, r: up.length(), n: n.normalize(), up: up.normalize() };
+  });
 }
 function prepKeepColor(g: Geo): Geo {
   const n = g.index ? g.toNonIndexed() : g;
@@ -124,6 +191,8 @@ export function face(o: {
   for (const s of [-1, 1]) {
     const ex = cx + s * o.sep, ey = o.y;
     const ez = zAt(ex, ey);
+    // 표식 모드: 눈·하이라이트·볼은 art.ts 가 붙인다
+    if (markEyes) { out.push(eyeMarker(ex, ey, ez + r * 0.2, r, s < 0 ? 'L' : 'R')); continue; }
     out.push(at(paint(ell(r * 0.78, r, r * 0.5, 16, 12), o.eye ?? '#3a2a3e', o.eye ?? '#1e1424'), ex, ey, ez));
     out.push(at(paint(sph(r * 0.34, 12, 10), '#ffffff'), ex - r * 0.22, ey + r * 0.38, ez + r * 0.38));
     out.push(at(paint(sph(r * 0.15, 10, 8), '#ffffff'), ex + r * 0.26, ey - r * 0.34, ez + r * 0.4));

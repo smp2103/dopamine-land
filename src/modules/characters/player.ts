@@ -1,10 +1,19 @@
 // 플레이어(동숲 주민 사람): 키 ≈1.3 m, 2.5등신, 그림 얼굴, 반팔 티 + 반바지.
 // 관절(엉덩이·어깨·다리) 피벗이 있어 걷기·달리기·점프·활공·수영·잠수·탑승·동작 포즈를 잡는다.
+// 동작(game.player.action, 계약 v2 3장): fish cast reel net dig shake chop hit pick pet hold cheer stung sit sleep eat wave photo plant water peace.
+// 들어 올리기(hold)·만세(cheer) 땐 '> <' 눈 + 진한 볼(GDD 7.2), 벌에 쏘이면(stung) 볼이 퉁퉁 + 머리 위 어질어질 별.
+// 부수효과 없는 빌더(다른 모듈이 buildPlayer 를 import 해도 된다).
 import * as THREE from 'three';
 import { ellipsoid, lathe, capsule, hairCap, taperTube } from './geo';
-import { teeTexture } from './tex';
+import { teeTexture, bubbleTexture } from './tex';
 import { skinMat, clothMat, glossMat, mesh, faceHead, blinkClosed, mergeByMaterial } from './kit';
-import { buildGlider, buildRod, buildNet, buildShovel } from './gear';
+import { buildGlider, buildRod, buildNet, buildShovel, buildAxe, buildHammer, buildCan, buildCamera, buildSnack, buildSprout } from './gear';
+
+/** 아바타가 잡을 수 있는 동작 포즈 */
+export const PLAYER_POSES = [
+  'fish', 'cast', 'reel', 'net', 'dig', 'shake', 'chop', 'hit', 'pick', 'pet', 'hold',
+  'cheer', 'stung', 'sit', 'sleep', 'eat', 'wave', 'photo', 'plant', 'water', 'peace',
+] as const;
 
 const SKIN = '#ffd4b4';
 const HAIR = '#784a2e';
@@ -154,7 +163,57 @@ export function buildPlayer(): PlayerRig {
   const rod = buildRod();
   const net = buildNet();
   const shovel = buildShovel();
-  for (const tool of [rod.root, net, shovel]) { tool.visible = false; hands[0].add(tool); }
+  const axe = buildAxe();
+  const hammer = buildHammer();
+  const can = buildCan();
+  const camTool = buildCamera();
+  const snack = buildSnack();
+  const sprout = buildSprout();
+  // 브이(✌): 오른손에서 뻗는 손가락 두 개
+  const vsign = new THREE.Group();
+  for (const sg of [-1, 1]) {
+    const f = mesh(capsule(0.016, 0.06), skin, sg * 0.018, -0.06, 0.01);
+    f.rotation.z = sg * 0.28;
+    vsign.add(f);
+  }
+  vsign.rotation.x = Math.PI;
+  const tools = [rod.root, net, shovel, axe, hammer, can, camTool, snack, sprout, vsign];
+  for (const tool of tools) { tool.visible = false; hands[0].add(tool); }
+
+  // 벌에 쏘인 볼(퉁퉁) — 얼굴 양옆, 처음엔 0 크기
+  const puffM = skinMat('#ffb9b0');
+  const puffs: THREE.Mesh[] = [];
+  for (const m of [-1, 1]) {
+    const pf = mesh(ellipsoid(0.09, 0.075, 0.07, 28, 18), puffM, m * RX * 0.66, -0.13, RZ * 0.66);
+    pf.scale.setScalar(0.001);
+    pf.castShadow = false;
+    head.add(pf);
+    puffs.push(pf);
+  }
+  // 어질어질 별 세 개(머리 위를 빙글빙글)
+  const starShape = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 - Math.PI / 2, r = i % 2 ? 0.022 : 0.05;
+    if (i) starShape.lineTo(Math.cos(a) * r, Math.sin(a) * r); else starShape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  const starGeo = new THREE.ExtrudeGeometry(starShape, { depth: 0.018, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 2 });
+  starGeo.center();
+  const starM = new THREE.MeshStandardMaterial({ color: '#ffd84a', emissive: '#ffcf4a', emissiveIntensity: 0.6, roughness: 0.4 });
+  const dizzy = new THREE.Group();
+  dizzy.position.set(0, RY * 1.25, 0);
+  dizzy.visible = false;
+  for (let i = 0; i < 3; i++) {
+    const st = new THREE.Mesh(starGeo, starM);
+    st.position.set(Math.cos((i / 3) * Math.PI * 2) * 0.24, 0, Math.sin((i / 3) * Math.PI * 2) * 0.24);
+    dizzy.add(st);
+  }
+  head.add(dizzy);
+  // 잘 때 머리 위 'Zzz'(스프라이트 — 늘 카메라를 본다)
+  const zzz = new THREE.Sprite(new THREE.SpriteMaterial({ map: bubbleTexture('zzz', 256), transparent: true, depthWrite: false }));
+  zzz.scale.setScalar(0.42);
+  zzz.position.set(0.22, 1.42, 0);
+  zzz.visible = false;
+  root.add(zzz);
   const glider = buildGlider();
   root.add(glider.root);
 
@@ -177,7 +236,7 @@ export function buildPlayer(): PlayerRig {
     poseY: 0, poseRX: 0, poseRZ: 0,
     armX: [0, 0], armZ: [-0.3, 0.3], armY: [0, 0],
     legX: [0, 0], legZ: [0, 0],
-    headRX: -0.12, headRZ: 0, lift: 0, hold: 0,
+    headRX: -0.12, headRZ: 0, lift: 0, hold: 0, puff: 0,
   };
 
   function animate(s0: PoseState) {
@@ -213,7 +272,14 @@ export function buildPlayer(): PlayerRig {
     let wantGlide = false;
     let lift = 0;
     let happy = false;
-    rod.root.visible = net.visible = shovel.visible = false;
+    /** '> <' 눈 + 진한 볼(들기·만세) */
+    let joy = false;
+    /** 눈 감기(잠·어질어질) */
+    let shut = false;
+    let puffW = 0;
+    for (const tool of tools) tool.visible = false;
+    dizzy.visible = false;
+    zzz.visible = false;
 
     if (s.mode === 'mounted') {
       // 앉은 자세: 다리 앞으로, 두 손은 앞(손잡이)
@@ -362,6 +428,189 @@ export function buildPlayer(): PlayerRig {
           poseY = 0.1 * hop + 0.012 * Math.abs(Math.sin(t * 6));
           legX[0] = -0.35 * hop; legX[1] = 0.25 * hop;
           happy = true;
+          joy = true;
+          break;
+        }
+        case 'cast': {
+          // 낚싯대 던지기: 머리 뒤로 젖혔다가 앞으로 휙
+          rod.root.visible = true;
+          const c = (t * 1.1) % 1;
+          const fw = c < 0.45 ? 1 - THREE.MathUtils.smoothstep(c, 0, 0.45) : THREE.MathUtils.smoothstep(c, 0.5, 0.62);
+          armX[0] = -2.7 + 1.75 * fw;
+          armZ[0] = -0.1;
+          armX[1] = -0.6; armZ[1] = 0.45;
+          poseRX = -0.08 + 0.2 * fw;
+          headRX = -0.18 + 0.1 * fw;
+          legX[0] = -0.2; legX[1] = 0.2;
+          rod.setTension(1 - fw);
+          break;
+        }
+        case 'reel': {
+          // 감기: 낚싯대를 세우고 왼손이 릴을 뱅글뱅글, 몸은 뒤로 버틴다
+          rod.root.visible = true;
+          const j = Math.sin(t * 15);
+          armX[0] = -1.35 + 0.08 * Math.sin(t * 9);
+          armZ[0] = 0.05; armY[0] = 0.12;
+          armX[1] = -1.05 + 0.18 * j; armZ[1] = -0.55 + 0.12 * Math.cos(t * 15);
+          poseRX = -0.12;
+          poseRZ = 0.03 * Math.sin(t * 9);
+          legX[0] = -0.3; legX[1] = 0.3;
+          headRX = -0.05;
+          rod.setTension(0.75 + 0.25 * Math.abs(Math.sin(t * 6)));
+          break;
+        }
+        case 'chop': {
+          // 도끼질: 어깨 너머로 들었다가 옆 앞으로 쿵
+          axe.visible = true;
+          const c = (t * 1.5) % 1;
+          const sw2 = c < 0.55 ? THREE.MathUtils.smoothstep(c, 0, 0.55) : 1 - THREE.MathUtils.smoothstep(c, 0.62, 1);
+          armX[0] = -2.55 + 1.8 * sw2;
+          armZ[0] = 0.1 + 0.35 * sw2;
+          armY[0] = -0.3 * sw2;
+          armX[1] = -1.2 + 0.6 * sw2; armZ[1] = -0.5;
+          poseRX = 0.04 + 0.2 * sw2;
+          poseRZ = -0.08 + 0.12 * sw2;
+          legX[0] = -0.3; legX[1] = 0.3;
+          headRX = -0.1 + 0.2 * sw2;
+          break;
+        }
+        case 'hit': {
+          // 뿅망치로 돌 두드리기: 위에서 아래로 콩! 콩!
+          hammer.visible = true;
+          const c = (t * 2.2) % 1;
+          const bonk = c < 0.3 ? THREE.MathUtils.smoothstep(c, 0, 0.3) : 1 - THREE.MathUtils.smoothstep(c, 0.4, 1);
+          armX[0] = -2.4 + 1.65 * bonk;
+          armZ[0] = 0.05;
+          armX[1] = -0.5; armZ[1] = 0.4;
+          poseRX = 0.06 + 0.18 * bonk;
+          poseY = -0.02 * bonk;
+          headRX = 0.05 + 0.12 * bonk;
+          break;
+        }
+        case 'pick': {
+          // 줍기·따기: 살짝 쪼그려 앞 아래로 손 뻗어 톡 당기기
+          const pull = Math.max(0, Math.sin(t * 4));
+          armX[0] = -1.25 + 0.35 * pull; armZ[0] = 0.12;
+          armX[1] = -0.6; armZ[1] = 0.25;
+          poseRX = 0.32;
+          poseY = -0.05;
+          legX[0] = -0.55; legX[1] = 0.15;
+          headRX = 0.2;
+          break;
+        }
+        case 'cheer': {
+          // 만세! 두 팔 번쩍 + 통통 뛰기 + '> <'
+          lift = 1;
+          const hopC = Math.abs(Math.sin(t * 6.5));
+          armX[0] = armX[1] = -2.7;
+          armZ[0] = -0.75 - 0.18 * Math.sin(t * 13); armZ[1] = 0.75 + 0.18 * Math.sin(t * 13);
+          poseY = 0.09 * hopC;
+          legX[0] = -0.35 * hopC; legX[1] = 0.2 * hopC;
+          headRX = -0.25;
+          headRZ = 0.08 * Math.sin(t * 6.5);
+          joy = true;
+          break;
+        }
+        case 'stung': {
+          // 벌에 쏘임: 두 손으로 볼을 감싸고 비틀비틀, 볼 퉁퉁 + 어질어질 별
+          const wob = Math.sin(t * 5);
+          armX[0] = armX[1] = -2.05;
+          armZ[0] = 0.85; armZ[1] = -0.85;
+          poseRZ = 0.09 * wob;
+          poseRX = 0.05 * Math.sin(t * 3.3);
+          headRZ = 0.16 * wob;
+          headRX = -0.05;
+          legX[0] = 0.15 * wob; legX[1] = -0.15 * wob;
+          puffW = 1;
+          shut = Math.sin(t * 1.7) > -0.6;
+          dizzy.visible = true;
+          break;
+        }
+        case 'sit': {
+          // 땅에 털썩 앉기: 엉덩이 바닥, 다리 앞으로 쭉, 손은 무릎 옆
+          poseY = -0.2;
+          legX[0] = legX[1] = -1.45;
+          legZ[0] = 0.08; legZ[1] = -0.08;
+          armX[0] = armX[1] = -0.35;
+          armZ[0] = -0.55; armZ[1] = 0.55;
+          poseRX = -0.06;
+          headRX = -0.1 + 0.04 * Math.sin(t * 1.2);
+          break;
+        }
+        case 'sleep': {
+          // 앉아서 꾸벅꾸벅 + Zzz
+          poseY = -0.2;
+          legX[0] = legX[1] = -1.45;
+          legZ[0] = 0.1; legZ[1] = -0.1;
+          armX[0] = armX[1] = -0.55;
+          armZ[0] = 0.15; armZ[1] = -0.15;
+          poseRX = 0.12 + 0.05 * Math.sin(t * 1.1);
+          headRX = 0.35 + 0.08 * Math.sin(t * 1.1);
+          headRZ = 0.22;
+          shut = true;
+          zzz.visible = true;
+          zzz.position.y = 1.32 + 0.05 * Math.sin(t * 1.6);
+          break;
+        }
+        case 'eat': {
+          // 주먹밥 냠냠: 오른손을 입으로, 씹을 때마다 머리 끄덕
+          snack.visible = true;
+          const chew = Math.sin(t * 9);
+          armX[0] = -2.25 + 0.12 * chew; armZ[0] = 0.62;
+          armX[1] = -0.55; armZ[1] = -0.2;
+          headRX = 0.05 + 0.04 * chew;
+          happy = true;
+          break;
+        }
+        case 'wave': {
+          // 손 흔들기(오른팔 높이 들고 좌우로)
+          armX[0] = -0.3;
+          armZ[0] = -(2.5 + 0.32 * Math.sin(t * 7));
+          headRZ = -0.08 + 0.05 * Math.sin(t * 3.5);
+          happy = Math.sin(t * 2) > 0;
+          break;
+        }
+        case 'photo': {
+          // 사진 찍기: 두 손으로 사진기를 눈앞에
+          camTool.visible = true;
+          armX[0] = armX[1] = -1.55;
+          armZ[0] = 0.42; armZ[1] = -0.42;
+          headRX = -0.05;
+          poseRX = 0.03;
+          break;
+        }
+        case 'plant': {
+          // 심기: 쪼그려 앉아 새싹을 땅에 톡
+          sprout.visible = true;
+          const pat = Math.max(0, Math.sin(t * 3));
+          poseY = -0.12;
+          poseRX = 0.38;
+          legX[0] = -1.0; legX[1] = -0.35;
+          armX[0] = -0.85 + 0.15 * pat; armZ[0] = 0.1;
+          armX[1] = -0.7; armZ[1] = -0.1;
+          headRX = 0.25;
+          break;
+        }
+        case 'water': {
+          // 물 주기: 물뿌리개를 앞으로 기울여 졸졸
+          can.visible = true;
+          armX[0] = -1.15 + 0.05 * Math.sin(t * 2); armZ[0] = 0.05; armY[0] = 0.15;
+          armX[1] = -0.4; armZ[1] = 0.35;
+          poseRX = 0.12;
+          headRX = 0.18;
+          can.rotation.x = 0.55 + 0.1 * Math.sin(t * 2);
+          break;
+        }
+        case 'peace': {
+          // 브이! 얼굴 옆에 손가락 두 개 + 고개 갸웃 + 반대 손은 허리에
+          vsign.visible = true;
+          lift = 0.5;
+          armX[0] = -2.3; armZ[0] = 0.28;
+          armX[1] = -0.2; armZ[1] = 0.75; armY[1] = 0.6;
+          headRZ = 0.2;
+          poseRZ = -0.05;
+          joy = Math.sin(t * 1.5) > -0.3;
+          happy = true;
           break;
         }
         default:
@@ -405,7 +654,21 @@ export function buildPlayer(): PlayerRig {
     glideOpen = lerp(glideOpen, wantGlide ? 1 : 0, gk);
     glider.setOpen(glideOpen, t);
 
-    face.setBlink(happy || blinkClosed(t, 3.6, 0.4));
+    // 볼 퉁퉁(벌): 톡 부풀었다가 살짝 출렁, 별은 머리 위를 돈다
+    cur.puff = lerp(cur.puff, puffW, snap ? 1 : 1 - Math.exp(-dt * 8));
+    const ps = Math.max(0.001, cur.puff * (1 + 0.06 * Math.sin(t * 7)));
+    for (const pf of puffs) pf.scale.setScalar(ps);
+    if (dizzy.visible) {
+      dizzy.rotation.y = t * 3.2;
+      dizzy.children.forEach((st, i) => { st.rotation.y = -t * 3.2; st.position.y = 0.03 * Math.sin(t * 6 + i * 2); });
+    }
+
+    // 표정: '> <'(들기·만세·브이) > 감은 눈(잠·쏘임) > 웃는 눈 > 깜빡임
+    if (joy) face.setMode('happy');
+    else {
+      face.setMode('open');
+      face.setBlink(shut || happy || blinkClosed(t, 3.6, 0.4));
+    }
     lastT = t;
   }
 

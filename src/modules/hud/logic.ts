@@ -176,7 +176,7 @@ export function keyCap(code: string): string {
 }
 
 /**
- * hud 가 거는 단축키(GDD 3.11): B 도감 · Tab 가방 · I 가방(옛 키) · Esc 닫기 · ` HUD 숨기기.
+ * hud 가 거는 단축키(GDD 3.11): B 도감 · Tab 가방 · I 가방(옛 키) · M 지도 · Esc 닫기 · ` HUD 숨기기.
  * panel '*' = 창이 열려 잠긴 동안에도 돈다(도감 ↔ 가방 바로 바꾸기, 같은 키로 닫기).
  * 그 밖의 잠금(낚시 미니게임 등) 중엔 창이 없으니 안 돈다.
  */
@@ -185,6 +185,7 @@ export const HUD_KEYS: readonly HudKeySpec[] = [
   { id: 'hud:dex', code: 'KeyB', label: '도감', hint: true, panel: '*', action: 'toggle', kind: 'dex' },
   { id: 'hud:bag', code: 'Tab', label: '가방', hint: true, panel: '*', action: 'toggle', kind: 'bag' },
   { id: 'hud:bag-legacy', code: 'KeyI', label: '가방', panel: '*', action: 'toggle', kind: 'bag' },
+  { id: 'hud:map', code: 'KeyM', label: '지도', hint: true, panel: '*', action: 'toggle', kind: 'map' },
   { id: 'hud:close', code: 'Escape', label: '닫기', panel: '*', action: 'close' },
   { id: 'hud:hide', code: 'Backquote', label: 'HUD 숨기기', action: 'hide' },
 ];
@@ -351,4 +352,227 @@ export class ToastDedupe {
     if (this.last.size > 40) for (const [k, v] of this.last) if (now - v > this.ms) this.last.delete(k);
     return true;
   }
+}
+
+// ───────────── 도감(wave 3B) — 칸 보기·합계 314·섬 칩·숙련 ─────────────
+/** 칸 하나를 그릴 때 필요한 전부(GDD 5.5): 상태 + 반짝이 무지개 별 + 왕관 개체 + 숙련 별 */
+export interface DexCellView { state: DexCellState; shiny: boolean; crown: boolean; star: 'silver' | 'gold' | null; mastery: number }
+export function dexCellView(rec: { count: number; variants?: Partial<Record<string, number>> } | null | undefined, mastery = 0): DexCellView {
+  const c = dexCell(rec);
+  return {
+    state: c.state, shiny: c.shiny, crown: (rec?.variants?.crown ?? 0) > 0,
+    star: c.state === 'gold' ? 'gold' : c.state === 'silver' ? 'silver' : null,
+    mastery: rec ? clampMastery(mastery) : 0,
+  };
+}
+/** 숙련 별 0..5(정수) — 이상한 값은 0 */
+export const clampMastery = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(5, Math.floor(v))) : 0);
+/** game.ext.meta?.mastery?.(id) 를 안전하게(없으면 0) */
+export function masteryOf(meta: unknown, id: string): number {
+  const f = (meta as { mastery?: unknown } | null | undefined)?.mastery;
+  if (typeof f !== 'function') return 0;
+  try { return clampMastery((f as (id: string) => unknown)(id)); } catch { return 0; }
+}
+
+/** 탭 모양(economy/data DexTab 에서 쓰는 것만) */
+export interface DexTabLike { id: string; slots: number; match(s: { category: string; tags?: string[] }): boolean }
+export interface DexTotals { got: number; registered: number; total: number; tabs: Record<string, { got: number; registered: number; slots: number }> }
+/**
+ * 도감 합계: 탭마다 칸 수 = max(등록된 종, 표의 칸 수) → 모두 더하면 314(GDD 5.5).
+ * 데이터가 덜 실려도 314칸 판은 그대로, 표보다 많이 실리면 실린 만큼.
+ */
+export function dexTotals(tabs: readonly DexTabLike[], species: Iterable<{ id: string; category: string; tags?: string[] }>, has: (id: string) => boolean): DexTotals {
+  const list = [...species];
+  const out: DexTotals = { got: 0, registered: 0, total: 0, tabs: {} };
+  for (const t of tabs) {
+    let reg = 0, got = 0;
+    for (const s of list) if (t.match(s)) { reg++; if (has(s.id)) got++; }
+    const slots = Math.max(reg, t.slots);
+    out.tabs[t.id] = { got, registered: reg, slots };
+    out.got += got; out.registered += reg; out.total += slots;
+  }
+  return out;
+}
+
+export interface IslandChip { island: string; got: number; total: number; pct: number; crown: boolean }
+/**
+ * 섬 필터 칩: 이 탭 종들의 where 에 나오는 섬만, order(섬 표 순서) 먼저 그다음 처음 보는 섬(달 등).
+ * 칩마다 그 섬 % 와 100% 왕관.
+ */
+export function dexIslandChips(species: Iterable<{ id: string; where?: Array<{ island?: string }> }>, has: (id: string) => boolean, order: readonly string[] = []): IslandChip[] {
+  const list = [...species];
+  const seen: string[] = [];
+  for (const s of list) for (const w of s.where ?? []) if (w.island && !seen.includes(w.island)) seen.push(w.island);
+  const ids = [...order.filter((i) => seen.includes(i)), ...seen.filter((i) => !order.includes(i))];
+  return ids.map((island) => ({ island, ...islandProgress(list, has, island) }));
+}
+
+/** 화석 골격 칸 진행: 조각(fos:<공룡>:<부위>) 중 모은 수. 골격 태그 fos:<공룡> */
+export function fossilProgress(skeleton: { tags?: string[] }, species: Iterable<{ id: string; tags?: string[] }>, has: (id: string) => boolean): { have: number; total: number } | null {
+  const tag = skeleton.tags?.find((t) => /^fos:[^:]+$/.test(t));
+  if (!tag) return null;
+  let have = 0, total = 0;
+  for (const s of species) {
+    if (!s.tags?.some((t) => t.startsWith(tag + ':'))) continue;
+    total++;
+    if (has(s.id)) have++;
+  }
+  return total ? { have, total } : null;
+}
+
+// ───────────── 가방 열린 자리(팔기·기증 버튼은 상점·박물관에서만) ─────────────
+export type BagMode = { from: 'shop'; shop: string } | { from: 'museum' } | { from: null };
+/** 가방 창 인자 → 어디서 열었나. {from:'shop', shop} / {from:'museum'} 만 버튼이 붙는다 */
+export function bagModeOf(arg: unknown): BagMode {
+  const a = arg as { from?: unknown; shop?: unknown } | null | undefined;
+  if (a && a.from === 'shop') return { from: 'shop', shop: typeof a.shop === 'string' && a.shop ? a.shop : 'quack' };
+  if (a && a.from === 'museum') return { from: 'museum' };
+  return { from: null };
+}
+/** 지금 열린 창에서 가방(Tab)을 열 때 넘길 인자 — 가게(팔 수 있는 곳)·박물관이면 그 자리, 아니면 없음 */
+export function bagArgFrom(open: { kind: string; arg: unknown } | null | undefined): BagMode | undefined {
+  if (!open) return undefined;
+  if (open.kind === 'shop') { const shop = shopOfArg(open.arg); return shopInfo(shop).sell ? { from: 'shop', shop } : undefined; }
+  if (open.kind === 'museum') return { from: 'museum' };
+  if (open.kind === 'bag') { const m = bagModeOf(open.arg); return m.from ? m : undefined; }
+  return undefined;
+}
+
+// ───────────── 다 팔기 ─────────────
+/** 다 팔기 후보 한 칸 */
+export interface SellEntry { key: string; n: number; sellable: boolean; creature: boolean; junk: boolean; donatable: boolean }
+export interface SellPlan { all: string[]; partial: Array<{ key: string; n: number }>; kept: Array<{ key: string; why: 'precious' | 'donate' }> }
+/** 반짝이·왕관은 소중해서 다 팔기에서 뺀다 */
+export const PRECIOUS = new Set(['shiny', 'crown']);
+/**
+ * 다 팔기 계획(econ.sellAll 기본 규칙 = 생물 + 쓰레기): 못 파는 것·재료는 그대로,
+ * 반짝이·왕관은 남기고, 아직 기증 안 한 생물은 한 마리 남긴다(여러 마리면 나머지만 판다).
+ * all → econ.sellAll(all, shop), partial → econ.sell(key, n, shop).
+ */
+export function sellAllPlan(entries: readonly SellEntry[], o: { keepPrecious?: boolean; keepDonate?: boolean } = {}): SellPlan {
+  const plan: SellPlan = { all: [], partial: [], kept: [] };
+  for (const e of entries) {
+    if (e.n <= 0 || !e.sellable || !(e.creature || e.junk)) continue;
+    const v = splitVariant(e.key).variant;
+    if ((o.keepPrecious ?? true) && v && PRECIOUS.has(v)) { plan.kept.push({ key: e.key, why: 'precious' }); continue; }
+    if ((o.keepDonate ?? true) && e.creature && e.donatable) {
+      plan.kept.push({ key: e.key, why: 'donate' });
+      if (e.n > 1) plan.partial.push({ key: e.key, n: e.n - 1 });
+      continue;
+    }
+    plan.all.push(e.key);
+  }
+  return plan;
+}
+/** 계획대로 팔면 받을 코인(미리 보기) */
+export const sellPlanTotal = (p: SellPlan, unit: (key: string) => number, count: (key: string) => number) =>
+  p.all.reduce((s, k) => s + unit(k) * count(k), 0) + p.partial.reduce((s, x) => s + unit(x.key) * x.n, 0);
+
+// ───────────── 지도·안개(fog of war) ─────────────
+/**
+ * 밝혀진 섬: geo.discovered(id) 인 섬 + 지금 서 있는 섬. geo 가 아직 없으면(옛 저장·worldterrain 없음) 다 밝힌다.
+ * 지도(M)와 미니맵이 같은 집합을 쓴다.
+ */
+export function fogSet(islandIds: readonly string[], discovered: ((id: string) => boolean) | null | undefined, here: string | null | undefined): Set<string> {
+  if (typeof discovered !== 'function') return new Set(islandIds);
+  const out = new Set<string>();
+  for (const id of islandIds) {
+    let d = false;
+    try { d = !!discovered(id); } catch { d = false; }
+    if (d || id === here) out.add(id);
+  }
+  return out;
+}
+/** 지도 맞추기: 세계 사각형 → W×H 캔버스(가운데 정렬, 여백 pad). toPx / toWorld */
+export function fitMap(b: { minX: number; maxX: number; minZ: number; maxZ: number }, W: number, H: number, pad = 16) {
+  const s = Math.min((W - pad * 2) / (b.maxX - b.minX), (H - pad * 2) / (b.maxZ - b.minZ));
+  const ox = W / 2 - ((b.minX + b.maxX) / 2) * s, oy = H / 2 - ((b.minZ + b.maxZ) / 2) * s;
+  return {
+    s,
+    toPx: (x: number, z: number): [number, number] => [ox + x * s, oy + z * s],
+    toWorld: (px: number, py: number): [number, number] => [(px - ox) / s, (py - oy) / s],
+  };
+}
+
+// ───────────── 썸네일 큐(한 프레임에 하나씩) ─────────────
+/** 썸네일 품질: generic = 코드 기본 모양, model = 실제 잡은 모델 */
+export type ThumbSrc = 'generic' | 'model';
+/**
+ * 썸네일 큐: id 마다 결과 하나를 캐시하고, pump 한 번에 budget(기본 1)개만 그린다(프레임 나눠 갚기).
+ * 같은 id 는 한 번만 줄 서고, 실제 모델(model)이 오면 기본 모양(generic) 결과를 덮어쓴다(줄에 있으면 일감만 바꾼다).
+ */
+export class ThumbQueue<J> {
+  private cache = new Map<string, { url: string | null; src: ThumbSrc }>();
+  private q: Array<{ id: string; job: J; src: ThumbSrc }> = [];
+  private queued = new Map<string, { id: string; job: J; src: ThumbSrc }>();
+  /** 지금까지 그린 수(디버그) */
+  drawn = 0;
+  constructor(private max = 600) {}
+  /** 캐시된 url(없으면 undefined, 그리다 실패했으면 null) */
+  get(id: string): string | null | undefined { return this.cache.get(id)?.url; }
+  srcOf(id: string): ThumbSrc | undefined { return this.cache.get(id)?.src; }
+  has(id: string) { return this.cache.has(id); }
+  isQueued(id: string) { return this.queued.has(id); }
+  /** 줄 세우기 — 이미 같은 품질 이상이 있거나 줄에 있으면 false(모델이면 줄의 일감을 바꿔 끼운다) */
+  request(id: string, job: J, src: ThumbSrc = 'generic'): boolean {
+    const have = this.cache.get(id);
+    if (have && (have.src === 'model' || src === 'generic')) return false;
+    const q = this.queued.get(id);
+    if (q) {
+      if (src === 'model' && q.src === 'generic') { q.job = job; q.src = 'model'; return true; }
+      return false;
+    }
+    const item = { id, job, src };
+    // 실제 모델은 앞에(방금 잡은 것부터 보이게)
+    if (src === 'model') this.q.unshift(item); else this.q.push(item);
+    this.queued.set(id, item);
+    return true;
+  }
+  /** 밖에서 받은 결과(저장소에서 읽은 것 등)를 넣는다 */
+  put(id: string, url: string | null, src: ThumbSrc) {
+    const have = this.cache.get(id);
+    if (have && have.src === 'model' && src === 'generic') return;
+    this.cache.set(id, { url, src });
+    const q = this.queued.get(id);
+    if (q && (src === 'model' || q.src === 'generic')) {
+      this.queued.delete(id);
+      const i = this.q.indexOf(q);
+      if (i >= 0) this.q.splice(i, 1);
+    }
+    this.trim();
+  }
+  /** budget 개만 그린다. 그린 id 목록 */
+  pump(render: (id: string, job: J, src: ThumbSrc) => string | null, budget = 1): string[] {
+    const done: string[] = [];
+    while (done.length < budget && this.q.length) {
+      const it = this.q.shift()!;
+      this.queued.delete(it.id);
+      let url: string | null = null;
+      try { url = render(it.id, it.job, it.src); } catch { url = null; }
+      // 실제 모델이 실패하면(복제 못 하는 모델 등) 비워 둬서 기본 모양이 대신 그려지게 한다
+      if (url === null && it.src === 'model') { if (this.cache.get(it.id)?.src !== 'generic') this.cache.delete(it.id); }
+      else this.cache.set(it.id, { url, src: it.src });
+      this.drawn++;
+      done.push(it.id);
+    }
+    this.trim();
+    return done;
+  }
+  pending(): number { return this.q.length; }
+  /** 줄 비우기(품질을 낮췄을 때) — 버린 일감 */
+  drain(): J[] { const jobs = this.q.map((x) => x.job); this.q = []; this.queued.clear(); return jobs; }
+  clear() { this.cache.clear(); this.drain(); }
+  private trim() {
+    while (this.cache.size > this.max) { const k = this.cache.keys().next().value as string; this.cache.delete(k); }
+  }
+}
+
+/** 선형 → sRGB 8비트 표(렌더 타깃은 선형이라 읽은 뒤 바꾼다) */
+export function srgbLut(): Uint8ClampedArray {
+  const lut = new Uint8ClampedArray(256);
+  for (let i = 0; i < 256; i++) {
+    const c = i / 255;
+    lut[i] = Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 255);
+  }
+  return lut;
 }

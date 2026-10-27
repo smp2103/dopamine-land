@@ -1,7 +1,7 @@
 // 곤충 자리: 꽃 무더기 · 나무 그루터기 · 이끼 바위. 청크 하나의 자리들을 정점색 한 메시로 합친다(draw call 1).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { BugIsland } from './data';
+import type { BugIsland, BugSpot } from './data';
 
 let PERCH_MAT: THREE.MeshPhysicalMaterial | null = null;
 export function perchMat() {
@@ -98,6 +98,11 @@ export interface Anchor {
   up: THREE.Vector3;
   /** 머리 방향 */
   fwd: THREE.Vector3;
+}
+
+/** 서식 자리 → 그릴 자리 모양(꽃·나무·바위). 땅·물·하늘 곤충은 자리 없이 그냥 둔다 */
+export function perchFor(spot: BugSpot): PerchSpot['type'] | null {
+  return spot === 'flower' || spot === 'tree' || spot === 'rock' ? spot : null;
 }
 
 /** 자리를 bag 에 그리고, 곤충이 앉을 곳을 돌려준다 */

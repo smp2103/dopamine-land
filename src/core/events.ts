@@ -76,6 +76,8 @@ export type BefriendEvent = Ev<'befriend', { id: string; hearts: number; kind: '
 export type GiftEvent = Ev<'gift', { npc: string; item: string; delta: number }>;
 /** ★4 잡기 — 근처 주민이 박수 */
 export type ClapEvent = Ev<'clap', { x: number; z: number }>;
+/** 큰 발견 팡파레(hudfx) — 섬·명소를 처음 찾았을 때 */
+export type FanfareEvent = Ev<'fanfare', { kind: 'discover'; place: string; name: string; island?: string | null }>;
 
 // ── 세상·이동
 export type DiscoverEvent = Ev<'discover', { place: string; name: string; kind: 'island' | 'landmark' | 'islet' }>;
@@ -126,7 +128,7 @@ export type KnownEvent =
   | BagFullEvent | KeysEvent | EnvEvent | DayEvent | TodEvent | WeatherEvent
   | CatchEvent | CatchFailEvent | HarvestEvent
   | TreeShakeEvent | RockHitEvent | BeehiveEvent | StungEvent
-  | NpcTalkEvent | BefriendEvent | GiftEvent | ClapEvent
+  | NpcTalkEvent | BefriendEvent | GiftEvent | ClapEvent | FanfareEvent
   | DiscoverEvent | MountEvent | DismountEvent | SummonEvent | LaunchWaveEvent | LaunchEvent | ArriveEvent
   | SwimRescueEvent | OxygenOutEvent
   | OpenPanelEvent | OpenShipyardEvent | UiOpenEvent | UiCloseEvent

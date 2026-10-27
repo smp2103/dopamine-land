@@ -1,6 +1,7 @@
 // HUD 렌더러(계약 v2 5장 HudRenderer) — game.hud 레지스트리가 부르는 실제 그리기.
 // 창(등록 패널 무엇이든) · 왼쪽 위 칩 칸 · 지갑 · 키 안내 · 행동 안내 칩 · 배너/카드 큐 · 게이지 · 지역 이름 · 미니맵(+등록 지도 층)
 // · 잡았다/상자/대화/토스트. 무엇을 열지·언제 닫을지는 레지스트리가 정하고, 여기는 그리기만 한다.
+// 미니맵은 큰 지도(M)와 같은 안개(fogSet)·같은 섬 모양(IslandShapes)을 쓴다. 잡았다 연출의 모델은 썸네일 큐로 복제해 보낸다.
 import type { Ctx } from '../../core/types';
 import type { Game } from '../../core/game';
 import type { BannerOpts, CardOpts, ChipDef, GaugeOpts, HotkeyDef, HudHelpers, HudRenderer, MapLayerDef, PanelCtx, PanelDef, ToPx } from '../../core/api';
@@ -12,7 +13,10 @@ import {
   comboText, comboVisible, type HudTab, type PromptChip, type BannerItem, type CardItem,
 } from './logic';
 import type { Look } from './panels/common';
-import { PLANET_NAME } from './logic';
+import { PLANET_NAME, fogSet } from './logic';
+import type { Thumbs } from './thumbs';
+import type { IslandShapes } from './map';
+import { drawIsland, drawPin } from './map';
 
 const h = (html: string) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild as HTMLElement; };
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -67,6 +71,9 @@ export class HudView implements HudRenderer {
   private rnd: () => number;
   private lastSlow = -1; private lastChip = -1;
   private readonly SHOT = new URLSearchParams(location.search).get('shot') === '1';
+  /** 모델 썸네일(hud.ts 가 붙인다) · 섬 모양(미니맵·큰 지도 공용) */
+  thumbs: Thumbs | null = null;
+  shapes: IslandShapes | null = null;
 
   constructor(private game: Game, private ctx: Ctx, private look: Look) {
     this.rnd = ctx.rng('hud:confetti');
@@ -105,7 +112,24 @@ export class HudView implements HudRenderer {
       confetti: (el, colors, n) => this.confetti(el, colors, n),
       ico: (id) => look.ico(id), name: (id) => look.name(id), color: (id) => look.color(id),
       esc, fmt,
+      thumb: (id) => this.thumbs?.get(id) ?? null,
     };
+  }
+
+  /** 썸네일이 다 그려지면 기다리던 칸(data-th)을 그림으로 바꿔 끼운다 */
+  attachThumbs(t: Thumbs) {
+    this.thumbs = t;
+    t.onReady((ids) => {
+      for (const id of ids) {
+        const url = t.get(id);
+        if (!url) continue;
+        this.root.querySelectorAll<HTMLElement>(`[data-th="${CSS.escape(id)}"]`).forEach((el) => {
+          const img = document.createElement('img');
+          img.className = 'th pop'; img.src = url; img.alt = ''; img.draggable = false;
+          el.replaceWith(img);
+        });
+      }
+    });
   }
 
   // ───────────── 창(패널) ─────────────
@@ -339,17 +363,23 @@ export class HudView implements HudRenderer {
     fan.addColorStop(0, '#ffffffaa'); fan.addColorStop(1, '#ffffff00');
     g2.fillStyle = fan; g2.beginPath(); g2.moveTo(0, 0); g2.arc(0, 0, 120, -Math.PI / 2 - 0.55, -Math.PI / 2 + 0.55); g2.closePath(); g2.fill();
     g2.restore();
+    // 섬: 가 본 곳은 제 색, 안 가 본 곳은 안개 실루엣(큰 지도와 같은 집합)
+    const here = this.curIsland ?? null;
+    const lit = fogSet(this.ctx.island.ISLANDS.map((d) => d.id), game.geo?.discovered ? (id) => game.geo!.discovered(id) : null, here);
     for (const d of this.ctx.island.ISLANDS) {
-      const [x, y] = toPx(d.x, d.z), r = Math.max(6, d.r * s);
-      if (x < -r - 10 || y < -r - 10 || x > W + r + 10 || y > W + r + 10) continue;
-      const look = ISLAND_LOOK[d.theme] ?? ISLAND_LOOK.islet;
-      g2.fillStyle = '#fff6d8';
-      g2.beginPath(); g2.arc(x, y, r + 5, 0, Math.PI * 2); g2.fill();
-      const gr = g2.createRadialGradient(x - r * 0.3, y - r * 0.3, 1, x, y, r);
-      gr.addColorStop(0, '#ffffffaa'); gr.addColorStop(0.35, look.color); gr.addColorStop(1, look.color);
-      g2.fillStyle = gr;
-      g2.beginPath(); g2.arc(x, y, r, 0, Math.PI * 2); g2.fill();
-      if (d.theme === 'islet') { g2.fillStyle = '#c98a2b'; g2.font = '20px Jua'; g2.textAlign = 'center'; g2.textBaseline = 'alphabetic'; g2.fillText('✦', x, y + 7); }
+      drawIsland(g2, d, toPx, s, lit.has(d.id), this.shapes, { minR: d.theme === 'islet' ? 4 : 6 });
+      if (d.theme === 'islet' && lit.has(d.id)) {
+        const [x, y] = toPx(d.x, d.z);
+        if (x > -10 && y > -10 && x < W + 10 && y < W + 10) { g2.fillStyle = '#c98a2b'; g2.font = '20px Jua'; g2.textAlign = 'center'; g2.textBaseline = 'alphabetic'; g2.fillText('✦', x, y + 7); }
+      }
+    }
+    // 등대(켜졌으면 노란 빛) — 가 본 섬만
+    const V = game.ext?.village as { lighthouses?: Record<string, { x: number; z: number; lit: boolean }> } | undefined;
+    for (const [isl, lh] of Object.entries(V?.lighthouses ?? {})) {
+      if (!lit.has(isl)) continue;
+      const [x, y] = toPx(lh.x, lh.z);
+      if (x < -20 || y < -20 || x > W + 20 || y > W + 20) continue;
+      drawPin(g2, '🗼', x, y, 22, lh.lit ? { glow: '#ffe58acc' } : { dim: true });
     }
     this.drawLayers(toPx, s, 'earth');
     this.arrow(c, game.player.yaw, '#ff7a9a');
@@ -527,6 +557,9 @@ export class HudView implements HudRenderer {
     let price = 0;
     try { price = typeof E?.priceOf === 'function' ? E.priceOf(s.id, { variant: c.variant, size: c.size }) : 0; } catch { price = 0; }
     const witness = c.keep === false;
+    // 실제 모델로 썸네일(한 프레임 뒤 큐에서 그린다 — 복제본이라 들어 올린 모델엔 손대지 않는다)
+    // 반짝이·왕관·작은 개체는 색·모양이 달라 도감 대표 그림으로 굳히지 않는다(보통 개체만)
+    try { if (!c.variant) this.thumbs?.capture(s.id, c.model); } catch (e) { console.error('[hud] 썸네일 복제', e); }
     this.catchEl.style.setProperty('--rc', col);
     (this.catchEl.querySelector('.box') as HTMLElement).innerHTML = `<div class="got">${s.rarity >= 4 ? '대박! ' : ''}${witness ? '만났다!' : '잡았다!'}</div>
       <div class="nm">${esc(s.name)}</div>

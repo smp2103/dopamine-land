@@ -431,8 +431,10 @@ export default function build(ctx: Ctx) {
     if (full !== lastFull || wantEnv) { lastFull = full; engine.applyPreset(name, work, wantEnv); }
 
     // 6) 파티클·새·무지개·빛줄기·하늘 물건
-    for (const [k, l] of Object.entries(layers)) l.set(A[k as LayerName] ?? 0);
-    for (const [k, l] of Object.entries(puffs)) l.set(A[k as LayerName] ?? 0);
+    // 집·박물관 안에서는 비·눈·안개 알갱이를 끈다(카메라를 따라와 실내에 비가 내리지 않게)
+    const indoors = !!(game?.ext as { interiors?: { current?(): string | null } } | undefined)?.interiors?.current?.();
+    for (const [k, l] of Object.entries(layers)) l.set(indoors ? 0 : A[k as LayerName] ?? 0);
+    for (const [k, l] of Object.entries(puffs)) l.set(indoors ? 0 : A[k as LayerName] ?? 0);
     // 모래바람은 장면 빛을 받은 모래색으로(비조명 주황이 밤·노을에 튀지 않게)
     if (layers.sand.pts.visible) {
       const u = (layers.sand.pts.material as THREE.ShaderMaterial).uniforms;

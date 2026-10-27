@@ -7,6 +7,8 @@ export interface Model {
   root: THREE.Group;
   /** 아바타 발 위치(앉는 자리) */
   seat: THREE.Object3D;
+  /** 2인승 뒷자리(같이 탄 친구 — netplay 가 아바타를 붙인다) */
+  seat2?: THREE.Object3D;
   wheels: THREE.Object3D[];
   /** 프로펠러·페달처럼 도는 것 */
   spin: THREE.Object3D[];
@@ -16,10 +18,10 @@ export interface Model {
   tail: THREE.Vector3;
 }
 
-function seatAt(root: THREE.Object3D, x: number, y: number, z: number) {
+function seatAt(root: THREE.Object3D, x: number, y: number, z: number, name = 'seat') {
   const s = new THREE.Object3D();
   s.position.set(x, y, z);
-  s.name = 'seat';
+  s.name = name;
   root.add(s);
   return s;
 }
@@ -85,8 +87,11 @@ export function bike(frame = '#7fdcc8'): Model {
   // 받침대 + 뒤 짐받이
   part(root, tube([[0, 0.66, -0.3], [0, 0.66, -0.55]], 0.016), 'metal', '#eef2f8');
   part(root, rbox(0.22, 0.03, 0.26, 0.01, 2), 'paint', frame, [0, 0.69, -0.45]);
+  // 짐받이 위 뒷자리 방석(2인승)
+  part(root, bean(0.12, 0.05, 0.14, 0.4), 'soft', ['#ff9fbf', '#ffc6d8'], [0, 0.74, -0.46]);
   const seat = seatAt(root, 0, 0.5, -0.12);
-  return done({ root, seat, wheels, spin: [crank], bits: {}, tail: new THREE.Vector3(0, 0.05, -0.85) });
+  const seat2 = seatAt(root, 0, 0.56, -0.5, 'seat2');
+  return done({ root, seat, seat2, wheels, spin: [crank], bits: {}, tail: new THREE.Vector3(0, 0.05, -0.85) });
 }
 
 // ───────────── 스쿠터 ─────────────
@@ -159,8 +164,11 @@ export function kart(body = '#ff9cc0', accent = '#ffe27a'): Model {
   // 옆구리 숫자 동그라미
   for (const sx of [-1, 1]) part(root, cyl(0.17, 0.17, 0.02, 40), 'paint', '#ffffff', [sx * 0.66, 0.55, -0.05], [0, 0, Math.PI / 2], [1, 1, 1]);
   for (const sx of [-1, 1]) part(root, sphere(0.07, 24, 16), 'paint', accent, [sx * 0.675, 0.55, -0.05], [0, 0, 0], [0.3, 1, 1]);
+  // 뒤 짐칸 방석(2인승 뒷자리)
+  part(root, bean(0.3, 0.08, 0.2, 0.5), 'soft', ['#ffe27a', '#fff1b8'], [0, 0.86, -0.78]);
   const seat = seatAt(root, 0, 0.62, -0.2);
-  return done({ root, seat, wheels, spin: [], bits: { steer: wheel }, tail: new THREE.Vector3(0, 0.1, -1.2) });
+  const seat2 = seatAt(root, 0, 0.82, -0.8, 'seat2');
+  return done({ root, seat, seat2, wheels, spin: [], bits: { steer: wheel }, tail: new THREE.Vector3(0, 0.1, -1.2) });
 }
 
 // ───────────── 배 공용 선체 ─────────────
@@ -240,8 +248,11 @@ export function sailboat(): Model {
   part(root, ring, 'soft', null, [0.97, 0.15, -0.6], [0, Math.PI / 2, 0], [1, 1, 1]);
   // 뱃머리 얼굴
   face(root, [0, -0.02, 1.52], 0.95, { gap: 0.28, rotY: 0 });
+  // 뱃머리 쪽 방석(2인승 앞자리)
+  part(root, bean(0.3, 0.07, 0.26, 0.5), 'soft', ['#8fd3f4', '#cfeeff'], [0, 0.24, 0.85]);
   const seat = seatAt(root, 0, 0.2, -0.85);
-  return done({ root, seat, wheels: [], spin: [], bits: { sail }, tail: new THREE.Vector3(0, 0, -1.9) });
+  const seat2 = seatAt(root, 0, 0.22, 0.85, 'seat2');
+  return done({ root, seat, seat2, wheels: [], spin: [], bits: { sail }, tail: new THREE.Vector3(0, 0, -1.9) });
 }
 
 // ───────────── 모터보트 ─────────────
@@ -308,8 +319,24 @@ export function submarine(): Model {
   }
   // 바닥 스키
   for (const sx of [-1, 1]) part(root, capsule(0.05, 1.4), 'metal', '#c9d6e6', [sx * 0.45, 0.05, 0], [Math.PI / 2, 0, 0]);
+  // 로봇팔(배 아래 앞 — bits.arm 이 어깨, bits.claw 가 집게): 쉴 땐 접혀 있다
+  const arm = live(root, [0.42, yc - 0.55, 0.85], 'arm');
+  part(arm, sphere(0.12, 20, 14), 'metal', '#9fb3c8');
+  part(arm, capsule(0.06, 0.55), 'paint', '#ff8a5c', [0, 0, 0.34], [Math.PI / 2, 0, 0]);
+  const claw = live(arm, [0, 0, 0.7], 'claw');
+  part(claw, sphere(0.09, 18, 12), 'metal', '#9fb3c8');
+  for (const sx of [-1, 1]) part(claw, tube([[0, 0, 0], [sx * 0.1, 0, 0.12], [sx * 0.05, 0, 0.24]], 0.025, 12), 'metal', '#dfe6ee');
+  arm.rotation.x = 1.2;
+  // 서치라이트 자리(유리창 아래 큰 등)
+  part(root, cyl(0.14, 0.16, 0.12, 24), 'metal', '#ffe9a6', [0, yc - 0.6, 1.14], [Math.PI / 2 - 0.35, 0, 0]);
+  part(root, sphere(0.11, 20, 14), 'glow', '#fff3b0', [0, yc - 0.62, 1.2], [0, 0, 0], [1, 1, 0.5]);
+  const lamp = new THREE.Object3D();
+  lamp.name = 'lamp';
+  lamp.position.set(0, yc - 0.62, 1.24);
+  lamp.rotation.x = 0.35;
+  root.add(lamp);
   const seat = seatAt(root, 0, yc + 0.95, -0.2);
-  return done({ root, seat, wheels: [], spin: [prop], bits: {}, tail: new THREE.Vector3(0, yc, -1.9) });
+  return done({ root, seat, wheels: [], spin: [prop], bits: { arm, claw, lamp }, tail: new THREE.Vector3(0, yc, -1.9) });
 }
 
 // ───────────── 열기구 ─────────────
@@ -354,8 +381,10 @@ export function balloon(): Model {
     const a = (i / 4) * Math.PI * 2;
     part(root, bean(0.13, 0.17, 0.13), 'soft', '#e8d3ae', [Math.cos(a) * 0.82, 0.55, Math.sin(a) * 0.82]);
   }
-  const seat = seatAt(root, 0, 0.22, 0);
-  return done({ root, seat, wheels: [], spin: [], bits: { flame }, tail: new THREE.Vector3(0, 0, -1) });
+  // 바구니에 둘이 나란히
+  const seat = seatAt(root, -0.26, 0.22, 0);
+  const seat2 = seatAt(root, 0.28, 0.22, 0.02, 'seat2');
+  return done({ root, seat, seat2, wheels: [], spin: [], bits: { flame }, tail: new THREE.Vector3(0, 0, -1) });
 }
 
 // ───────────── 프로펠러 비행기 ─────────────

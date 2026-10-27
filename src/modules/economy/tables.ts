@@ -37,7 +37,9 @@ export type ShopId =
 
 export type ShopKind =
   | 'bait' | 'tool' | 'seed' | 'furniture' | 'vehicle' | 'bag' | 'recipe'
-  | 'capsule' | 'house' | 'licence' | 'invite' | 'wing' | 'rocket';
+  | 'capsule' | 'house' | 'licence' | 'invite' | 'wing' | 'rocket'
+  // wave 4(econ-p1) — 섬 상인 품목
+  | 'cosmetic' | 'potion' | 'skin' | 'goods';
 
 /** 상점 품목(4.5). P0 가격은 p0Cost 가 있으면 그것, 없으면 cost 의 각 수치 ceil(x/5) */
 export interface ShopItem {
@@ -63,7 +65,11 @@ export interface ShopItem {
   seq?: number;
   kind: ShopKind;
   desc: string;
-  /** P1 품목(오늘 밤엔 진열만) */
+  /**
+   * 아직 못 사는 품목(진열만 — canBuy 가 '준비 중'). P0·P1 모드 모두 막는다.
+   * wave 4 에서 캡슐·초대권·면허·요트·섬 가게가 모두 구현돼 지금은 이 표시가 붙은 줄이 없다(일부러 뗐다).
+   * P0 에서 숨기고 싶은 줄은 이것 말고 gate/p0Gate 로 막는다.
+   */
   p1?: true;
   /** @deprecated 예전 코드 호환 — cost.coins ?? 0 */
   price: number;
@@ -161,6 +167,10 @@ export const MATERIAL_TABLE: Material[] = [
   { id: 'it_letter', name: '주민 편지', price: 0, icon: '💌', color: '#ffe0e8', tags: ['misc'], noSell: true, desc: '읽으면 반짝별 3' },
   { id: 'it_blackbox', name: '블랙박스', price: 0, icon: '📦', color: '#c9c3d9', tags: ['misc'], noSell: true, desc: '추락한 탐사선의 기록' },
   { id: 'it_invite', name: '주민 초대권', price: 0, icon: '🎟️', color: '#ffe9b0', tags: ['misc'], noSell: true, desc: '새 주민을 섬으로 불러요' },
+  // 물약(물약 가게, P1) — 마시면(econ.use) 게임 분 단위 버프
+  { id: 'it_potion_star', name: '별빛 물약', price: 300, icon: '🧪', color: '#d9c8ff', tags: ['misc'], desc: '게임 20분 동안 ★4 이상 ×1.3' },
+  { id: 'it_potion_shimmer', name: '반짝 물약', price: 600, icon: '🫧', color: '#ffe0f4', tags: ['misc'], desc: '게임 30분 동안 반짝이 ×1.5' },
+  { id: 'it_potion_big', name: '쑥쑥 물약', price: 240, icon: '🍼', color: '#c8f0d0', tags: ['misc'], desc: '게임 20분 동안 큰 개체가 잘 잡혀요' },
 ];
 
 // ── 물건 이름표(상점·제작 결과) — v_* 는 넣지 않는다 ──────────────
@@ -254,6 +264,17 @@ export const GOODS_TABLE: Record<string, { name: string; icon: string }> = {
   f_astro_planetmobile: { name: '행성 모빌', icon: '🪐' },
   f_astro_telescope: { name: '반짝 망원경', icon: '🔭' },
   f_astro_rocketbed: { name: '로켓 침대', icon: '🚀' },
+  // 섬 상인 가구(wave 4)
+  f_beach_umbrella: { name: '줄무늬 파라솔', icon: '⛱️' },
+  f_shellchime: { name: '조개 풍경', icon: '🎐' },
+  f_magic_carpet: { name: '하늘 양탄자', icon: '🧞' },
+  f_genie_lamp: { name: '요술 램프', icon: '🪔' },
+  f_mochi_lamp: { name: '달떡 램프', icon: '🍡' },
+  f_moon_cushion: { name: '달님 방석', icon: '🌕' },
+  f_tireswing: { name: '타이어 그네', icon: '🛞' },
+  f_canlamp: { name: '깡통 랜턴', icon: '🥫' },
+  f_ufo_lamp: { name: 'UFO 램프', icon: '🛸' },
+  skin_helmet_2: { name: '떡방아 우주 헬멧', icon: '🪖' },
   // 공룡 친구 선물(dinos 가 category 'item' 종으로 등록)
   f_stego_plate: { name: '꽃 등판 장식', icon: '🌸' },
   f_dino_musicbox: { name: '뿌우 음악 상자', icon: '🎵' },
@@ -404,11 +425,11 @@ const QUACK: ShopRow[] = [
   { id: 'shop_f_chair', name: '말랑 의자', icon: '🪑', shop: 'quack', cost: { coins: 1200 }, gives: { f_pastelchair: 1 }, kind: 'furniture', desc: '앉으면 말랑' },
   { id: 'shop_f_clock', name: '조개 시계', icon: '🕰️', shop: 'quack', cost: { coins: 2400 }, gives: { f_shellclock: 1 }, kind: 'furniture', desc: '째깍째깍 바다 소리' },
   // 반짝별 품목(GDD 4.1)
-  { id: 'shop_capsule', name: '캡슐 티켓', icon: '🎫', shop: 'quack', cost: { stars: 20 }, gives: { it_capsule: 1 }, kind: 'capsule', desc: '두근두근 캡슐머신 1회', p1: true },
-  { id: 'shop_invite', name: '주민 초대권', icon: '🎟️', shop: 'quack', cost: { stars: 50 }, gives: { it_invite: 1 }, kind: 'invite', desc: '새 주민을 섬으로 불러요', p1: true },
-  { id: 'licence_scooter', name: '스쿠터 면허', icon: '🛵', shop: 'quack', cost: { stars: 30 }, unlock: 'licence:scooter', once: true, kind: 'licence', desc: '뽀릉뽀릉 스쿠터를 탈 수 있어요', p1: true },
-  { id: 'licence_kart', name: '꼬마 카트 면허', icon: '🏎️', shop: 'quack', cost: { stars: 50 }, unlock: 'licence:kart', once: true, kind: 'licence', desc: '부릉부릉 카트를 탈 수 있어요', p1: true },
-  { id: 'licence_balloon', name: '열기구 면허', icon: '🎈', shop: 'quack', cost: { stars: 300 }, unlock: 'v:balloon', gate: 'cond:balloon30', once: true, kind: 'licence', desc: '풍선 선물 30개 터뜨리면 살 수 있어요', p1: true },
+  { id: 'shop_capsule', name: '캡슐 티켓', icon: '🎫', shop: 'quack', cost: { stars: 20 }, gives: { it_capsule: 1 }, kind: 'capsule', desc: '두근두근 캡슐머신 1회'},
+  { id: 'shop_invite', name: '주민 초대권', icon: '🎟️', shop: 'quack', cost: { stars: 50 }, gives: { it_invite: 1 }, kind: 'invite', desc: '새 주민을 섬으로 불러요'},
+  { id: 'licence_scooter', name: '스쿠터 면허', icon: '🛵', shop: 'quack', cost: { stars: 30 }, unlock: 'licence:scooter', once: true, kind: 'licence', desc: '뽀릉뽀릉 스쿠터를 탈 수 있어요'},
+  { id: 'licence_kart', name: '꼬마 카트 면허', icon: '🏎️', shop: 'quack', cost: { stars: 50 }, unlock: 'licence:kart', once: true, kind: 'licence', desc: '부릉부릉 카트를 탈 수 있어요'},
+  { id: 'licence_balloon', name: '열기구 면허', icon: '🎈', shop: 'quack', cost: { stars: 300 }, unlock: 'v:balloon', gate: 'cond:balloon30', once: true, kind: 'licence', desc: '풍선 선물 30개 터뜨리면 살 수 있어요'},
   { id: 'shop_f_rainbowlamp', name: '무지개 램프', icon: '🌈', shop: 'quack', cost: { stars: 60 }, gives: { f_rainbowlamp: 1 }, kind: 'furniture', desc: '반짝별 특별 가구' },
   { id: 'shop_f_starthrone', name: '별빛 왕좌', icon: '👑', shop: 'quack', cost: { stars: 100 }, gives: { f_starthrone: 1 }, kind: 'furniture', desc: '반짝별 특별 가구' },
   // 박물관 증축(P0 에선 전부 열림)
@@ -421,7 +442,7 @@ const QUACK: ShopRow[] = [
 
 const SHIPYARD: ShopRow[] = [
   { id: 'shop_tugboat', name: '통통배', icon: '🚤', shop: 'shipyard', cost: { coins: 30000 }, p0Cost: { coins: 6000 }, unlock: 'v:tugboat', gate: 'cond:homeDex30', p0Gate: null, once: true, kind: 'vehicle', desc: '통통통! 배 위에서 낚시도 해요 (말랑섬 도감 30%)' },
-  { id: 'shop_yacht', name: '바람이 돛단요트', icon: '⛵', shop: 'shipyard', cost: { coins: 60000, items: { p_sail: 1 } }, unlock: 'v:yacht', gate: 'cond:islands3', once: true, kind: 'vehicle', desc: '바람 타고 슝 (섬 3곳 방문)', p1: true },
+  { id: 'shop_yacht', name: '바람이 돛단요트', icon: '⛵', shop: 'shipyard', cost: { coins: 60000, items: { p_sail: 1 } }, unlock: 'v:yacht', gate: 'cond:islands3', once: true, kind: 'vehicle', desc: '바람 타고 슝 (섬 3곳 방문)'},
   { id: 'shop_motorboat', name: '물보라 모터보트', icon: '🛥️', shop: 'shipyard', cost: { coins: 150000, items: { p_engine: 1 } }, p0Cost: { coins: 30000, items: { p_engine: 1 } }, unlock: 'v:motorboat', gate: 'cond:islands4', once: true, kind: 'vehicle', desc: '40 m/s 파도 점프! (섬 4곳 방문)' },
 ];
 
@@ -430,11 +451,104 @@ const PENG: ShopRow[] = [
   { id: 'shop_launchpad', name: '발사대 건설', icon: '🛰️', shop: 'peng', cost: { coins: 300000 }, p0Cost: { coins: 30000 }, unlock: 'rocket:pad', gate: 'cond:parts6', once: true, kind: 'rocket', desc: '로켓 부품 6개를 모으면 발사 준비 완료!' },
 ];
 
-// 다른 섬 가게(3.8 탈것 해금 — P1)
+// 다른 섬 가게(4.4·4.5 상인별 품목, 3.8 탈것 해금) — wave 4(econ-p1). 시세 보정은 merchants.ts
 const ISLAND_SHOPS: ShopRow[] = [
-  { id: 'shop_duck_tube', name: '오리튜브', icon: '🦆', shop: 'beach', cost: { coins: 1500 }, unlock: 'v:duck_tube', once: true, kind: 'vehicle', desc: '둥둥~ 수영 ×1.5', p1: true },
-  { id: 'shop_buggy', name: '모래 버기', icon: '🏜️', shop: 'bazaar', cost: { coins: 80000 }, unlock: 'v:buggy', once: true, kind: 'vehicle', desc: '모래 언덕 점프!', p1: true },
-  { id: 'shop_submarine', name: '꼬르륵호 잠수정', icon: '🟡', shop: 'diving', cost: { coins: 50000, items: { p_sub_hull: 1 } }, unlock: 'v:submarine', once: true, kind: 'vehicle', desc: '심해 탐험 (잠수정 선체 필요)', p1: true },
+  // 찰랑 해변 가게(산호빛섬 해변, 소라게)
+  { id: 'shop_duck_tube', name: '오리튜브', icon: '🦆', shop: 'beach', cost: { coins: 1500 }, unlock: 'v:duck_tube', once: true, kind: 'vehicle', desc: '둥둥~ 수영 ×1.5' },
+  { id: 'beach_sunglasses', name: '해변 선글라스', icon: '😎', shop: 'beach', cost: { coins: 1200 }, gives: { cos_sunglasses: 1 }, kind: 'cosmetic', desc: '눈부신 바다도 끄떡없어요' },
+  { id: 'beach_umbrella', name: '줄무늬 파라솔', icon: '⛱️', shop: 'beach', cost: { coins: 2000 }, gives: { f_beach_umbrella: 1 }, kind: 'furniture', desc: '마당에 그늘 한 조각' },
+  { id: 'beach_shellchime', name: '조개 풍경', icon: '🎐', shop: 'beach', cost: { coins: 1500 }, gives: { f_shellchime: 1 }, kind: 'furniture', desc: '바람 불면 찰랑찰랑' },
+  // 모래 바자르(모래시계섬 오아시스, 낙타 상인) — 곤충 ×1.3 · 물고기 ×0.9
+  { id: 'shop_buggy', name: '모래 버기', icon: '🏜️', shop: 'bazaar', cost: { coins: 80000 }, unlock: 'v:buggy', once: true, kind: 'vehicle', desc: '모래 언덕 점프!' },
+  { id: 'bazaar_carpet', name: '하늘 양탄자', icon: '🧞', shop: 'bazaar', cost: { coins: 6000 }, gives: { f_magic_carpet: 1 }, kind: 'furniture', desc: '살짝 떠 있는 러그' },
+  { id: 'bazaar_lamp', name: '요술 램프', icon: '🪔', shop: 'bazaar', cost: { coins: 4000 }, gives: { f_genie_lamp: 1 }, kind: 'furniture', desc: '문지르면 반짝 (소원은 안 들어줘요)' },
+  { id: 'bazaar_dates', name: '대추야자 ×5', icon: '🌴', shop: 'bazaar', cost: { coins: 600 }, gives: { m_date: 5 }, kind: 'goods', desc: '달콤한 사막 간식' },
+  // 뽀글 다이빙 숍(산호빛섬, 보들) — 바다 생물 ×1.1
+  { id: 'shop_snorkel', name: '스노클 마스크', icon: '🤿', shop: 'diving', cost: { coins: 3000 }, gives: { tool_snorkel: 1 }, unlock: 'tool:snorkel', once: true, kind: 'tool', desc: '잠수 40초' },
+  { id: 'shop_wetsuit', name: '잠수복', icon: '🩱', shop: 'diving', cost: { coins: 20000 }, gives: { tool_wetsuit: 1 }, unlock: 'tool:wetsuit', gate: 'tool:snorkel', once: true, kind: 'tool', desc: '잠수 90초, 산호초 깊은 곳 (스노클 먼저)' },
+  { id: 'diving_hull_plan', name: '잠수정 선체 설계 의뢰', icon: '📐', shop: 'diving', cost: { stars: 30 }, unlock: 'recipe:r_sub_hull', once: true, kind: 'goods', desc: '작업대에서 잠수정 선체를 만들 수 있어요' },
+  { id: 'shop_submarine', name: '꼬르륵호 잠수정', icon: '🟡', shop: 'diving', cost: { coins: 50000, items: { p_sub_hull: 1 } }, unlock: 'v:submarine', once: true, kind: 'vehicle', desc: '심해 탐험 (잠수정 선체 필요)' },
+  // 보글 물약 가게(반딧불버섯섬) — 버프 물약
+  { id: 'potion_star', name: '별빛 물약', icon: '🧪', shop: 'potion', cost: { coins: 1500 }, gives: { it_potion_star: 1 }, kind: 'potion', desc: '게임 20분 동안 ★4 이상 ×1.3' },
+  { id: 'potion_shimmer', name: '반짝 물약', icon: '🫧', shop: 'potion', cost: { coins: 3000 }, gives: { it_potion_shimmer: 1 }, kind: 'potion', desc: '게임 30분 동안 반짝이 ×1.5' },
+  { id: 'potion_big', name: '쑥쑥 물약', icon: '🍼', shop: 'potion', cost: { coins: 1200 }, gives: { it_potion_big: 1 }, kind: 'potion', desc: '게임 20분 동안 큰 개체가 잘 잡혀요' },
+  // 떡순이네 떡집(토끼달) — 달떡(m_mochi)으로 산다. 지구 생물 ×1.5, 팔면 달떡을 덤으로
+  { id: 'moon_oxygen', name: '산소 캡슐 ×3', icon: '🫙', shop: 'moon', cost: { items: { m_mochi: 1 } }, gives: { it_oxygen: 3 }, kind: 'goods', desc: '달 체류(1개 = 게임 4시간)' },
+  { id: 'moon_bunnyears', name: '토끼귀 머리띠', icon: '🐰', shop: 'moon', cost: { items: { m_mochi: 3 } }, gives: { cos_bunnyears: 1 }, kind: 'cosmetic', desc: '쫑긋! 떡순이랑 커플템' },
+  { id: 'moon_cushion', name: '달님 방석', icon: '🌕', shop: 'moon', cost: { items: { m_mochi: 4 } }, gives: { f_moon_cushion: 1 }, kind: 'furniture', desc: '말랑한 찹쌀 방석' },
+  { id: 'moon_mochilamp', name: '달떡 램프', icon: '🍡', shop: 'moon', cost: { items: { m_mochi: 5 } }, gives: { f_mochi_lamp: 1 }, kind: 'furniture', desc: '꼬치에 꽂힌 동글 램프' },
+  { id: 'moon_capsule', name: '캡슐 티켓', icon: '🎫', shop: 'moon', cost: { items: { m_mochi: 6 } }, gives: { it_capsule: 1 }, kind: 'capsule', desc: '두근두근 캡슐머신 1회' },
+  { id: 'moon_helmet', name: '떡방아 우주 헬멧', icon: '🪖', shop: 'moon', cost: { items: { m_mochi: 8 } }, gives: { skin_helmet_2: 1 }, kind: 'skin', desc: '토끼달 한정 헬멧' },
+  // 너구리 고물상(말랑섬 해변) — 쓰레기 10코인 + 재활용 포인트(10 = 반짝별 1)
+  { id: 'junk_buckethat', name: '양동이 모자', icon: '🪣', shop: 'junk', cost: { coins: 300 }, gives: { cos_buckethat: 1 }, kind: 'cosmetic', desc: '고물에서 찾은 보물 모자' },
+  { id: 'junk_canlamp', name: '깡통 랜턴', icon: '🥫', shop: 'junk', cost: { coins: 500 }, gives: { f_canlamp: 1 }, kind: 'furniture', desc: '구멍 사이로 별빛이 새요' },
+  { id: 'junk_tireswing', name: '타이어 그네', icon: '🛞', shop: 'junk', cost: { coins: 800 }, gives: { f_tireswing: 1 }, kind: 'furniture', desc: '마당 나무에 걸어 줘요' },
+  // 꾸물이 정거장(별다방) — 우주 물건
+  { id: 'station_oxygen', name: '산소 캡슐 ×5', icon: '🫙', shop: 'station', cost: { coins: 400 }, gives: { it_oxygen: 5 }, kind: 'goods', desc: '우주 여행 필수품' },
+  { id: 'station_stardust', name: '별가루 ×3', icon: '✨', shop: 'station', cost: { coins: 1800 }, gives: { m_stardust: 3 }, kind: 'goods', desc: '갓 내린 별가루 커피 찌꺼기' },
+  { id: 'station_antenna', name: '더듬이 머리띠', icon: '📡', shop: 'station', cost: { coins: 3000 }, gives: { cos_antenna: 1 }, kind: 'cosmetic', desc: '삐리삐리 우주 신호 수신' },
+  { id: 'station_ufolamp', name: 'UFO 램프', icon: '🛸', shop: 'station', cost: { coins: 12000 }, gives: { f_ufo_lamp: 1 }, kind: 'furniture', desc: '빙글빙글 도는 우주 조명' },
+  { id: 'station_ufo_skin', name: 'UFO 은하수 스킨', icon: '🌌', shop: 'station', cost: { coins: 20000 }, gives: { skin_ufo_1: 1 }, kind: 'skin', desc: 'UFO 를 은하수 색으로' },
+  // 두근두근 캡슐머신(꽥꽥상회 옆)
+  { id: 'capsule_ticket', name: '캡슐 티켓', icon: '🎫', shop: 'capsule', cost: { stars: 20 }, gives: { it_capsule: 1 }, kind: 'capsule', desc: '반짝별 20개 = 캡슐머신 1회' },
+];
+
+// ── 꾸미기(cos_) — 보들 양 옷가게·캡슐머신·섬 상인 ──
+/** 의상 한 벌. grade = 캡슐머신 등급(1 보통 · 2 희귀 · 3 특별), shop 이 있으면 그 가게에서 판다 */
+export interface Cosmetic { id: string; name: string; icon: string; grade: 1 | 2 | 3; coins?: number; stars?: number }
+export const COSMETIC_TABLE: Cosmetic[] = [
+  // 양 자매 옷가게
+  { id: 'cos_ribbon', name: '리본 머리핀', icon: '🎀', grade: 1, coins: 800 },
+  { id: 'cos_scarf', name: '폭신 목도리', icon: '🧣', grade: 1, coins: 1200 },
+  { id: 'cos_strawhat', name: '밀짚모자', icon: '👒', grade: 1, coins: 1500 },
+  { id: 'cos_beret', name: '말랑 베레모', icon: '🎨', grade: 1, coins: 2000 },
+  { id: 'cos_starglasses', name: '별 안경', icon: '⭐', grade: 2, coins: 2500 },
+  { id: 'cos_raincoat', name: '노랑 우비', icon: '🧥', grade: 2, coins: 3000 },
+  { id: 'cos_sailor', name: '세일러 옷', icon: '⚓', grade: 2, coins: 4000 },
+  { id: 'cos_dinohood', name: '공룡 후드', icon: '🦖', grade: 3, coins: 6000 },
+  { id: 'cos_princess', name: '반짝 왕관 드레스', icon: '👑', grade: 3, stars: 50 },
+  // 캡슐머신 한정
+  { id: 'cos_catears', name: '고양이 귀', icon: '🐱', grade: 1 },
+  { id: 'cos_cloudhat', name: '구름 모자', icon: '☁️', grade: 1 },
+  { id: 'cos_jellycape', name: '젤리 망토', icon: '🍮', grade: 2 },
+  { id: 'cos_penguinsuit', name: '펭귄 잠옷', icon: '🐧', grade: 2 },
+  { id: 'cos_tinocap', name: '티노 모자', icon: '🦕', grade: 2 },
+  { id: 'cos_fairywings', name: '요정 날개', icon: '🧚', grade: 3 },
+  { id: 'cos_starwand', name: '별 지팡이', icon: '🪄', grade: 3 },
+  { id: 'cos_halo', name: '반짝 링', icon: '😇', grade: 3 },
+  // 섬 상인
+  { id: 'cos_sunglasses', name: '해변 선글라스', icon: '😎', grade: 1 },
+  { id: 'cos_bunnyears', name: '토끼귀 머리띠', icon: '🐰', grade: 2 },
+  { id: 'cos_buckethat', name: '양동이 모자', icon: '🪣', grade: 1 },
+  { id: 'cos_antenna', name: '더듬이 머리띠', icon: '📡', grade: 2 },
+];
+/** 캡슐머신에서만 나오는 의상(가게에 없는 것) */
+export const CAPSULE_COSMETICS = ['cos_catears', 'cos_cloudhat', 'cos_jellycape', 'cos_penguinsuit', 'cos_tinocap', 'cos_fairywings', 'cos_starwand', 'cos_halo'];
+const SHEEP: ShopRow[] = COSMETIC_TABLE.filter((c) => c.coins || c.stars).map((c) => ({
+  id: `sheep_${c.id.slice(4)}`, name: c.name, icon: c.icon, shop: 'sheep' as const,
+  cost: c.stars ? { stars: c.stars } : { coins: c.coins! }, gives: { [c.id]: 1 }, kind: 'cosmetic' as const, desc: c.stars ? '반짝별 특별 의상' : '보들보들 새 옷',
+}));
+
+// ── 탈것 스킨(skin_<kind>_<n>) — 탈것마다 3색, 캡슐머신(vehicles 가 패널에서 입힌다) ──
+export const SKIN_KINDS: Array<{ kind: string; name: string; icon: string }> = [
+  { kind: 'bike', name: '자전거', icon: '🚲' }, { kind: 'raft', name: '뗏목', icon: '🛶' }, { kind: 'tugboat', name: '통통배', icon: '🚤' },
+  { kind: 'motorboat', name: '모터보트', icon: '🛥️' }, { kind: 'yacht', name: '요트', icon: '⛵' }, { kind: 'scooter', name: '스쿠터', icon: '🛵' },
+  { kind: 'kart', name: '카트', icon: '🏎️' }, { kind: 'duck_tube', name: '오리튜브', icon: '🦆' }, { kind: 'buggy', name: '버기', icon: '🏜️' },
+  { kind: 'sled', name: '썰매', icon: '🛷' }, { kind: 'submarine', name: '잠수정', icon: '🟡' }, { kind: 'balloon', name: '열기구', icon: '🎈' },
+];
+/** 스킨 번호 → 색 이름(1 보통 · 2 희귀 · 3 특별) */
+export const SKIN_COLORS: Record<1 | 2 | 3, string> = { 1: '딸기우유', 2: '민트초코', 3: '레몬소다' };
+
+// ── 캡슐머신 한정 가구(f_cap_*) ──
+export const CAPSULE_FURNITURE: Array<{ id: string; name: string; icon: string; grade: 1 | 2 | 3 }> = [
+  { id: 'f_cap_gachalamp', name: '캡슐 램프', icon: '💡', grade: 1 },
+  { id: 'f_cap_jellystool', name: '젤리 의자', icon: '🍮', grade: 1 },
+  { id: 'f_cap_bunnysofa', name: '토끼 소파', icon: '🐰', grade: 2 },
+  { id: 'f_cap_cloudbed', name: '구름 침대', icon: '☁️', grade: 2 },
+  { id: 'f_cap_starmobile', name: '별 모빌', icon: '✨', grade: 2 },
+  { id: 'f_cap_tinoplush', name: '티노 왕인형', icon: '🦖', grade: 3 },
+  { id: 'f_cap_whalefountain', name: '고래 분수', icon: '🐳', grade: 3 },
+  { id: 'f_cap_rainbowarch', name: '무지개 아치', icon: '🌈', grade: 3 },
 ];
 
 /** 레시피 카드(반짝별) — 'card:<n>' 레시피마다 하나씩 */
@@ -443,6 +557,23 @@ const RECIPE_CARDS: ShopRow[] = RECIPE_TABLE.filter((r) => r.gate.startsWith('ca
   cost: { stars: Number(r.gate.slice(5)) }, unlock: `recipe:${r.id}`, once: true as const, kind: 'recipe' as const, desc: `${r.name} 만드는 법`,
 }));
 
-export const SHOP_TABLE: ShopItem[] = [...QUACK, ...RECIPE_CARDS, ...SHIPYARD, ...PENG, ...ISLAND_SHOPS].map((s) => ({
+export const SHOP_TABLE: ShopItem[] = [...QUACK, ...RECIPE_CARDS, ...SHIPYARD, ...PENG, ...ISLAND_SHOPS, ...SHEEP].map((s) => ({
   ...s, gives: s.gives ?? {}, price: s.cost.coins ?? 0,
 }));
+
+// 의상·스킨·캡슐 가구 이름표(HUD·제작·상점이 GOODS 로 읽는다)
+for (const c of COSMETIC_TABLE) GOODS_TABLE[c.id] = { name: c.name, icon: c.icon };
+for (const k of SKIN_KINDS) for (const n of [1, 2, 3] as const) GOODS_TABLE[`skin_${k.kind}_${n}`] = { name: `${k.name} ${SKIN_COLORS[n]} 스킨`, icon: k.icon };
+GOODS_TABLE.skin_ufo_1 = { name: 'UFO 은하수 스킨', icon: '🌌' };
+for (const f of CAPSULE_FURNITURE) GOODS_TABLE[f.id] = { name: f.name, icon: f.icon };
+// 메타 세트 보상(meta/data REWARD_ITEMS 와 같은 이름) — 가방 아이콘이 📦 로 떨어지지 않게
+Object.assign(GOODS_TABLE, {
+  f_mallang_cushion: { name: '말랑 쿠션 가구 세트', icon: '🛋️' },
+  f_seabunny_doll: { name: '바다토끼 인형', icon: '🐰' },
+  cos_gold_crown: { name: '금관 모자', icon: '👑' },
+  tool_shiny_net: { name: '반짝이 잠자리채', icon: '🌈' },
+});
+for (const [id, ko] of Object.entries({ home: '말랑섬', dino: '쿵쿵공룡섬', ice: '솜눈섬', mushroom: '반딧불버섯섬', coral: '산호빛섬', desert: '모래시계섬', launch: '별똥별섬' })) {
+  GOODS_TABLE[`f_flag_${id}`] ??= { name: `${ko} 깃발`, icon: '🚩' };
+  GOODS_TABLE[`f_musicbox_${id}`] ??= { name: `${ko} 음악 상자`, icon: '🎶' };
+}

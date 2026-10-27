@@ -390,19 +390,33 @@ export class HudView implements HudRenderer {
     try { return this.game.geo?.islandName?.(id) || fallback; } catch { return fallback; }
   }
   /** 지금 있는 곳(이름·색) — 시계 칩도 읽는다 */
+  private lastPlace: { id: string | null; name: string; sub: string; color: string; space: boolean; planet?: boolean } | null = null;
   place() {
     const game = this.game;
+    // 집·박물관 안(먼바다 위 먼 좌표)이면 마지막으로 있던 곳을 그대로 보여 준다
+    if (this.lastPlace && (game.ext as { interiors?: { current?(): string | null } }).interiors?.current?.()) return this.lastPlace;
     const space = game.world === 'space';
     const p = game.player.pos;
     const d = space ? null : this.ctx.island.islandAt(p.x, p.z);
+    // 다른 행성(planets)에 있으면 그 행성 이름으로 — 도착 배너는 planets 가 띄운다
+    if (space) {
+      const PL = (game.ext as { planets?: { current?(): string | null; list?(): Array<{ id: string; name: string }> } }).planets;
+      let pid: string | null = null;
+      try { pid = PL?.current?.() ?? null; } catch { pid = null; }
+      if (pid) {
+        if (this.lastPlace?.id === `planet:${pid}`) return this.lastPlace;
+        const nm = PL?.list?.().find((r) => r.id === pid)?.name ?? '우주';
+        return (this.lastPlace = { id: `planet:${pid}`, name: nm, sub: '둥실둥실 별의 바다', color: '#4a4fa8', space, planet: true });
+      }
+    }
     const look = d ? ISLAND_LOOK[d.theme] ?? ISLAND_LOOK.islet : { sub: '파도가 반짝반짝', color: '#6cc3ef' };
-    return {
+    return (this.lastPlace = {
       id: space ? 'space' : d?.id ?? null,
       name: space ? PLANET_NAME[game.space?.planet ?? ''] ?? '우주' : d ? this.islandName(d.id, d.name) : '먼바다',
       sub: space ? '둥실둥실 별의 바다' : look.sub,
       color: space ? '#4a4fa8' : look.color,
       space,
-    };
+    });
   }
   private updatePlace() {
     const pl = this.place();
@@ -410,7 +424,7 @@ export class HudView implements HudRenderer {
     // 섬을 옮기면 젤다식 지역 이름
     if (pl.id !== this.curIsland) {
       // 행성 도착 배너는 space 모듈이 직접 띄운다(산소·캡슐 안내) — 겹치지 않게 건너뛴다
-      if (!(pl.space && this.game.space?.planet && PLANET_NAME[this.game.space.planet])) this.showRegion(pl.name, pl.sub, pl.space ? '#8f86ff' : pl.color, pl.space ? '#1d2257' : '#5a3f22');
+      if (!(pl.space && (('planet' in pl && pl.planet) || (this.game.space?.planet && PLANET_NAME[this.game.space.planet])))) this.showRegion(pl.name, pl.sub, pl.space ? '#8f86ff' : pl.color, pl.space ? '#1d2257' : '#5a3f22');
       this.curIsland = pl.id;
     }
   }
@@ -456,6 +470,8 @@ export class HudView implements HudRenderer {
     }
     if (this.lastSlow >= 0 && n - this.lastSlow < 200) return;
     this.lastSlow = n;
+    // 집·박물관 안(먼바다 위 먼 좌표)에서는 지역 배너·지도를 그대로 둔다 — 실내 이름 카드는 interiors 가 띄운다
+    if ((this.game.ext as { interiors?: { current?(): string | null } }).interiors?.current?.()) return;
     this.updatePlace();
     this.drawMap();
   }

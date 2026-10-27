@@ -20,9 +20,10 @@ export function turn(v: Veh, ax: { x: number }, rate: number, dt: number, minGri
   v.h -= v.steer * rate * grip * Math.sign(v.v || 1) * dt;
 }
 
-/** 다음 자리(월드 가장자리 안으로) */
+/** 다음 자리(지구면 월드 가장자리 안으로 — 우주는 행성 주인이 가장자리를 맡는다) */
 export function nextXZ(v: Veh, rt: Rt, dt: number, extra?: { x: number; z: number }) {
   const f = rt.fwd(v);
+  if (v.world === 'space') return { nx: v.pos.x + (f.x * v.v + (extra?.x ?? 0)) * dt, nz: v.pos.z + (f.z * v.v + (extra?.z ?? 0)) * dt };
   const b = rt.I.WORLD_BOUNDS;
   const nx = clamp(v.pos.x + (f.x * v.v + (extra?.x ?? 0)) * dt, b.minX + 5, b.maxX - 5);
   const nz = clamp(v.pos.z + (f.z * v.v + (extra?.z ?? 0)) * dt, b.minZ + 5, b.maxZ - 5);

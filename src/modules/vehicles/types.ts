@@ -7,6 +7,10 @@ import type * as Island from '../../core/island';
 import type { Model } from './models';
 import type { Puffs, SpeedLines } from './fx';
 import type { Medium } from './logic';
+import type { Wind } from './p1logic';
+
+/** 탈것이 있는 세계: 지구 · 우주(달) · 둘 다(UFO — 부른 세계에 나타난다) */
+export type VehWorld = 'earth' | 'space' | 'both';
 
 /** 탈것 하나(세상에 놓인 것) */
 export interface Veh {
@@ -37,6 +41,10 @@ export interface Veh {
   wheelA: number;
   /** 내 탈것(F 로 부르는 그 한 대) */
   personal: boolean;
+  /** 지금 놓인 세계(UFO 는 부를 때 바뀐다) */
+  world: 'earth' | 'space';
+  /** 이번에 타는 동안 최고 속도(m/s) */
+  top: number;
 }
 
 /** 종류들이 함께 쓰는 것(효과·지형·카메라) */
@@ -67,6 +75,13 @@ export interface Rt {
   finish(v: Veh, g: Game, dt: number, o?: { camK?: number; lineY?: number; lineR?: number; dir?: THREE.Vector3; speed?: number }): void;
   /** 이벤트 보내기(state.emit) */
   emit(type: string, data?: Record<string, unknown>): void;
+  /** 오늘의 바람(env.day rng + 시각 흔들림) — 요트·열기구 */
+  wind(): Wind;
+  /** 같이 탄 사람 수(1~2)와 둘이 같이 밟나(netplay 가 setPassenger 로 알린다) */
+  riders(): { n: number; pedal: boolean };
+  /** 소리(game.audio 가 없으면 조용히) */
+  sfx(name: string, o?: { x?: number; z?: number; vol?: number; pitch?: number }): void;
+  toast(text: string): void;
 }
 
 /** 탈것 종류 — kinds/<kind>.ts 하나가 하나 */
@@ -91,6 +106,10 @@ export interface KindDef {
   /** 기본 최고 속도(m/s, 표·안내용) */
   speed: number;
   seats?: number;
+  /** 있는 세계(기본 earth) */
+  world?: VehWorld;
+  /** 잠겼을 때 안내 한 줄(없으면 econ.requirement) — '🔒 이름 — 조건' */
+  lockText?(g: Game): string | null;
   /** 해금 키 */
   unlockKey: string;
   /** 도감 칸 id(v_*). 없으면 기록하지 않는다 */

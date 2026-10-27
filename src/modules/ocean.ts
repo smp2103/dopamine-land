@@ -764,7 +764,10 @@ export default function build(ctx: Ctx) {
     }
     return best ? { s: best, d: Math.max(0, bd) } : null;
   };
+  // 집·박물관 안(먼바다 위 y=600)에서는 바다 상호작용을 띄우지 않는다
+  const indoors = () => !!(game.ext as { interiors?: { current?(): string | null } }).interiors?.current?.();
   game.addProvider('ocean-catch', (p) => {
+    if (indoors()) return null;
     if (p.mode !== 'dive' && p.mode !== 'swim') return null;
     const r = reachable(p);
     if (!r) return null;
@@ -790,6 +793,7 @@ export default function build(ctx: Ctx) {
     return best ? { h: best, d: bd } : null;
   };
   game.addProvider('ocean-harvest', (p) => {
+    if (indoors()) return null;
     if (p.mode !== 'dive') return null;
     const r = nearestHarvest(p);
     if (!r) return null;
@@ -917,6 +921,7 @@ export default function build(ctx: Ctx) {
     return true;
   };
   game.addProvider('ocean-greet', (p) => {
+    if (indoors()) return null;
     const g = greetable(p);
     if (!g) return null;
     const sp = SEA_BY_ID.get(g.id)!;
@@ -1236,7 +1241,11 @@ export default function build(ctx: Ctx) {
     }
 
     // 돌고래: 바다 위에 있을 때 옆에서 뛰어오른다
-    pod.active += ((onSea && pl.mode !== 'dive' ? 1 : 0) - pod.active) * Math.min(1, dt * 0.5 + (dt === 0 ? 1 : 0));
+    // 바다 세계(seaworld)의 고래길·돌고래 경주가 떠 있으면 내 것은 숨긴다(두 마리가 겹치지 않게)
+    const swCur = (game.ext as { currents?: { whale?(): { visible: boolean }; dolphins?(): { active: boolean } } }).currents;
+    let swWhale = false, swPod = false;
+    try { swWhale = !!swCur?.whale?.().visible; swPod = !!swCur?.dolphins?.().active; } catch { /* 없으면 그대로 */ }
+    pod.active += ((onSea && pl.mode !== 'dive' && !swPod ? 1 : 0) - pod.active) * Math.min(1, dt * 0.5 + (dt === 0 ? 1 : 0));
     dolRoot.visible = pod.active > 0.05;
     dolEyes.begin();
     if (dolRoot.visible) {
@@ -1275,7 +1284,7 @@ export default function build(ctx: Ctx) {
 
     // 고래: 먼바다에서 가끔 숨 쉬러 올라온다
     // 먼바다 판정은 체력 링과 같은 보정 해안 거리(coastDist)로 — 세계 샘플은 먼바다에서 틀릴 때가 있다
-    const far = coastDist > 120 && onSea;
+    const far = coastDist > 120 && onSea && !swWhale;
     whaleState.on += ((far ? 1 : 0) - whaleState.on) * Math.min(1, dt * 0.3 + (dt === 0 ? 1 : 0));
     whale.visible = whaleState.on > 0.05;
     if (whale.visible) {

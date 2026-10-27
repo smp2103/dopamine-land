@@ -186,11 +186,19 @@ export class Player {
     g.chunks.update(g.focusOverride ?? this.pos, true);
   }
 
-  mount(m: Mountable) {
+  /** opts.silent — 비눗방울·리프트처럼 E 로 못 내리는 잠긴 탑승은 '탑승!' 토스트를 띄우지 않는다 */
+  mount(m: Mountable, opts?: { silent?: boolean }) {
     this.mounted = m;
     this.mode = 'mounted';
     this.collider.setEnabled(false);
-    this.game.ui.toast(`${m.name} 탑승! (E 내리기)`);
+    if (!opts?.silent) this.game.ui.toast(`${m.name} 탑승! (E 내리기)`);
+  }
+
+  /** 밖에서 미는 힘(해류·소용돌이) — 이번 프레임 이동에 얹는다(m). 몸체를 직접 옮기지 말고 이걸 쓴다 */
+  private pushPend = { x: 0, z: 0 };
+  push(dx: number, dz: number) {
+    if (!Number.isFinite(dx) || !Number.isFinite(dz)) return;
+    this.pushPend.x += dx; this.pushPend.z += dz;
   }
 
   dismount() {
@@ -207,6 +215,7 @@ export class Player {
     const g = this.game;
     this.tickAct(dt);
     if (this.mounted) {
+      this.pushPend.x = 0; this.pushPend.z = 0;
       if (!this.locked) this.mounted.drive(input, dt, g);
       const sp = new THREE.Vector3().setFromMatrixPosition(this.mounted.seat.matrixWorld);
       this.pos.copy(sp);
@@ -229,6 +238,9 @@ export class Player {
     const depth = this.waterY - this.pos.y;
     const inWater = Number.isFinite(this.waterY) && depth > 0.95;
     let maxSpeed = run ? 9.5 : 5.2;
+    // 과일파이 같은 속도 버프(economy.buffMult('speed'), 기본 1)
+    let spdMul = 1;
+    try { const m = this.game.econ?.buffMult?.('speed'); if (typeof m === 'number' && Number.isFinite(m) && m > 0) spdMul = m; } catch { /* 없으면 1 */ }
 
     if (inWater && this.mode !== 'dive') this.mode = 'swim';
     if (!inWater && (this.mode === 'swim' || this.mode === 'dive')) this.mode = 'air';
@@ -261,7 +273,7 @@ export class Player {
     }
 
     // 수평 가속(관성 있게)
-    const target = wish.multiplyScalar(maxSpeed);
+    const target = wish.multiplyScalar(maxSpeed * spdMul);
     const accel = this.mode === 'ground' ? 14 : this.mode === 'glide' ? 3 : 6;
     this.vel.x += (target.x - this.vel.x) * Math.min(1, accel * dt);
     this.vel.z += (target.z - this.vel.z) * Math.min(1, accel * dt);
@@ -271,7 +283,8 @@ export class Player {
       this.vel.z -= Math.cos(this.yaw) * 4 * dt;
     }
 
-    const desired = { x: this.vel.x * dt, y: this.vel.y * dt, z: this.vel.z * dt };
+    const desired = { x: this.vel.x * dt + this.pushPend.x, y: this.vel.y * dt, z: this.vel.z * dt + this.pushPend.z };
+    this.pushPend.x = 0; this.pushPend.z = 0;
     // 깊은 바다로 걸어 들어가는 건 수영으로 이어진다(막지 않음). 맵 끝만 막는다 — 지구에서, 땅 공급자가 맡지 않은 곳만.
     const b = Island.WORLD_BOUNDS;
     const nx = this.pos.x + desired.x, nz = this.pos.z + desired.z;

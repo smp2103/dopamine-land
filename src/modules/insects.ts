@@ -6,8 +6,13 @@
 // 두근 게이지(pity('bug').gauge) 80% 를 넘으면 잠자리채가 분홍으로 반짝 — "곧 뭔가 온다".
 // 그리기: 종마다 InstancedMesh(몸·날개)를 돌려 쓴다 → draw call 은 곤충 수가 아니라 '근처에 보이는 종 수'만큼.
 // 규칙(숫자)은 insects/logic.ts, 벌떼는 insects/swarm.ts — 둘 다 순수(테스트가 바로 부른다).
+// P1(insects/p1.ts 규칙 + insects/p1world.ts 연출): 반딧불 군무(버섯섬 늪 밤 30마리, 목요일 대축제 90) · 반딧불 놓아주기('insects-release' F)
+//   · 곤충 씨름('insects-sumo' E, 말랑섬 마을 서쪽 그루터기) · 쇠똥구리 따라가기('insects-dung' E → 은상자) · 난초사마귀 위장(1.5m 안에서 들통).
+// 저장: flags.insects = { released, sumo: {day, wins, streak, total, best, bouts}, dung: {섬: 판 날} }.
 // 디버그: window.__insects = { spawnAt(id, x?, z?), catchNear(), bugs(), swing(), beehive(x?, z?), shake(x?, z?), hit(x?, z?),
-//   swarm(), net(), reroll(), gallery(from, count) }
+//   swarm(), net(), reroll(), gallery(from, count),
+//   P1: dance(), danceGo(festival?), festival(on), release(), released(), sumo(), sumoGo(), sumoTap(grade?), sumoState(),
+//   dung(island?), dungSkip(), dungDig(), dungState(), arena(), orchid(x?, z?) }
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import type { Game } from '../core/game';
@@ -19,6 +24,8 @@ import { INSECTS, themeOf, type BugSpecies, type BugSpot, type BugTod, type BugI
 import { makeBug, setWings, bugScale, type BugMesh } from './insects/model';
 import { Bag, addPerch, type Anchor } from './insects/perch';
 import * as L from './insects/logic';
+import * as P1 from './insects/p1';
+import { installP1 } from './insects/p1world';
 import {
   makeSwarm, stepSwarm, catchSwarm, swarmActive, swarmFade, beePos, applySting, swarmRewards, SWARM,
   type Swarm, type StingSink, type RewardSink,
@@ -178,6 +185,8 @@ export default function build(ctx: Ctx) {
 
   const root = new THREE.Group();
   root.name = 'insects';
+  // P1 연출(군무·놓아주기·씨름·쇠똥구리·난초 꽃) — 자기 onUpdate·상호작용을 따로 건다
+  const p1 = installP1({ ctx, g, root, byId: (id) => Data.insectOf(id) ?? Data.insectOf(id.replace(/^bug-/, '')) });
   let todName: BugTod = todOfName(ctx.tod);
   const chunks = new Set<ChunkRec>();
   const hidden: Bug[] = [];
@@ -966,7 +975,9 @@ export default function build(ctx: Ctx) {
     const b = best;
     if (tier !== 'none') offeredAt = g.time;
     const known = !!g.state.dex[b.sp.id];
-    return { label: L.netPrompt(tier, known ? b.sp.name : null), dist: bd + 0.3, use: () => startSwing(b, false) };
+    // 꽃인 척하는 난초사마귀: 이름 대신 '수상한 꽃'
+    const label = tier !== 'none' && P1.isOrchid(b.sp) && b.state === 'idle' ? P1.orchidPrompt(known) : L.netPrompt(tier, known ? b.sp.name : null);
+    return { label, dist: bd + 0.3, use: () => startSwing(b, false) };
   });
 
   g.onWorld((w) => {
@@ -984,6 +995,8 @@ export default function build(ctx: Ctx) {
     const p = g.player.pos;
     for (const b of liveBugs()) {
       if (b.state === 'gone') continue;
+      // 꽃인 척하는 난초사마귀는 아직 '못 본' 것 — 들키기 전엔 사진·목격에 이름이 안 뜬다
+      if (P1.isOrchid(b.sp) && b.state === 'idle') continue;
       if (Math.hypot(b.pos.x - p.x, b.pos.z - p.z) < 30) out.push({ speciesId: b.sp.id, pos: b.pos.clone() });
     }
     return out;
@@ -1085,7 +1098,8 @@ export default function build(ctx: Ctx) {
       b.pos.copy(tmp);
       b.quat.copy(lookQ(tmp2.normalize()));
       if (w) b.wing = kind === 'butterfly' || kind === 'moth' ? 0.12 + (0.5 + 0.5 * Math.sin(flapT)) * w.amp : w.rest + Math.sin(flapT) * w.amp;
-    } else if (b.spot === 'ground' || b.spot === 'water') {
+    } else if ((b.spot === 'ground' || b.spot === 'water') && !P1.isOrchid(sp)) {
+      // (난초사마귀는 땅에서도 꽃인 척 가만히 — 아래 '제자리' 갈래)
       groundPath(b, t, tmp);
       groundPath(b, t + 0.1, tmp2);
       tmp2.sub(tmp); tmp2.y = 0;
@@ -1237,6 +1251,7 @@ export default function build(ctx: Ctx) {
     }
 
     // ── 곤충들 ──
+    p1.frameStart();
     for (const b of [...liveBugs()]) {
       if (b.state === 'gone') continue;
       const dist0 = Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z);
@@ -1253,9 +1268,17 @@ export default function build(ctx: Ctx) {
       }
       // 겁: 달리면 4~8m, 걸으면 1.5~4m(살금살금은 더 가까이), 멈추면 괜찮다
       if ((b.state === 'idle') && !(swing && swing.target === b)) {
-        const ms = L.moveStateOf(speedAvg, p.mode);
-        const beh = b.beh === 'hide' ? 'perch' : b.beh;
-        if (L.shouldFlee(dist0, ms, b.sp.rarity, b.sp.shy ?? 1, beh)) scare(b, t);
+        if (P1.isOrchid(b.sp)) {
+          // 난초사마귀: 걷든 뛰든 1.5 m 밖이면 꽃인 척, 안으로 들어오면 깜짝 도망
+          if (P1.orchidReveals(dist0)) {
+            flee(b, t);
+            g.ui.toast('앗! 꽃이 아니라 난초사마귀였어! 🌸 (1.5m 밖에서 휘둘러 봐요)');
+          }
+        } else {
+          const ms = L.moveStateOf(speedAvg, p.mode);
+          const beh = b.beh === 'hide' ? 'perch' : b.beh;
+          if (L.shouldFlee(dist0, ms, b.sp.rarity, b.sp.shy ?? 1, beh)) scare(b, t);
+        }
       }
       if (!poseBug(b, t)) continue;
       const sp = b.sp;
@@ -1266,6 +1289,11 @@ export default function build(ctx: Ctx) {
       const dist = Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z);
       if (dist > SHOW_DIST) continue;
       const s = wsc * vis;
+      if (b.state === 'idle' && P1.isOrchid(sp)) {
+        // 위장 중: 사마귀 대신 난초 꽃(반짝이·그림자 없이 — 정말 꽃처럼)
+        p1.orchidPush(b.pos, PERCH_SPOTS.has(b.spot) && !b.hide ? b.anchor.up : UPV, s, t, b.ph, p.pos);
+        continue;
+      }
       pushBug(drawFor(sp), b.pos, b.quat, s, s * b.sy, s, b.wing);
 
       // 블롭 그림자 + 반짝이
@@ -1347,6 +1375,7 @@ export default function build(ctx: Ctx) {
     }
 
     finishDraws();
+    p1.frameEnd();
     // 빈 점은 치운다
     shadows.count = shN;
     shadows.instanceMatrix.needsUpdate = true;
@@ -1439,6 +1468,12 @@ export default function build(ctx: Ctx) {
     net: () => ({ tier, range: L.netRange(tier), gauge, pink: L.netGlows(gauge), swinging: !!swing }),
     /** 모든 청크 다시 뽑기 */
     reroll() { for (const r of chunks) r.dirty = true; return chunks.size; },
+    ...p1.debug,
+    /** 난초사마귀(위장)를 플레이어 앞 x,z(기본 2.5m)에 */
+    orchid(x?: number, z?: number) {
+      const at = x === undefined || z === undefined ? ahead(2.5) : { x, z };
+      return (window as unknown as { __insects: { spawnAt(id: string, x: number, z: number): unknown } }).__insects.spawnAt('b_orchid_mantis', at.x, at.z);
+    },
     gallery(from = 0, count = 12, cols = 4, gap = 0.95, mag = 0) {
       gal.clear();
       const p = g.player.pos;

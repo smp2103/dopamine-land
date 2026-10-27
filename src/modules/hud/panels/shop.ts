@@ -11,6 +11,7 @@ import { econOf, call, bind, bagKeys, emptyBag, thumbHtml, type PanelEnv } from 
 const KIND_KO: Record<string, string> = {
   bait: '🪱 미끼', tool: '🧰 도구', seed: '🌱 씨앗', furniture: '🛋️ 가구', vehicle: '🚲 탈것', bag: '🎒 가방', recipe: '📇 레시피 카드',
   capsule: '🎫 캡슐', house: '🏠 집', licence: '🪪 면허', invite: '💌 초대', wing: '🏛️ 박물관', rocket: '🚀 로켓',
+  cosmetic: '👗 의상', potion: '🧪 물약', skin: '🎨 스킨', goods: '📦 잡화',
 };
 
 export function shopPanel(env: PanelEnv): PanelDef {
@@ -120,8 +121,10 @@ export function shopPanel(env: PanelEnv): PanelDef {
         <div class="nm">${esc(it.name)}</div><div class="sm">${esc(it.desc ?? '')}</div>
         ${own ? '' : `<button class="btn${can.ok ? ' gold' : ' off'}" data-buy="${esc(it.id)}">${parts}</button>${!can.ok && can.why ? `<div class="why">${esc(can.why)}</div>` : ''}`}</div>`);
     }
+    // 상인 특가 한 줄(곤충은 비싸게 ×1.3 …) — 값에는 이미 들어 있다
+    const note = call<string | null>(econOf(game), 'merchantNote', shop);
     body.innerHTML = `<div class="hint dl-card"><div class="ico" style="--cc:${info().color}">${info().icon}</div><div class="grow">${esc(info().npc)}: 천천히 골라 봐요!
-      <small>🪙 ${fmt(st.coins)} · ⭐ ${fmt(econOf(game)?.stars ?? 0)}</small></div></div>
+      ${note ? `<small>✨ ${esc(note)}</small>` : ''}<small>🪙 ${fmt(st.coins)} · ⭐ ${fmt(econOf(game)?.stars ?? 0)}</small></div></div>
       <div class="grid">${cells.join('') || '<div class="note">아직 진열된 물건이 없어요</div>'}</div>`;
     bind(body, 'buy', (id) => {
       const it = list.find((x) => x.id === id);

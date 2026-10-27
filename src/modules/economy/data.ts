@@ -3,6 +3,7 @@
 import type { Species } from '../../core/state';
 export {
   MATERIAL_TABLE, SHOP_TABLE, RECIPE_TABLE, GOODS_TABLE, ANY_NEEDS, RECIPE_ALIASES,
+  COSMETIC_TABLE, CAPSULE_COSMETICS, SKIN_KINDS, SKIN_COLORS, CAPSULE_FURNITURE, type Cosmetic,
   type Cost, type MatTag, type Material, type ShopId, type ShopKind, type ShopItem, type RecipeKind, type Recipe, type AnyNeed,
 } from './tables';
 import { MATERIAL_TABLE, SHOP_TABLE, RECIPE_TABLE, GOODS_TABLE, ANY_NEEDS, RECIPE_ALIASES, type Material, type ShopItem, type Recipe, type Cost } from './tables';

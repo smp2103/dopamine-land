@@ -331,7 +331,7 @@ export function sizeLine(prevBest: number | undefined, size: number | undefined,
 }
 
 // ───────────── 톡·톡·꾹 상태 기계 ─────────────
-export type Phase = 'idle' | 'charge' | 'cast' | 'wait' | 'approach' | 'nibble' | 'bite' | 'catch' | 'miss' | 'reel';
+export type Phase = 'idle' | 'charge' | 'cast' | 'wait' | 'approach' | 'nibble' | 'bite' | 'fight' | 'catch' | 'miss' | 'reel';
 /** 찌가 날아가는 시간 */
 export const CAST_FLIGHT = 0.55;
 /** 꾹! 전에 톡 하는 횟수 */
@@ -362,14 +362,18 @@ export interface Session {
   nibbles: number;
   /** 꾹 뒤 입력 창 */
   window: number;
+  /** 꾹에 E 를 맞히면 바로 잡지 않고 릴 줄다리기(★4 이상, P1) */
+  fight: boolean;
 }
-export type FailWhy = 'early' | 'late';
+/** 놓친 까닭: 톡에 누름 · 창을 놓침 · 줄다리기 줄 끊김 · 줄다리기 중 도망 */
+export type FailWhy = 'early' | 'late' | 'snap' | 'escape';
 export type FishEvent =
   | { type: 'cast'; dist: number }
   | { type: 'land' }
   | { type: 'approach' }
   | { type: 'nibble'; n: number }
   | { type: 'bite' }
+  | { type: 'hook' }
   | { type: 'catch' }
   | { type: 'fail'; why: FailWhy }
   | { type: 'reel' }
@@ -384,23 +388,41 @@ export interface StepInput {
 }
 
 export function newSession(): Session {
-  return { phase: 'idle', t: 0, charge: 0, dist: CAST_MIN, wait: Infinity, approach: 3, nibbleAt: Infinity, nibbles: 0, window: 0.7 };
+  return { phase: 'idle', t: 0, charge: 0, dist: CAST_MIN, wait: Infinity, approach: 3, nibbleAt: Infinity, nibbles: 0, window: 0.7, fight: false };
 }
 const go = (s: Session, p: Phase) => { s.phase = p; s.t = 0; };
 const between = (r: readonly [number, number], u: number) => r[0] + (r[1] - r[0]) * clamp(u, 0, 1);
 
 /** E 를 눌러 충전 시작 */
-export function beginCharge(s: Session) { go(s, 'charge'); s.charge = 0; s.nibbles = 0; s.wait = Infinity; }
+export function beginCharge(s: Session) { go(s, 'charge'); s.charge = 0; s.nibbles = 0; s.wait = Infinity; s.fight = false; }
 /** 바로 던지기(충전 없이 — 디버그·자동 루프) */
-export function beginCast(s: Session, dist: number) { go(s, 'cast'); s.dist = clamp(dist, CAST_MIN, CAST_MAX); s.wait = Infinity; }
-/** 착수 뒤 굴린 그림자로 일정을 건다: wait 뒤 approach 동안 다가오고, window 는 그 그림자의 입질 창 */
-export function arm(s: Session, o: { wait: number; approach: number; window: number }) {
-  s.wait = Math.max(0, o.wait); s.approach = Math.max(0.2, o.approach); s.window = o.window;
+export function beginCast(s: Session, dist: number) { go(s, 'cast'); s.dist = clamp(dist, CAST_MIN, CAST_MAX); s.wait = Infinity; s.fight = false; }
+/**
+ * 착수 뒤 굴린 그림자로 일정을 건다: wait 뒤 approach 동안 다가오고, window 는 그 그림자의 입질 창.
+ * fight = true 면 꾹에 맞혀도 바로 잡지 않고 릴 줄다리기(hook 사건 → fight 단계)로 간다.
+ */
+export function arm(s: Session, o: { wait: number; approach: number; window: number; fight?: boolean }) {
+  s.wait = Math.max(0, o.wait); s.approach = Math.max(0.2, o.approach); s.window = o.window; s.fight = !!o.fight;
 }
 /** 그만두기(줄 감기) — 결과 없이 끝 */
-export function reelIn(s: Session) { if (s.phase !== 'idle' && s.phase !== 'catch' && s.phase !== 'miss') go(s, 'reel'); }
+export function reelIn(s: Session) { if (s.phase !== 'idle' && s.phase !== 'catch' && s.phase !== 'miss' && s.phase !== 'fight') go(s, 'reel'); }
 /** 바로 꾹! 단계로(디버그) */
 export function forceBite(s: Session, window: number) { go(s, 'bite'); s.window = window; }
+/** 바로 줄다리기 단계로(디버그·촬영) */
+export function forceFight(s: Session) { go(s, 'fight'); s.fight = true; }
+/**
+ * 줄다리기가 끝났다(fishing.ts 가 reel.ts 모델로 판정): 이기면 catch, 아니면 줄 끊김·도망 fail.
+ * fight 단계가 아니면 아무 일도 없다.
+ */
+export function endFight(s: Session, won: boolean, why: 'snap' | 'escape' = 'escape'): FishEvent[] {
+  if (s.phase !== 'fight') return [];
+  if (won) { go(s, 'catch'); return [{ type: 'catch' }]; }
+  go(s, 'miss');
+  return [{ type: 'fail', why }];
+}
+/** ★4 이상(쓰레기 아님)은 릴 줄다리기 — GDD 3.5 P1 */
+export const FIGHT_RARITY = 4;
+export const needsFight = (r: Pick<RollResult, 'rarity' | 'junk'> | null | undefined) => !!r && !r.junk && (r.rarity ?? 0) >= FIGHT_RARITY;
 
 /**
  * 한 프레임 진행. 돌려주는 사건을 fishing.ts 가 연출·결과로 바꾼다.
@@ -440,9 +462,14 @@ export function step(s: Session, dt: number, inp: StepInput, rng: () => number):
       }
       break;
     case 'bite':
+      if (inp.press && s.fight) { go(s, 'fight'); ev.push({ type: 'hook' }); break; }
       if (inp.press) { go(s, 'catch'); ev.push({ type: 'catch' }); break; }
       if (inp.cancel) { go(s, 'miss'); ev.push({ type: 'fail', why: 'early' }); break; }
       if (s.t > s.window) { go(s, 'miss'); ev.push({ type: 'fail', why: 'late' }); }
+      break;
+    case 'fight':
+      // 줄다리기는 reel.ts 모델이 판정한다 — 여기선 시간만 흐른다(Esc 는 줄을 놓아 도망)
+      if (inp.cancel) { go(s, 'miss'); ev.push({ type: 'fail', why: 'escape' }); }
       break;
     case 'catch':
       if (s.t >= CATCH_HOLD) { go(s, 'idle'); ev.push({ type: 'end' }); }
@@ -461,6 +488,8 @@ export function step(s: Session, dt: number, inp: StepInput, rng: () => number):
 export const FAIL_TOAST: Record<FailWhy, string> = {
   early: '앗, 너무 빨랐다! 물고기가 도망갔다…',
   late: '놓쳤다… 물고기가 도망갔다!',
+  snap: '툭! 줄이 끊어졌다… 빨간 칸에선 E 를 놓아 줘요!',
+  escape: '물고기가 힘껏 헤엄쳐 도망갔다… 다음엔 꼭!',
 };
 /** 쓰레기 한 줄(카드 본문) */
 export const JUNK_LINE: Record<string, string> = {

@@ -4,8 +4,13 @@
 //   흔들림 힌트(1 나무 / 2 은 / 3 + 빛기둥 금 이상)·미믹 상자게(3%, 쪼꼬미섬 15%)·상자 천장(나무 50 → 은)·개발 구역(addChestArea).
 // 박물관(5.6): 동 5개 진행률·마일스톤 10/25/50/75/100%(반짝별 + 동 가구, 한 번씩)·화석 3부위 → 골격. 창은 HUD 가 museum() 으로 그린다.
 // 부탁(4.6.1): 게시판 하루 3장 + 주민마다 하루 1장(requestsFor), 템플릿 ①~⑧. 오늘의 손님 생물(4.4): 값 ×5·기증 +5★.
+// wave 4(econ-p1): 섬 상인 시세(sell(id, n, shop) — 바자르·떡방아·고물상·정거장·다이빙, 친구 섬 priceOf(…, {where:'friend'})),
+//   섬 가게 품목(tables.ts), 캡슐머신(it_capsule → 의상·스킨·한정 가구, 창 'capsule'), 피규어(같은 종 5 → f_figure_<종>, 창 'figure'),
+//   먹기·버프(use · addBuff · buffs — 켜진 버프는 rollCatch 에 저절로, 버프 칩), 집 보관함 200칸 · 놓아주기 · 버리기(창 'bagfull') ·
+//   전시 · 섬 개발 투자, 재활용 포인트(10 = 반짝별 1), 주민 초대권(ext.npc.moveIn). 런타임은 economy/p1.ts, 창은 economy/p1panels.ts.
 // 저장: flags.econ(아래 EconFlags) — 바꿀 때마다 state.save()(코어가 묶어 쓴다).
-// 디버그: window.__econ { give, unlock, state(), chests(), spawnChest(tier), shakeDemo(tier), mimicDemo(), museum(), requestsFor(npc), guest(), … }
+// 디버그: window.__econ { give, unlock, state(), chests(), spawnChest(tier), shakeDemo(tier), mimicDemo(), museum(), requestsFor(npc), guest(),
+//   use(id), buff(name, min), buffs(), capsule(), figurine(id), store(id, n), takeOut(id, n), release(id), drop(id, n), display(id, on), invest(island, cost), friendMarket(), … }
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import type { Species } from '../core/state';
@@ -37,6 +42,10 @@ import {
   rollCatch as rollPure, commitCatch, catchFail as failPure, newRollState, PITY as ROLL_PITY,
   type RollState, type RollQuery as PureQuery, type RollEnv as PureEnv,
 } from './economy/roll';
+import { installP1, type P1Flags, type P1Api } from './economy/p1';
+import { registerP1Panels } from './economy/p1panels';
+import { buildCapsuleMachine, buildBeachStall } from './economy/p1models';
+import { merchantMult, junkFixed, recyclePoints, mochiFor, friendHot, MERCHANT_NOTE, type MerchantItem } from './economy/merchants';
 import { canLaunch, canMount, gateCheck, islandsVisited, visitedIslands, navChipNeed, requirementText, rocketStatus, type GateEnv, type GateResult } from './economy/progression';
 import { bagSize, beltOf, isTool, stackMaxOf, usedSlots, addableCount, canAddTo, canAddAll, type BagRules } from './economy/bag';
 import { unitPrice, unsellable, materialWave, rotatePick, HOT_MULT, type PriceSpecies } from './economy/price';
@@ -47,8 +56,10 @@ import {
 
 export const order = 9;
 
-/** flags.econ — economy 혼자 쓴다 */
-export interface EconFlags {
+/** flags.econ — economy 혼자 쓴다(wave 4 칸은 P1Flags — p1.ts 가 채운다) */
+export interface EconFlags extends Partial<P1Flags> {
+  /** 달떡 덤 이월분(400코인이 안 찬 생물 판 값) */
+  mochiCarry?: number;
   stars: number;
   stamps: number;
   /** 열쇠 조각 수(3조각 = 열쇠 1) */
@@ -84,7 +95,7 @@ export interface EconFlags {
 export type Request = Req & { species: Species };
 export type { Req as EconReq } from './economy/requests';
 
-type PriceOpts = { size?: number; variant?: Variant; where?: SellWhere };
+type PriceOpts = { size?: number; variant?: Variant; where?: SellWhere; /** 파는 가게(상인 보정). 안 주면 열린 가게 창 */ shop?: string };
 type RollQ = ApiRollQuery & Pick<PureQuery, 'commit' | 'place'>;
 
 /** 미믹 상자게(GDD 3.3.1 d_mimic_crab) — 도감 칸 주인은 economy */
@@ -147,11 +158,15 @@ export default function build(ctx: Ctx) {
   const save = () => st.save();
   const emit = (type: string, extra: Record<string, unknown> = {}) => st.emit({ type, ...extra });
   const toast = (t: string) => { try { game.ui.toast(t); } catch { /* UI 가 없는 환경 */ } };
+  /** wave 4 런타임(아래 game.econ 을 붙이기 직전에 설치) */
+  let p1: P1Api | null = null;
 
   // ── 해금 ──
   const p0Open = new Set(p0 ? P0_OPEN_KEYS : []);
+  /** 처음부터 노점으로 열려 있는 시설(피규어 공방은 작업대 옆) */
+  const ALWAYS_OPEN = new Set(['facility:figure']);
   /** 진짜로 열렸나(치트 빼고) — '이미 가지고 있어요' 판정용 */
-  const hasKey = (key: string) => F().unlocks.includes(key) || p0Open.has(key);
+  const hasKey = (key: string) => F().unlocks.includes(key) || p0Open.has(key) || ALWAYS_OPEN.has(key);
   const isUnlocked = (key: string) => cheat || hasKey(key);
   const unlock = (key: string, why = '') => {
     if (!key) return;
@@ -231,7 +246,8 @@ export default function build(ctx: Ctx) {
   const rules = (): BagRules => ({
     size: cheat ? 999 : bagSize(isUnlocked),
     speciesOf: (id) => st.species.get(id),
-    passThrough: (id) => !!obtainEffect(splitVariant(id).id),
+    // 의상·스킨은 옷장에 걸린다(가방 칸을 쓰지 않는다)
+    passThrough: (id) => !!obtainEffect(splitVariant(id).id) || id.startsWith('cos_') || id.startsWith('skin_'),
   });
   st.canAdd = (id, n) => canAddTo(st.bag, id, n, rules());
   let fullAt = -Infinity;
@@ -338,11 +354,16 @@ export default function build(ctx: Ctx) {
     }
     return take;
   };
-  const nameOf = (id: string) => st.species.get(id)?.name ?? itemDef(id)?.name ?? ANY_NEEDS[id]?.name ?? id;
+  const nameOf = (id: string) => st.species.get(id)?.name ?? itemDef(id)?.name ?? ANY_NEEDS[id]?.name ?? GOODS[id]?.name ?? id;
   /** 만들 수 있나 + 안 되면 왜 */
   const craftCheck = (rid: string): GateResult & { take?: Record<string, number>; recipe?: Recipe } => {
     const r = recipeById(rid);
     if (!r) return { ok: false, why: '그런 레시피는 없어요 🤔' };
+    if (r.id === 'r_figure') {
+      return p1?.figureList().some((x) => x.points >= 5)
+        ? { ok: true, take: {}, recipe: r }
+        : { ok: false, why: '같은 친구가 5마리 필요해요 (꼬마는 2마리로 쳐요) 🧸', recipe: r };
+    }
     // 레시피 카드(recipe:<rid>)를 얻었으면 원래 조건(시설·방문·우주 등)과 상관없이 만들 수 있다
     const g = hasKey(`recipe:${r.id}`) ? { ok: true } : gateCheck(recipeGateOf(r, p0), gateEnv, r.id);
     if (!g.ok) return { ...g, recipe: r };
@@ -362,6 +383,12 @@ export default function build(ctx: Ctx) {
   };
   const canCraft = (rid: string) => craftCheck(rid).ok;
   const craft = (rid: string) => {
+    // 피규어는 종마다 다른 가구(f_figure_<종>) — 공방 규칙(꼬마 ×2)으로 가장 많이 모인 종을 만든다
+    if (recipeById(rid)?.id === 'r_figure') {
+      const best = p1?.figureList().find((x) => x.points >= 5);
+      if (!best) { toast('같은 친구가 5마리 필요해요 (꼬마는 2마리로 쳐요) 🧸'); return false; }
+      return p1!.figurine(best.id);
+    }
     const c = craftCheck(rid);
     if (!c.ok || !c.take || !c.recipe) { if (c.why) toast(c.why); return false; }
     const r = c.recipe;
@@ -574,28 +601,45 @@ export default function build(ctx: Ctx) {
   };
 
   // ── 오늘의 시세 ──
-  const market = () => {
-    ensureDay();
-    const d = day();
-    if (mk && mk.day === d) return mk;
+  /** 인기 생물 무리(물고기 · 곤충 · 바다/공룡섬) — 무리마다 정렬된 id */
+  const hotPools = (): string[][] => {
     // 상자게(미믹)는 마음대로 잡을 수 없으니 인기 생물에서 뺀다
     const all = [...st.species.values()].filter((s) => !s.p1 && s.category !== 'item' && !s.tags?.includes('mimic'));
-    const hot: string[] = [];
-    // 물고기 1 · 곤충 1 · 바다/공룡섬 1 — 날마다 돌아가며(어제와 같은 종은 안 나온다)
-    for (const [gi, cats] of [['fish'], ['bug', 'insect'], ['sea', 'dino']].entries()) {
-      const pool = all.filter((s) => cats.includes(s.category)).map((s) => s.id).sort();
-      if (!pool.length) continue;
-      const i = rotatePick(pool.length, d, (b) => ctx.rng(`market:${gi}:${b}`));
-      hot.push(pool[i]);
-    }
+    return [['fish'], ['bug', 'insect'], ['sea', 'dino']].map((cats) => all.filter((s) => cats.includes(s.category)).map((s) => s.id).sort());
+  };
+  /** 인기 목록 → 배율표(인기 ×2 · 재료 파동 · 오늘의 손님 ×5) */
+  const multOf = (d: number, hot: string[]) => {
     const mult: Record<string, number> = {};
     for (const id of hot) mult[id] = HOT_MULT;
     MATERIALS.forEach((m, i) => { if (!m.noSell) mult[m.id] = materialWave(d, i); });
     // 오늘의 손님 생물(4.4) ×5
     const g = guest();
     if (g) mult[g.id] = Math.max(mult[g.id] ?? 1, GUEST_PRICE_MULT);
-    mk = { day: d, hot, mult, guest: g?.id ?? null };
+    return { mult, guest: g?.id ?? null };
+  };
+  const market = () => {
+    ensureDay();
+    const d = day();
+    if (mk && mk.day === d) return mk;
+    const hot: string[] = [];
+    // 물고기 1 · 곤충 1 · 바다/공룡섬 1 — 날마다 돌아가며(어제와 같은 종은 안 나온다)
+    hotPools().forEach((pool, gi) => {
+      if (!pool.length) return;
+      hot.push(pool[rotatePick(pool.length, d, (b) => ctx.rng(`market:${gi}:${b}`))]);
+    });
+    mk = { day: d, hot, ...multOf(d, hot) };
     return mk;
+  };
+  /** 친구 섬 시세(4.4 P1) — 친구 섬 꽥사장은 인기 생물이 다르다(날마다, 내 인기와 겹치지 않게) */
+  let fmk: { day: number; hot: string[]; mult: Record<string, number>; guest: string | null } | null = null;
+  const friendMarket = () => {
+    ensureDay();
+    const d = day();
+    if (fmk && fmk.day === d && mk && mk.day === d) return fmk;
+    const own = market().hot;
+    const hot = friendHot(hotPools(), own, (gi, len) => rotatePick(len, d, (b) => ctx.rng(`market-friend:${gi}:${b}`)));
+    fmk = { day: d, hot, ...multOf(d, hot) };
+    return fmk;
   };
 
   // ── 가격 ──
@@ -612,16 +656,43 @@ export default function build(ctx: Ctx) {
     return { where: !island || island === 'home' ? 'home' : 'island', island };
   };
   const priceSpecies = (id: string): PriceSpecies | undefined => st.species.get(id) as PriceSpecies | undefined;
-  /** 판매가 한 개. priceOf(id, {size, variant, where}) — 예전 모양 priceOf(id, size, variant) 도 받는다 */
+  /** 상인이 보는 물건 모양 */
+  const merchantItem = (id: string): MerchantItem => {
+    const s = st.species.get(id);
+    return { id, category: s?.category ?? (itemDef(id) ? 'item' : undefined), tags: s?.tags ?? itemDef(id)?.tags, where: s?.where };
+  };
+  /** 지금 열린 가게 창(상점 창 · 가게에서 연 가방 창) — 가격표가 그 가게 보정을 보이게 */
+  const openShop = (): string | null => {
+    try {
+      const c = game.hud?.current?.();
+      if (!c) return null;
+      const a = c.arg as { shop?: unknown } | string | null | undefined;
+      const s = typeof a === 'string' ? a : a && typeof a === 'object' && typeof a.shop === 'string' ? a.shop : null;
+      if (c.kind === 'shop') return s ?? 'quack';
+      return c.kind === 'bag' ? s : null;
+    } catch { return null; }
+  };
+  /** 한 개 값 — 가게 보정(바자르·떡방아·고물상 …)·친구 섬 시세까지 */
+  const unitAt = (raw: string, shop: string | null, o: { size?: number; variant?: Variant; where?: SellWhere; soldBefore: number }) => {
+    const { id } = splitVariant(raw);
+    const info = merchantItem(id);
+    const fixed = junkFixed(shop, info);
+    if (fixed !== null) return unsellable(raw, priceSpecies(id)) ? 0 : fixed;
+    const friend = shop === 'friend' || o.where === 'friend';
+    const h = friend ? { where: 'friend' as SellWhere, island: here().island } : o.where ? { where: o.where, island: here().island } : here();
+    const base = (friend ? friendMarket() : market()).mult[id] ?? 1;
+    return unitPrice({
+      id: raw, species: priceSpecies(id), size: o.size, best: st.dex[id]?.best, variant: o.variant,
+      where: h.where, island: h.island, market: base * merchantMult(shop, info), soldBefore: o.soldBefore,
+    });
+  };
+  /** 판매가 한 개. priceOf(id, {size, variant, where, shop}) — 예전 모양 priceOf(id, size, variant) 도 받는다 */
   const priceOf = (raw: string, o?: PriceOpts | number, legacyVariant?: Variant) => {
     const opt: PriceOpts = typeof o === 'number' ? { size: o, variant: legacyVariant } : o ?? {};
     ensureDay();
     const { id } = splitVariant(raw);
-    const h = opt.where ? { where: opt.where, island: here().island } : here();
-    return unitPrice({
-      id: raw, species: priceSpecies(id), size: opt.size, best: st.dex[id]?.best, variant: opt.variant,
-      where: h.where, island: h.island, market: market().mult[id] ?? 1, soldBefore: F().sold[id] ?? 0,
-    });
+    const shop = opt.shop ?? (opt.where === 'friend' ? 'friend' : openShop());
+    return unitAt(raw, shop, { size: opt.size, variant: opt.variant, where: opt.where, soldBefore: F().sold[id] ?? 0 });
   };
   const sell = (raw: string, n = 1, shop = 'quack') => {
     n = Math.min(Math.floor(n), st.bag[raw] ?? 0);
@@ -630,16 +701,20 @@ export default function build(ctx: Ctx) {
     if (unsellable(raw, priceSpecies(id))) { toast('이건 팔 수 없어요 🙅'); return 0; }
     ensureDay();
     const f = F();
-    const h = here();
-    const sp = priceSpecies(id), mult = market().mult[id] ?? 1, best = st.dex[id]?.best;
     let total = 0;
-    for (let i = 0; i < n; i++) {
-      total += unitPrice({ id: raw, species: sp, best, where: h.where, island: h.island, market: mult, soldBefore: (f.sold[id] ?? 0) + i });
-    }
+    for (let i = 0; i < n; i++) total += unitAt(raw, shop, { soldBefore: (f.sold[id] ?? 0) + i });
     f.sold[id] = (f.sold[id] ?? 0) + n;
     st.addItem(raw, -n);
     st.addCoins(total, 'sell');
-    emit('sell', { id: raw, n, coins: total, shop });
+    // 떡방아: 달떡 덤 · 고물상: 재활용 포인트(10 = 반짝별 1)
+    const mo = mochiFor(shop, merchantItem(id), total, f.mochiCarry ?? 0);
+    const mochi = mo.mochi;
+    if (shop === 'moon') f.mochiCarry = mo.carry;
+    if (mochi > 0) { giveGift('m_mochi', mochi, 'sell'); toast(`🍡 떡순이가 달떡 ${mochi}개를 덤으로 줬어요!`); }
+    const pts = recyclePoints(shop, merchantItem(id), n);
+    const rs = pts > 0 ? p1?.addRecycle(pts) ?? 0 : 0;
+    if (pts > 0) toast(`♻️ 재활용 포인트 +${pts}${rs > 0 ? ` → 반짝별 +${rs}!` : ` (${F().recycle ?? 0}/10)`}`);
+    emit('sell', { id: raw, n, coins: total, shop, ...(mochi ? { mochi } : {}), ...(pts ? { recycle: pts } : {}) });
     save();
     return total;
   };
@@ -677,6 +752,19 @@ export default function build(ctx: Ctx) {
     rng: (k: string) => ctx.rng(k),
   });
   const rollCatch = (qr: RollQ): RollResult => {
+    // 켜진 버프(생선구이·물약·행운 쿠키·클로버·친구)를 저절로 싣는다 — 부르는 쪽이 준 것과 합친다
+    const m = p1?.rollMods();
+    if (m && (m.buffs.length || m.luckMult !== 1)) {
+      qr = { ...qr, buffs: [...new Set([...(qr.buffs ?? []), ...m.buffs])], luckMult: (qr.luckMult ?? 1) * m.luckMult };
+    }
+    // 영구 보너스·친구 방문 — 메타 세트 보상(무지개 루어·반짝 잠자리채)과 netplay 손님 ×1.1
+    const ext = game.ext as { meta?: { perk?: (n: string) => boolean }; net?: { visiting?: boolean } };
+    const perk = (n: string) => { try { return !!ext.meta?.perk?.(n); } catch { return false; } };
+    const extra: string[] = [];
+    if ((qr.activity === 'fish' || qr.activity === 'moonfish') && perk('rainbowlure')) extra.push('rainbowlure');
+    if (ext.net?.visiting) extra.push('friend');
+    if (extra.length) qr = { ...qr, buffs: [...new Set([...(qr.buffs ?? []), ...extra])] };
+    if (qr.activity === 'bug' && (perk('shinynet') || st.has('tool_shiny_net'))) qr = { ...qr, luckMult: (qr.luckMult ?? 1) * 2 };
     const res = rollPure(qr as unknown as PureQuery, F().roll, rollEnv()) as RollResult;
     actOf.set(res, qr.activity);
     if (qr.commit !== false && res.species) committed.add(res);
@@ -1031,6 +1119,12 @@ export default function build(ctx: Ctx) {
     return true;
   };
 
+  // ── wave 4: 먹기·버프·캡슐·피규어·보관·전시·투자(economy/p1.ts) ──
+  const P = (p1 = installP1({
+    ctx, game, st, flags: () => F() as unknown as Record<string, unknown>, save, emit, toast, give, giveGift, spend,
+    shortfall: (c) => shortfallText(c, wallet(), nameOf), addStars, isUnlocked, here, rules, nameOf, hudCard,
+  }));
+
   // ── game.econ ──
   const econ = {
     // 재화
@@ -1064,9 +1158,36 @@ export default function build(ctx: Ctx) {
     // wave 3A — 상자 등급·개발 구역·상자 천장·박물관·골격·주민 부탁·손님
     chestTiers: [...CHEST_TIERS],
     addChestArea, chestPity, museum, skeletonsDone, requestsFor, guest,
+    // wave 4(econ-p1) — 먹기·버프·보관함·놓아주기·전시·투자·캡슐·피규어
+    use: P.use, addBuff: P.addBuff, buffs: P.buffs,
+    storage: P.storage, release: P.release, display: P.display, invest: P.invest,
+    capsule: P.capsule, figurine: P.figurine,
     // 기타
     flags: F as unknown as () => Record<string, unknown>,
     p0, cheat,
+    // ── wave 4 덤(계약 밖 — HUD·interiors·islanddev·netplay·코어가 `?.` 로 쓴다)
+    /** 재료 땅에 내려놓기(가방 꽉 참) — E 로 다시 줍는다 */
+    drop: P.drop,
+    /** 진열장 목록 [{id, n}] · 칸 수 */
+    displayed: P.displayed, displayMax: P.displayMax,
+    /** 섬 투자 누계 */
+    invested: P.invested,
+    /** 버프 배율('speed' — 과일 파이 ×1.2). 코어 이동이 읽으면 된다 */
+    buffMult: P.buffMult,
+    /** rollCatch 에 싣는 버프·반짝이 배율 */
+    rollMods: P.rollMods,
+    /** 주민 초대권 쓰기(섬을 주면 그 섬으로) */
+    useInvite: P.useInvite,
+    /** 재활용 포인트 */
+    recycle: P.recycle,
+    /** 친구 섬 시세(인기 3종이 다르다) */
+    friendMarket,
+    /** 가게 보정 한 줄 */
+    merchantNote: (shop: string) => MERCHANT_NOTE[shop] ?? null,
+    /** 피규어 만들 수 있는 종(점수 순) */
+    figureList: P.figureList,
+    released: P.released,
+    capsuleInfo: P.capsuleInfo,
     // ── 덤(계약 밖 — HUD·디버그가 쓴다)
     /** 예전 이름: 상점 품목 값(Cost) */
     shopCost,
@@ -1212,6 +1333,85 @@ export default function build(ctx: Ctx) {
   facility('diving', () => PLACES.facilities.divingCenter, '다이빙 숍 들르기 🤿', 'open-shop', { shop: 'diving' });
   facility('bazaar', () => PLACES.facilities.bazaar, '모래 바자르 들르기 🏜️', 'open-shop', { shop: 'bazaar' });
   facility('potion', () => PLACES.facilities.potionShop, '물약 가게 들르기 🧪', 'open-shop', { shop: 'potion' });
+
+  // ── wave 4 노점: 캡슐머신(꽥꽥상회 옆) · 피규어 공방(작업대 옆) · 찰랑 해변 가게(산호빛섬 해변) ──
+  /** (x, z) 둘레에서 마른 평지 하나(지형 탐색은 처음 한 번, 시드 고정) */
+  const dryNear = (x: number, z: number, maxR = 10, kinds?: Set<string>) => {
+    for (let r = 0; r <= maxR; r += 1.5) {
+      const n = r === 0 ? 1 : Math.max(6, Math.round(r * 3));
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+        const y = groundOk(px, pz, { village: true });
+        if (y === null) continue;
+        if (kinds && !kinds.has(ctx.island.surfaceAt(px, pz).kind)) continue;
+        // 기울기: 네 귀퉁이 높이 차 0.5 m 안
+        const hs = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ctx.island.heightAt(px + dx * 1.2, pz + dz * 1.2));
+        if (Math.max(...hs) - Math.min(...hs) > 0.5) continue;
+        return { x: px, z: pz, y };
+      }
+    }
+    return { x, z, y: ctx.island.heightAt(x, z) };
+  };
+  const faceTo = (from: { x: number; z: number }, to: { x: number; z: number }) => Math.atan2(to.x - from.x, to.z - from.z);
+  type Stall = { id: string; x: number; y: number; z: number; rot: number; build(): THREE.Group; r: number };
+  let stallCache: Stall[] | null = null;
+  const stalls = (): Stall[] => {
+    if (stallCache) return stallCache;
+    const S = PLACES.shop;
+    // 캡슐머신: 꽥꽥상회 차양 오른쪽 앞(작업대 가는 길목) — 광장 쪽을 본다
+    const cap = dryNear(S.x + 2.6, S.z + 5.2, 6);
+    // 찰랑 해변 가게: 산호빛섬 부두에서 섬 안쪽으로 조금, 다이빙 센터 옆 모래사장
+    const dk = PLACES.docks.coral, isl = ctx.island.islandById('coral');
+    const toC = isl ? { x: isl.x - dk.x, z: isl.z - dk.z } : { x: 0, z: -1 };
+    const L = Math.hypot(toC.x, toC.z) || 1;
+    const ux = toC.x / L, uz = toC.z / L;
+    const bx = dk.x + ux * 22 - uz * 18, bz = dk.z + uz * 22 + ux * 18;
+    const beach = dryNear(bx, bz, 24, new Set(['sand', 'grass']));
+    stallCache = [
+      { id: 'capsule', ...cap, rot: faceTo(cap, PLACES.townBoard), build: buildCapsuleMachine, r: 0.6 },
+      { id: 'beach', ...beach, rot: faceTo(beach, dk), build: buildBeachStall, r: 1.2 },
+    ];
+    return stallCache;
+  };
+  const stallAt = (id: string) => stalls().find((s) => s.id === id)!;
+  const live = new Set<THREE.Object3D>();
+  game.chunks.add({
+    key: 'econ-stalls', size: 64, radius: 260, world: 'earth',
+    build: ({ x0, z0, size }) => {
+      const here = stalls().filter((s) => s.x >= x0 && s.x < x0 + size && s.z >= z0 && s.z < z0 + size);
+      if (!here.length) return null;
+      const g = new THREE.Group();
+      g.name = 'econ-stalls';
+      const cols: Array<{ remove(): void }> = [];
+      for (const s of here) {
+        const m = s.build();
+        m.position.set(s.x, s.y - 0.02, s.z);
+        m.rotation.y = s.rot;
+        g.add(m);
+        live.add(m);
+        try { cols.push(game.physics.addStatic({ kind: 'cylinder', halfH: 0.9, r: s.r }, { x: s.x, y: s.y + 0.9, z: s.z }, undefined, `econ-${s.id}`)); } catch { /* 물리 없음 */ }
+      }
+      g.userData.cols = cols;
+      return g;
+    },
+    dispose: (obj) => {
+      for (const c of (obj.userData.cols ?? []) as Array<{ remove(): void }>) c.remove();
+      obj.traverse((o) => live.delete(o));
+    },
+  });
+  game.onUpdate((t) => { for (const m of live) (m.userData.animate as ((t: number) => void) | undefined)?.(t); });
+  game.addInteractable({
+    id: 'econ-capsule', position: () => { const s = stallAt('capsule'); return new THREE.Vector3(s.x, s.y, s.z); }, radius: 2.6,
+    label: '두근두근 캡슐머신 🎰', onUse: () => game.hud.open('capsule'), enabled: () => game.world === 'earth',
+  });
+  facility('beach', () => stallAt('beach'), '찰랑 해변 가게 들르기 🏖️', 'open-shop', { shop: 'beach' });
+  // 피규어 공방: 작업대 옆 선반(작업대와 같은 자리, 조금 옆)
+  game.addInteractable({
+    id: 'econ-figure', position: () => new THREE.Vector3(PLACES.workbench.x + 2.4, ctx.island.heightAt(PLACES.workbench.x + 2.4, PLACES.workbench.z + 1.2), PLACES.workbench.z + 1.2),
+    radius: 2.4, label: '피규어 공방 🧸', onUse: () => game.hud.open('figure'), enabled: () => game.world === 'earth',
+  });
+  registerP1Panels({ game, p1: P, stars: () => F().stars, buy, canBuy, shopPrice: shopCost, nameOf });
 
   // ── 보물상자: 세상 속 상자 열기·흔들림 힌트·미믹·무지개 상자 ──
   const root = new THREE.Group();
@@ -1462,6 +1662,15 @@ export default function build(ctx: Ctx) {
       rainbow: extra.rainbowChest,
       // 박물관·부탁·손님
       museum, skeletonsDone, requests, requestsFor, fulfill: (rid: string) => fulfill(rid), guest, deliverLetter: econ.deliverLetter,
+      // wave 4 — 상인·버프·캡슐·피규어·보관·전시·투자
+      use: P.use, buff: (name: string, min = 30) => { P.addBuff(name, min); return P.buffs(); }, buffs: P.buffs, rollMods: P.rollMods,
+      capsule: () => P.capsule.roll(), capsuleInfo: P.capsuleInfo, openCapsule: () => game.hud.open('capsule'),
+      figurine: P.figurine, figures: P.figureList, openFigure: () => game.hud.open('figure'),
+      store: (id: string, n = 1) => P.storage.put(id, n), takeOut: (id: string, n = 1) => P.storage.take(id, n), storage: () => P.storage.list(),
+      release: P.release, drop: P.drop, drops: P.drops, display: P.display, displayed: P.displayed,
+      invest: P.invest, invested: P.invested, recycle: P.recycle, friendMarket,
+      priceAt: (id: string, shop: string) => priceOf(id, { shop }), stalls: () => stalls().map((s) => ({ id: s.id, x: s.x, z: s.z })),
+      bagFull: (id = 'f_carp') => game.hud.open('bagfull', undefined, { id }),
     };
   }
   return root;

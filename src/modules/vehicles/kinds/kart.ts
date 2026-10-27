@@ -9,7 +9,7 @@ import type { KindDef } from '../types';
 const UP = new THREE.Vector3(0, 1, 0);
 
 export const kart: KindDef = {
-  kind: 'kart', name: '꼬마 카트', medium: 'land', boat: false, land: true,
+  kind: 'kart', name: '꼬마 카트', medium: 'land', boat: false, land: true, seats: 2,
   cam: 1.25, view: 150, reach: 2.6, speed: 12.5, unlockKey: unlockKeyOf('kart'), focusY: 0.2, margin: 1.8,
   make: () => M.kart(),
   mount(v, g) {

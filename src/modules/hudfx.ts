@@ -367,7 +367,8 @@ export default function build(ctx: Ctx) {
       current: game.current ? { id: game.current.id, label: game.current.label } : null,
       pity: { fish: pityVal(E, 'fish'), bug: pityVal(E, 'bug'), dive: pityVal(E, 'dive'), chest },
       ocean: o ? { stamina: o.stamina, staminaMax: o.staminaMax, oxygen: o.oxygen, oxygenMax: o.oxygenMax, swimming: o.swimming } : null,
-      moon: sp && game.world === 'space' ? sp : null,
+      // 헬멧 산소는 달에서만 줄어든다 — 다른 행성(planets)에 있으면 게이지를 숨긴다
+      moon: sp && game.world === 'space' && !(game.ext as { planets?: { current?(): string | null } }).planets?.current?.() ? sp : null,
     }, gaugeLast);
     wantSig = {};
     for (const [id, g] of Object.entries(want)) wantSig[id] = gaugeSig(g);

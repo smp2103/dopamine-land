@@ -111,7 +111,7 @@ export interface ShadowSpawn {
   /** 수면 높이 */
   y: number;
 }
-type Mode = 'off' | 'roam' | 'approach' | 'hook' | 'flee';
+type Mode = 'off' | 'roam' | 'approach' | 'hook' | 'fight' | 'flee';
 const SPARK_N = 18;
 
 interface Slot {
@@ -119,6 +119,7 @@ interface Slot {
   plane: THREE.Mesh;
   mat: THREE.MeshBasicMaterial;
   fin: THREE.Mesh;
+  finMat: THREE.MeshStandardMaterial;
   sparks: THREE.Points;
   sparkMat: THREE.PointsMaterial;
   s: ShadowSpawn;
@@ -143,6 +144,9 @@ export class CastShadows {
   private slots: Slot[] = [];
   /** 찌 자리(멈추는 곳) */
   private bx = 0; private bz = 0;
+  /** 모래 낚시: 땅 높이를 따라 그린다(null = 물 위 고정 높이) */
+  private ground: ((x: number, z: number) => number) | null = null;
+  private sand = false;
 
   constructor() {
     this.root.name = 'fishing-cast-shadows';
@@ -152,7 +156,8 @@ export class CastShadows {
       const plane = new THREE.Mesh(planeGeo, mat);
       plane.renderOrder = SHADOW_ORDER;
       g.add(plane);
-      const fin = new THREE.Mesh(finGeo, finMat);
+      const fm = finMat.clone();
+      const fin = new THREE.Mesh(finGeo, fm);
       fin.castShadow = false;
       fin.visible = false;
       g.add(fin);
@@ -166,7 +171,7 @@ export class CastShadows {
       g.visible = false;
       this.root.add(g);
       this.slots.push({
-        g, plane, mat, fin, sparks, sparkMat, s: { len: 1, rarity: 1, junk: false, shiny: false, x: 0, z: 0, y: 0 },
+        g, plane, mat, fin, finMat: fm, sparks, sparkMat, s: { len: 1, rarity: 1, junk: false, shiny: false, x: 0, z: 0, y: 0 },
         mode: 'off', t0: 0, x: 0, z: 0, head: 0, hx: 0, hz: 0, ph: 0, spin: 1, fx: 0, fz: 0, dur: 3, poke: -99, lunge: false, op: 0,
       });
     }
@@ -174,6 +179,19 @@ export class CastShadows {
 
   get count() { return this.slots.filter((s) => s.mode !== 'off').length; }
 
+  /**
+   * 모래 낚시(GDD 3.5.7 dune): 모래색 그림자 + 모든 그림자에 등지느러미(모래를 가르며) + 땅 높이를 따라.
+   * ground = null 이면 물 위(기본).
+   */
+  setMedium(sand: boolean, ground: ((x: number, z: number) => number) | null = null) {
+    this.sand = sand;
+    this.ground = sand ? ground : null;
+    for (const sl of this.slots) {
+      sl.mat.color.set(sand ? '#6e5236' : '#ffffff');
+      sl.finMat.color.set(sand ? '#e6c48e' : '#4d6f8a');
+      sl.finMat.emissive.set(sand ? '#9a7442' : '#2b4a63');
+    }
+  }
   /** 새로 던질 때: 그림자를 놓는다(처음엔 배회) */
   spawn(list: ShadowSpawn[], bob: { x: number; z: number }, t: number, rng: () => number) {
     this.clear();
@@ -188,8 +206,8 @@ export class CastShadows {
       sl.mat.map = s.junk ? junkTex : shadowTex;
       sl.mat.needsUpdate = true;
       sl.plane.scale.set(s.len * TEX_PAD, 1, s.len * TEX_PAD);
-      // ★4 이상은 등지느러미가 물 위로
-      sl.fin.visible = !s.junk && s.rarity >= 4;
+      // ★4 이상은 등지느러미가 물 위로(모래 위에선 모두 — 모래를 가르는 지느러미)
+      sl.fin.visible = !s.junk && (s.rarity >= 4 || this.sand);
       const fh = 0.1 + s.len * 0.12;
       sl.fin.scale.set(fh * 0.9, fh, 1);
       sl.fin.position.set(-s.len * 0.04, 0, 0);
@@ -205,6 +223,13 @@ export class CastShadows {
     const sl = this.slots[i];
     if (!sl || sl.mode === 'off') return;
     sl.mode = 'approach'; sl.t0 = t; sl.fx = sl.x; sl.fz = sl.z; sl.dur = Math.max(0.2, dur);
+  }
+  /** 줄다리기: i 번 그림자를 (x, z) 로 끌고 다닌다(머리는 움직이는 쪽) */
+  drag(i: number, x: number, z: number) {
+    const sl = this.slots[i];
+    if (!sl || sl.mode === 'off') return;
+    if (sl.mode !== 'fight') { sl.mode = 'fight'; sl.t0 = 0; }
+    sl.fx = x; sl.fz = z;
   }
   /** 톡! — 앞으로 콕 */
   poke(i: number, t: number) { const sl = this.slots[i]; if (sl) sl.poke = t; }
@@ -262,6 +287,14 @@ export class CastShadows {
         vx = ux; vz = uz;
         sl.x = nx; sl.z = nz;
         opTarget = 0.86;
+      } else if (sl.mode === 'fight') {
+        // 줄다리기: 바깥에서 정한 자리로 부드럽게(텐션에 따라 펄떡)
+        const k = Math.min(1, dt * 10);
+        const nx = sl.x + (sl.fx - sl.x) * k, nz = sl.z + (sl.fz - sl.z) * k;
+        vx = nx - sl.x; vz = nz - sl.z;
+        if (Math.hypot(vx, vz) < 1e-4) { vx = this.bx - sl.x; vz = this.bz - sl.z; }
+        sl.x = nx; sl.z = nz;
+        opTarget = 0.92;
       } else if (sl.mode === 'flee') {
         const dx = sl.fx - this.bx, dz = sl.fz - this.bz;
         const d = Math.hypot(dx, dz) || 1;
@@ -280,7 +313,8 @@ export class CastShadows {
       // 나타날 땐 천천히, 도망칠 땐 빨리
       sl.op += (opTarget - sl.op) * Math.min(1, dt * (sl.mode === 'flee' ? 6 : 2.2));
       sl.mat.opacity = sl.op;
-      sl.g.position.set(sl.x, s.y + SHADOW_LIFT, sl.z);
+      const gy = this.ground ? this.ground(sl.x, sl.z) + 0.3 : s.y + SHADOW_LIFT;
+      sl.g.position.set(sl.x, gy, sl.z);
       sl.g.rotation.y = sl.head;
       const wob = 1 + 0.05 * Math.sin(t * 6 + sl.ph);
       sl.plane.scale.set(L * TEX_PAD * wob, 1, L * TEX_PAD);

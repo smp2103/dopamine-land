@@ -33,3 +33,13 @@ export const VEHICLE_DEX: Species[] = ROWS.map((r) => ({
 
 /** id → 칸 */
 export const VEHICLE_DEX_BY_ID: ReadonlyMap<string, Species> = new Map(VEHICLE_DEX.map((s) => [s.id, s]));
+
+/** 표 밖 덤 칸(웨이브 3 인계: 달리미 탑승) — 18칸 표는 그대로 두고 따로 등록한다 */
+const EXTRA_ROWS: Row[] = [
+  { id: 'v_dino_galli', name: '달리미 (갈리미무스)', rarity: 4, habitat: '공룡섬 초원', speed: '16 m/s', desc: '가장 빠른 육상 탈것! 무리와 함께 질주.', p1: true },
+];
+export const VEHICLE_DEX_EXTRA: Species[] = EXTRA_ROWS.map((r) => ({
+  id: r.id, name: r.name, category: 'item', rarity: r.rarity, tags: ['vehicle'],
+  habitat: r.habitat, desc: `${r.desc} (${r.speed})`, ...(r.p1 ? { p1: true } : {}),
+}));
+for (const s of VEHICLE_DEX_EXTRA) (VEHICLE_DEX_BY_ID as Map<string, Species>).set(s.id, s);

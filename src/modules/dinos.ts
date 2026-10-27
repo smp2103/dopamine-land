@@ -163,6 +163,13 @@ export default function build(ctx: Ctx) {
   const slopeOk = (x: number, z: number, y0: number, step: number) => Math.abs(island.heightAt(x, z) - y0) < Math.max(0.5, step * 1.3);
 
   // ── 개체 만들기 ──
+  /** fishing 의 낚시 대결 돛등이 둘레 14 m 안인가 */
+  function nearContestSpino(x: number, z: number): boolean {
+    try {
+      const s = (game?.ext as { spinoContest?: { spot?(): { x: number; z: number } | null } } | undefined)?.spinoContest?.spot?.();
+      return !!s && Math.hypot(x - s.x, z - s.z) < 14;
+    } catch { return false; }
+  }
   function spawn(spec: DinoSpec, x: number, z: number, yaw: number, key: string, parent: THREE.Object3D, chunk: string | null, islandId = spec.home === 'ice' ? 'ice' : 'dino'): Agent {
     const rig = makeDino(spec);
     const y = island.heightAt(x, z);
@@ -232,6 +239,7 @@ export default function build(ctx: Ctx) {
           if (!okGround(x, z, islandId, spec.zones.includes('summit')) || nearWelcome(x, z, CLEAR + 2)) continue;
           const yaw0 = rnd() * Math.PI * 2, t0 = rnd() * 3;
           if (taken.has(`d:${ck}:${h}:${i}`)) continue;   // 굴림 순서는 그대로(다른 개체 자리가 안 바뀌게)
+          if (spec.id === 'dino-spino' && nearContestSpino(x, z)) continue;   // 낚시 대결 돛등이(fishing) 자리와 겹치지 않게
           const ag = spawn(spec, x, z, yaw0, `d:${ck}:${h}:${i}`, g, ck, islandId);
           ag.home = { x: hx, z: hz };
           ag.timer = t0;

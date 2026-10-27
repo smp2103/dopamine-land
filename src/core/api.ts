@@ -153,7 +153,7 @@ export interface AudioApi {
   mute(on?: boolean): boolean;
 }
 
-export interface VehicleNow { kind: string; speed: number; boat: boolean; seats?: number }
+export interface VehicleNow { kind: string; speed: number; boat: boolean; seats?: number; riders?: number }
 /** registerKind 로 넣는 탈것 종류(세부 모양은 vehicles 가 정한다) */
 export interface VehicleKindDef {
   kind: string;
@@ -171,6 +171,14 @@ export interface VehiclesApi {
   summon(kind: string): boolean;
   isBoat(kind: string): boolean;
   registerKind(def: VehicleKindDef): void;
+  // ── wave 4 (vehicles-p1) — 호출하는 쪽은 `?.`
+  /** 2인승이면 뒷자리 Object3D(손님 아바타를 붙인다), 아니면 null */
+  setPassenger?(o: { on: boolean; pedal?: boolean }): THREE.Object3D | null;
+  seat?(i: number): THREE.Object3D | null;
+  /** 로켓 발사대 자리 */
+  padPose?(): { x: number; y: number; z: number; rotY: number } | null;
+  /** 저장된 최고 속도(종류별)·스턴트 수 */
+  stats?(): { top: Record<string, number>; stunts: number };
 }
 
 export interface PlanetDef {
@@ -546,7 +554,12 @@ export interface EconApi {
   buffs?(): Array<{ name: string; until: number }>;
   storage?: StorageApi;
   release?(id: string): boolean;
-  display?(id: string, on: boolean): void;
+  /** 집 진열장에 넣기/빼기 — 됐으면 true */
+  display?(id: string, on: boolean): boolean;
+  displayed?(): Array<{ id: string; n: number }>;
+  displayMax?(): number;
+  /** 켜진 버프 배율('speed' 과일파이 1.2 등, 기본 1) */
+  buffMult?(name: string): number;
   invest?(island: string, cost: Cost): boolean;
   capsule?: { roll(): LootItem | null };
   figurine?(id: string): boolean;

@@ -259,7 +259,11 @@ const CEREMONY_KIND: Array<[RegExp, { title: string; icon: string; color: string
   [/^facility:/, { title: '새 시설이 생겼어요!', icon: '🏗️', color: '#ffbe3b' }],
 ];
 /** 다른 모듈이 제 카드를 직접 띄우는 해금(공룡 친구·뗏목) — 겹치지 않게 건너뛴다 */
-const OWN_CARD: Array<[RegExp, string | undefined]> = [[/^dino:/, undefined], [/^v:dino_/, undefined], [/^v:raft$/, undefined]];
+// 섬 개발(islanddev)은 단계마다 제 의식 카드·배너를 띄운다 — 등대·단계·시설 해금은 겹치지 않게
+const OWN_CARD: Array<[RegExp, string | undefined]> = [
+  [/^dino:/, undefined], [/^v:dino_/, undefined], [/^v:raft$/, undefined],
+  [/^(lighthouse|dev|facility):/, 'islanddev'],
+];
 /** 해금 → 세리머니(아이콘·이름은 lookup 이 상점·레시피 표에서 찾는다) */
 export function ceremonyOf(key: string, why: string | undefined, lookup: (key: string) => { name?: string; icon?: string } | undefined): Ceremony | null {
   if (!key || (why && QUIET_WHY.has(why))) return null;

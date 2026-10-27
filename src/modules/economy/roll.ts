@@ -109,6 +109,8 @@ export const JUNK_RATE = { bait: 0.08, none: 0.12 } as const;
 export const SHINY_P = 1 / 256;
 /** 크기 표준편차 = 평균 × 0.15, 왕관 z>2.33(상위 1%), 꼬마 z<−1.88(하위 3%) */
 export const SIZE_SD = 0.15, CROWN_Z = 2.33, TINY_Z = -1.88;
+/** 쑥쑥 물약 버프('bigsize')가 크기 z 에 더하는 값 */
+export const BIG_Z = 0.35;
 /** 천장(GDD 5.3): ★3+ 20회 안, ★4+ 80회 안, ★5 300회부터 상승·400회 확정 */
 export const PITY = { r3: 19, r4: 79, r5ramp: 300, r5ramp_w: 0.6, r5: 399, gauge: 400 } as const;
 
@@ -218,6 +220,12 @@ export function rarityWeights(bait: string | undefined, buffs: string[] | undefi
     if ((has('grilled_fish') || has('grilled')) && r >= 3) m *= 1.2;
     // 친구 방문 ×1.1 — 모든 희귀도에 곱하면 효과가 없으니 ★3+ 에만(생선구이와 같은 결)
     if (has('friend') && r >= 3) m *= 1.1;
+    // 별빛 물약(물약 가게, wave 4) ★4+ ×1.3
+    if (has('starlight') && r >= 4) m *= 1.3;
+    // 무지개 루어(세트 보상, 영구) ★3+ ×1.2 — 낚시에서만 싣는다(economy.rollCatch)
+    if (has('rainbowlure') && r >= 3) m *= 1.2;
+    // 혜성여우 소원(하루 희귀 업) ★3+ ×1.2
+    if (has('wish') && r >= 3) m *= 1.2;
     if (cb > 0 && r >= 3) m *= 1 + cb;
     W[r] *= m;
   }
@@ -334,7 +342,8 @@ export function rollCatch(q: RollQuery, s: RollState, env: RollEnv): RollResult 
   const species = list.length === 1 ? list[0] : pickWeighted(list, sp => sw.get(sp) ?? 0, uSp);
 
   // 7) 크기·변이 — 반짝이 > 왕관 > 꼬마
-  const z = gauss(rnd);
+  // 쑥쑥 물약(wave 4): 크기 분포를 +0.35σ 밀어 큰 개체·왕관이 잘 나온다(난수 소비 순서는 그대로)
+  const z = gauss(rnd) + (q.buffs?.includes('bigsize') ? BIG_Z : 0);
   const uShiny = rnd();
   let size: number | undefined;
   if (species.len && species.len > 0) size = Math.max(0.1, Math.round(species.len * (1 + SIZE_SD * z) * 10) / 10);

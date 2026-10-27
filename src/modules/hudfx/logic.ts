@@ -328,6 +328,12 @@ export class Sequencer<T extends { ms: number }> {
     return null;
   }
   pending(): readonly T[] { return this.q; }
+  /** 아직 안 띄운 것 중 pred 에 맞는 것을 버린다(떠 있는 카드는 그대로) — 버린 개수 */
+  drop(pred: (it: T) => boolean): number {
+    const n = this.q.length;
+    this.q = this.q.filter((it) => !pred(it));
+    return n - this.q.length;
+  }
 }
 
 // ───────────── 지도 도장 ─────────────

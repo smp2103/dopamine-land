@@ -22,6 +22,7 @@ import type { Game, Input } from '../core/game';
 import type { Species } from '../core/state';
 import type { RollResult, RollSpecies, VehicleKindDef, VehicleNow, VehiclesApi } from '../core/api';
 import { applyCurve } from '../core/curve';
+import { trimSmallShadows } from '../core/chunks';
 import { RAPIER } from '../core/physics';
 import { mats, sphere, torus } from './vehicles/kit';
 import { motorboat as motorboatModel } from './vehicles/models';
@@ -356,6 +357,8 @@ export default function build(ctx: Ctx) {
     v.mountable.seat = m.seat;
     v.mountable.object = v.focus;
     applyCurve(m.root);
+    // 그림자는 차체·선체 같은 큰 덩어리만(볼트·전조등·손잡이는 그림자 패스에서 뺀다)
+    trimSmallShadows(m.root, 0.28);
     groupOf(v.world).add(m.root);
     if (v.personal) applySkin(m.root, skinOf(v.def.kind));
     placeV(v, game?.time ?? 0);

@@ -9,6 +9,7 @@
 //   hitNearest(maxD = 6): {ok, key, item, n, combo, left, broken, why?} | null
 //   breakRock(key): boolean                                                — 공룡 돌진 등으로 그날 돌을 부순다(이미 부서졌으면 false)
 //   gatherNearest(): {key, kind, ok} | null
+//   pickDrop(maxD = 6): string | null                                       — 떨어진 열매·코인 주머니·벌집 하나 줍기(자동 루프)
 // }
 // window.__flora = 위 + 마을 통계(trees·broad·cedar·palm·bushes·flowers·weeds·badVerts·tris)
 import * as THREE from 'three';
@@ -354,6 +355,8 @@ export default function build(ctx: Ctx) {
       breakRock: (key: string) => R.breakRock(key),
       gatherNearest: () => (H as Harvest & { gatherNearest?: () => unknown }).gatherNearest?.() ?? null,
       drops: () => H.drops(),
+      /** 떨어진 열매·코인 주머니·벌집 줍기(maxD m 안 가장 가까운 것) — 자동 루프용 */
+      pickDrop: (maxD?: number) => H.pickDrop(maxD),
       fx: () => fx.live(),
       homeTrees: () => W.homeTrees.map((t) => ({ kind: t.kind, x: t.x, z: t.z, s: t.s })),
       flags: () => S.flags(),

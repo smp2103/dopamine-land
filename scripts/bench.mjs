@@ -8,7 +8,9 @@
 //      --calls-tol 0.10  --ms-tol 0.10  --ms-floor 1.0(ms 는 이만큼(ms)도 안 늘면 잡음으로 본다)
 // --stops 파일: [{ "id": "ice-cave", "label": "얼음 동굴", "q": "spawn=ice", "eval": "await …" }]
 //             또는 { "replace": true, "stops": [...] } — replace 면 기본 정류장을 버리고 이것만.
-// 아래 '순수 함수' 구간은 tests/bench-parse.test.ts 가 불러 쓴다(브라우저 없이 시험).
+//      --base-only(웨이브 0 기준 정류장 8곳만)  --retries 2(측정 실패 다시 — 다른 작업의 HMR 새로고침에 걸리면)
+// 범인 보고: 청크 레이어(키별) + 청크가 아닌 모듈 덩어리(mod:<모듈 이름>, 보이는 메시만) — 높음이 한도를 넘거나 기준선보다 늘면 같이 찍는다.
+// 아래 '순수 함수' 구간은 tests/bench-parse.test.ts · tests/perf.test.ts 가 불러 쓴다(브라우저 없이 시험).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -34,6 +36,40 @@ export const DEFAULT_STOPS = [
   { id: 'moon', label: '달', q: 'world=space' },
 ];
 
+/** 페이지 안 기다림(정류장 eval 에서 씀) */
+const SLEEP = 'const sleep = (ms) => new Promise((r) => setTimeout(r, ms));';
+
+/**
+ * 웨이브 6 정류장 — 기준선(웨이브 0)엔 없다(비교 땐 '새 정류장' 경고, 높음 한도는 본다).
+ * 훅이 없으면(모듈이 빠짐) eval 이 던져서 '측정 실패'로 남는다. need = 그 훅이 없으면 건너뛰기(행성처럼 있을 때만).
+ */
+export const EXTRA_STOPS = [
+  {
+    // 산호섬 둘레에서 잠수 구역이 '산호초'인 첫 자리를 찾아 잠수
+    id: 'reef-dive', label: '산호초 잠수', q: 'spawn=coral',
+    eval: `${SLEEP}
+      const p = __game.player.pos, cx = p.x, cz = p.z; let hit = null;
+      for (let r = 30; r < 1200 && !hit; r += 15) for (let a = 0; a < 6.283 && !hit; a += 12 / r) {
+        const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+        if (__ocean.zoneAt(x, z).dive === 'reef') hit = [x, z];
+      }
+      if (!hit) throw new Error('산호초 자리를 못 찾았어요');
+      __ocean.dive(hit[0], hit[1]); await sleep(600);`,
+  },
+  { id: 'desert-sandstorm', label: '사막 모래폭풍', q: 'spawn=desert', eval: `${SLEEP} __env.force('sandstorm'); await sleep(5500);` },
+  { id: 'planet', label: '행성(사탕별)', q: 'world=space', need: '__planets', eval: `${SLEEP} __planets.go('sugar'); await sleep(1500);` },
+  {
+    id: 'boat-band', label: '해류 띠 위 배', q: 'spawn=home',
+    eval: `${SLEEP} __seaworld.goBand(120); await sleep(300); const p = __game.player.pos;
+      __vehicles.show('raft', p.x, p.z, 0); await sleep(1200);`,
+  },
+  { id: 'house-interior', label: '내 집 실내', q: 'spawn=4,-4', eval: `${SLEEP} if (!__interiors.enter('house')) throw new Error('집에 못 들어갔어요'); await sleep(1200);` },
+  { id: 'moon-village', label: '달 토끼 마을', q: 'world=space', eval: `${SLEEP} __space.go('village'); await sleep(1200);` },
+];
+
+/** 기본 정류장 = 기준 8곳 + 웨이브 6 정류장 */
+export const ALL_STOPS = [...DEFAULT_STOPS, ...EXTRA_STOPS];
+
 /** `--a b --flag` → { a: 'b', flag: '1' } (shot.mjs 와 같은 규칙) */
 export function parseArgs(argv) {
   const out = {};
@@ -49,7 +85,8 @@ export function parseArgs(argv) {
 /** 정류장 하나가 쓸 만한가 */
 function validStop(s) {
   return s && typeof s === 'object' && typeof s.id === 'string' && /^[a-z0-9][a-z0-9:_-]*$/i.test(s.id)
-    && (s.q === undefined || typeof s.q === 'string') && (s.eval === undefined || typeof s.eval === 'string');
+    && (s.q === undefined || typeof s.q === 'string') && (s.eval === undefined || typeof s.eval === 'string')
+    && (s.need === undefined || typeof s.need === 'string');
 }
 
 /**
@@ -105,7 +142,27 @@ export function summarize(raw) {
     pending: Math.max(0, ...raw.pending),
     heapMB: raw.heap != null ? r2(raw.heap / 1048576) : null,
     layers: raw.layers ?? {},
+    ...(raw.modules ? { modules: raw.modules } : {}),
+    ...(raw.perf ? { perf: raw.perf } : {}),
   };
+}
+
+/**
+ * 범인 모듈(청크가 아닌 덩어리, 보이는 메시만 센 것).
+ * 기준선 정류장에 modules 가 있으면 늘어난 것만 증가량 순, 없으면 현재 메시 수 순.
+ * @returns [{ key, meshes, tris, dMeshes, dTris }]
+ */
+export function offendingModules(cur, base, opts = {}) {
+  const { top = 6, sortBy = 'meshes' } = opts;
+  const C = cur?.modules ?? {}, B = base?.modules ?? null;
+  const rows = Object.entries(C).map(([key, c]) => {
+    const b = B?.[key];
+    return { key, meshes: c.meshes, tris: c.tris, dMeshes: b ? c.meshes - b.meshes : B ? c.meshes : null, dTris: b ? c.tris - b.tris : B ? c.tris : null };
+  });
+  const k1 = sortBy === 'tris' ? 'tris' : 'meshes', k2 = k1 === 'tris' ? 'meshes' : 'tris';
+  const v = (r, k) => (B ? (r[k === 'tris' ? 'dTris' : 'dMeshes'] ?? r[k]) : r[k]);
+  return rows.filter((r) => (B ? (r.dMeshes ?? 0) > 0 || (r.dTris ?? 0) > 0 : r.meshes > 0 || r.tris > 0))
+    .sort((a, b) => (v(b, k1) - v(a, k1)) || (v(b, k2) - v(a, k2))).slice(0, top);
 }
 
 /**
@@ -164,17 +221,18 @@ export function compareRuns(current, baseline, tol = DEFAULT_TOL, limits = LIMIT
       const base = BP?.stops?.[id];
       const okBase = base && !base.error ? base : null;
       if (cur.error) { failures.push({ preset, stop: id, kind: 'error', cur: cur.error, layers: [] }); continue; }
+      if (cur.skipped) { warnings.push(`'${preset}/${id}' 건너뜀: ${cur.skipped}`); continue; }
       if (preset === 'high') {
-        if (cur.calls >= limits.calls) failures.push({ preset, stop: id, kind: 'calls-limit', cur: cur.calls, limit: limits.calls, hasBase: !!okBase, layers: offendingLayers(cur, okBase, { growth: false, sortBy: 'meshes' }) });
-        if (cur.tris >= limits.tris) failures.push({ preset, stop: id, kind: 'tris-limit', cur: cur.tris, limit: limits.tris, hasBase: !!okBase, layers: offendingLayers(cur, okBase, { growth: false, sortBy: 'tris' }) });
+        if (cur.calls >= limits.calls) failures.push({ preset, stop: id, kind: 'calls-limit', cur: cur.calls, limit: limits.calls, hasBase: !!okBase, layers: offendingLayers(cur, okBase, { growth: false, sortBy: 'meshes' }), modules: offendingModules(cur, null, { sortBy: 'meshes' }) });
+        if (cur.tris >= limits.tris) failures.push({ preset, stop: id, kind: 'tris-limit', cur: cur.tris, limit: limits.tris, hasBase: !!okBase, layers: offendingLayers(cur, okBase, { growth: false, sortBy: 'tris' }), modules: offendingModules(cur, null, { sortBy: 'tris' }) });
       }
       if (!baseline) continue;
       if (!okBase) { warnings.push(`기준선에 '${preset}/${id}' 가 없어요(새 정류장)`); continue; }
       if (cur.calls > okBase.calls * (1 + t.calls)) {
-        failures.push({ preset, stop: id, kind: 'calls-regress', cur: cur.calls, base: okBase.calls, hasBase: true, layers: offendingLayers(cur, okBase, { sortBy: 'meshes' }) });
+        failures.push({ preset, stop: id, kind: 'calls-regress', cur: cur.calls, base: okBase.calls, hasBase: true, layers: offendingLayers(cur, okBase, { sortBy: 'meshes' }), modules: offendingModules(cur, okBase, { sortBy: 'meshes' }) });
       }
       if (cur.ms > okBase.ms * (1 + t.ms) && cur.ms - okBase.ms > t.msFloor) {
-        failures.push({ preset, stop: id, kind: 'ms-regress', cur: cur.ms, base: okBase.ms, hasBase: true, layers: offendingLayers(cur, okBase, { sortBy: 'meshes' }) });
+        failures.push({ preset, stop: id, kind: 'ms-regress', cur: cur.ms, base: okBase.ms, hasBase: true, layers: offendingLayers(cur, okBase, { sortBy: 'meshes' }), modules: offendingModules(cur, okBase, { sortBy: 'meshes' }) });
       }
     }
   }
@@ -199,6 +257,7 @@ export function formatTable(current, baseline) {
   for (const [preset, P] of Object.entries(current.presets ?? {})) {
     for (const [id, s] of Object.entries(P.stops ?? {})) {
       if (s.error) { lines.push(`${pad(preset, 7)} ${pad(id, 16)} 오류: ${s.error}`); continue; }
+      if (s.skipped) { lines.push(`${pad(preset, 7)} ${pad(id, 16)} 건너뜀: ${s.skipped}`); continue; }
       const b = baseline?.presets?.[preset]?.stops?.[id];
       const ok = b && !b.error;
       const f2 = (x) => (typeof x === 'number' ? x.toFixed(2) : '-');
@@ -229,6 +288,10 @@ export function formatFailures(res) {
       const d = !hasBase ? ''
         : L.dMeshes != null ? `  (메시 ${sg(L.dMeshes)}, 객체 ${sg(L.dObjects)}, 삼각형 ${sg(L.dTris)})` : '  (기준선에 없는 레이어)';
       out.push(`    · ${pad(L.key, 18)} 청크 ${lpad(L.chunks, 3)}  객체 ${lpad(L.objects, 5)}  메시 ${lpad(L.meshes, 4)}  삼각형 ${lpad(fmtN(L.tris), 6)}${d}`);
+    }
+    for (const M of f.modules ?? []) {
+      const d = M.dMeshes != null ? `  (메시 ${sg(M.dMeshes)}, 삼각형 ${sg(M.dTris)})` : '';
+      out.push(`    ◦ ${pad(M.key, 18)} 보이는 메시 ${lpad(M.meshes, 4)}  삼각형 ${lpad(fmtN(M.tris), 6)}${d}`);
     }
   }
   for (const w of res.warnings) out.push(`! ${w}`);
@@ -294,11 +357,49 @@ function layerCensus() {
   return out;
 }
 
+/**
+ * 페이지 안: 청크가 아닌 덩어리를 모듈 이름별로(보이는 메시만 — 숨긴 실내·다른 세계는 안 센다).
+ * 장면 최상위(모듈이 돌려준 Group = 모듈 이름) + game.root / spaceRoot 의 자식(이름 없으면 '(이름 없음)').
+ */
+function moduleCensus() {
+  const g = window.__game, e = window.__engine;
+  const out = {};
+  if (!e?.scene) return out;
+  const chunksRoot = g?.chunks?.root;
+  const add = (key, obj) => {
+    const r = out[key] ?? (out[key] = { meshes: 0, tris: 0 });
+    const walk = (o) => {
+      if (!o.visible) return;
+      if (o.isMesh && o.geometry) {
+        r.meshes++;
+        const geo = o.geometry;
+        const c = geo.index ? geo.index.count : geo.attributes?.position?.count ?? 0;
+        r.tris += Math.floor(c / 3) * (o.isInstancedMesh ? o.count : 1);
+      } else if (o.isPoints || o.isLine || o.isSprite) r.meshes++;
+      for (const ch of o.children) walk(ch);
+    };
+    walk(obj);
+    if (!r.meshes) delete out[key];
+  };
+  for (const o of e.scene.children) {
+    if (o === chunksRoot || o.name === 'sky' || !o.visible) continue;
+    if (g && (o === g.root || o === g.spaceRoot)) {
+      const pre = o === g.root ? 'root' : 'space';
+      for (const ch of o.children) add(`mod:${pre}/${ch.name || '(이름 없음)'}`, ch);
+      continue;
+    }
+    if (o.isLight || o.isCamera) continue;
+    add(`mod:${o.name || o.type}`, o);
+  }
+  return out;
+}
+
 async function measureStop(page, url, stop, o) {
-  await page.goto(url);
+  await page.goto(url, { timeout: o.timeout });
   await page.waitForFunction(() => window.__ready === true || (window.__errors?.length > 0 && window.__modules), null, { timeout: o.timeout });
   const errs0 = await page.evaluate(() => window.__errors ?? []);
   if (!(await page.evaluate(() => window.__ready === true))) throw new Error('준비 실패: ' + errs0.slice(0, 3).join(' / '));
+  if (stop.need && !(await page.evaluate((k) => k in window, stop.need))) return { skipped: `${stop.need} 없음` };
   if (stop.eval) {
     await page.evaluate(`(async () => { ${stop.eval} })()`);
     // eval 로 옮겼으면 새 청크가 다 만들어질 때까지
@@ -307,6 +408,8 @@ async function measureStop(page, url, stop, o) {
   await page.waitForTimeout(o.settle);
   const raw = await page.evaluate(samplePage, o.frames);
   raw.layers = await page.evaluate(layerCensus);
+  raw.modules = await page.evaluate(moduleCensus);
+  raw.perf = await page.evaluate(() => window.__perf?.state?.() ?? null);
   raw.heap = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? null);
   const errs = await page.evaluate(() => window.__errors ?? []);
   const res = summarize(raw);
@@ -335,10 +438,10 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const W = Number(args.w ?? 1600), H = Number(args.h ?? 900), DPR = Number(args.dpr ?? 1);
   const BASE = args.base ?? 'http://127.0.0.1:5180/';
-  const o = { frames: Number(args.frames ?? 120), settle: Number(args.settle ?? 3000), timeout: Number(args.timeout ?? 90000), frozen: !!args.frozen };
+  const o = { frames: Number(args.frames ?? 120), settle: Number(args.settle ?? 3000), timeout: Number(args.timeout ?? 90000), frozen: !!args.frozen, retries: Number(args.retries ?? 2) };
   const presets = (args.presets ?? PRESETS.join(',')).split(',').filter((p) => PRESETS.includes(p));
   const extra = args.stops ? JSON.parse(fs.readFileSync(path.resolve(args.stops), 'utf8')) : null;
-  let stops = mergeStops(DEFAULT_STOPS, extra);
+  let stops = mergeStops(args['base-only'] ? DEFAULT_STOPS : ALL_STOPS, extra);
   if (args.only) { const ids = args.only.split(','); stops = stops.filter((s) => ids.includes(s.id)); }
   const baselinePath = path.resolve(args.baseline ?? BASELINE);
   const baseline = args.compare ? JSON.parse(fs.readFileSync(baselinePath, 'utf8')) : (fs.existsSync(baselinePath) && !args['write-baseline'] ? JSON.parse(fs.readFileSync(baselinePath, 'utf8')) : null);
@@ -370,10 +473,19 @@ async function main() {
       const url = stopUrl(BASE, preset, stop, o);
       const t0 = Date.now();
       try {
-        const r = await measureStop(page, url, stop, o);
+        let r = null;
+        for (let a = 0; ; a++) {
+          try { r = await measureStop(page, url, stop, o); break; }
+          catch (e) {
+            if (a >= o.retries) throw e;
+            console.log(`  ${preset}/${stop.id}  다시 재요(${a + 1}/${o.retries}): ${String(e.message ?? e).split('\n')[0]}`);
+            await page.waitForTimeout(2000);
+          }
+        }
         if (!current.env.gpu) current.env.gpu = await page.evaluate(() => window.__gpu ?? null);
         current.presets[preset].stops[stop.id] = r;
-        console.log(`  ${preset}/${stop.id}  ${r.ms} ms  calls=${r.calls} tris=${fmtN(r.tris)}  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+        if (r.skipped) console.log(`  ${preset}/${stop.id}  건너뜀: ${r.skipped}`);
+        else console.log(`  ${preset}/${stop.id}  ${r.ms} ms  calls=${r.calls} tris=${fmtN(r.tris)}  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
       } catch (e) {
         current.presets[preset].stops[stop.id] = { error: String(e.message ?? e).split('\n')[0] };
         console.log(`  ${preset}/${stop.id}  오류: ${e.message}`);
@@ -395,13 +507,15 @@ async function main() {
     if (bad.length && !args.force) { console.log(`\n기준선을 쓰지 않았어요 — 측정 실패: ${bad.join(', ')} (--force 로 강제)`); exit = 1; }
     else { fs.mkdirSync(path.dirname(baselinePath), { recursive: true }); fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2) + '\n'); console.log(`\n기준선 기록: ${path.relative(ROOT, baselinePath)}`); }
   }
-  if (args.compare || args['write-baseline']) {
-    const res = compareRuns(current, args.compare ? baseline : null, current.tolerance);
-    const text = formatFailures(res);
-    if (text) console.log('\n' + text);
+  // 판정은 늘 찍는다(높음 한도 범인은 기준선 없이도 보인다). exit 1 은 --compare / --write-baseline 때만
+  const judged = args.compare || args['write-baseline'];
+  const res = compareRuns(current, args.compare ? baseline : null, current.tolerance);
+  const text = formatFailures(res);
+  if (text) console.log('\n' + text);
+  if (judged) {
     console.log(res.ok ? '\n✓ 성능 기준 통과' : `\n✗ 성능 기준 실패 ${res.failures.length}건`);
     if (!res.ok) exit = 1;
-  }
+  } else if (!res.ok) console.log(`\n(참고) 높음 한도 초과 ${res.failures.length}건 — --compare 로 기준선 비교`);
   process.exit(exit);
 }
 

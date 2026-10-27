@@ -7,7 +7,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "shot": "node scripts/shot.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "loop": "node scripts/loop.mjs"
   },
   "keywords": [],
   "author": "",

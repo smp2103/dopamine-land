@@ -139,6 +139,8 @@ export interface Harvest {
   nearestTree(x: number, z: number, maxD?: number, want?: (r: TreeRec) => boolean): { rec: TreeRec; d: number } | null;
   trees(): TreeRec[];
   drops(): number;
+  /** 디버그·자동 루프: 플레이어 maxD m 안(수평)에 떨어진 것 중 가장 가까운 하나 줍기 — 주운 이름(없으면 null) */
+  pickDrop(maxD?: number): string | null;
   /** 하루가 바뀌면 부른다(열매·꽃 되살리기) */
   refresh(): void;
 }
@@ -202,6 +204,7 @@ export function setupHarvest(S: FloraServices, fx: FloraFx): Harvest {
     },
     trees: () => [...treeGroups.values()].flatMap((g) => g.list),
     drops: () => drops.length,
+    pickDrop: (maxD = 6) => pickDropNear(maxD),
     refresh,
   };
 
@@ -358,23 +361,34 @@ export function setupHarvest(S: FloraServices, fx: FloraFx): Harvest {
     const label = !hm.ok ? `나무 베기 (${hm.text})` : left > 0 ? '나무 베기' : '나무 베기 (오늘은 끝)';
     return { label, dist: hit.d + 0.5, key: 'KeyF', priority: ALT_PRIORITY.chop, use: () => chop(rec) };
   });
-  game.addProvider('flora-pick', (p) => {
+  /** 떨어진 것 하나 줍기(E 와 디버그가 같이 쓴다) */
+  const takeDrop = (d: Drop) => {
+    game.player.act('pick', 0.4);
+    if (!d.pick()) return false;
+    d.body.remove(); d.mesh.removeFromParent();
+    drops = drops.filter((x) => x !== d);
+    return true;
+  };
+  /** 수평 maxD 안 가장 가까운 것(높이 차 maxDy 안) */
+  const nearestDrop = (x: number, y: number, z: number, maxD: number, maxDy: number) => {
     let best: Drop | null = null, bd = 1e9;
     for (const d of drops) {
       const t = d.body.body.translation();
-      const dd = Math.hypot(t.x - p.pos.x, t.z - p.pos.z);
-      if (dd < 1.6 && Math.abs(t.y - p.pos.y) < 2 && dd < bd) { bd = dd; best = d; }
+      const dd = Math.hypot(t.x - x, t.z - z);
+      if (dd < maxD && Math.abs(t.y - y) < maxDy && dd < bd) { bd = dd; best = d; }
     }
-    if (!best) return null;
-    const d = best;
-    return {
-      label: `${d.name} 줍기`, dist: bd, use: () => {
-        game.player.act('pick', 0.4);
-        if (!d.pick()) return;
-        d.body.remove(); d.mesh.removeFromParent();
-        drops = drops.filter((x) => x !== d);
-      },
-    };
+    return best ? { d: best, dist: bd } : null;
+  };
+  const pickDropNear = (maxD: number) => {
+    const p = game.player.pos;
+    const n = nearestDrop(p.x, p.y, p.z, maxD, 6);
+    return n && takeDrop(n.d) ? n.d.name : null;
+  };
+  game.addProvider('flora-pick', (p) => {
+    const n = nearestDrop(p.pos.x, p.pos.y, p.pos.z, 1.6, 2);
+    if (!n) return null;
+    const d = n.d;
+    return { label: `${d.name} 줍기`, dist: n.dist, use: () => { takeDrop(d); } };
   });
   // 꽃·버섯·고사리
   const nearestPick = (x: number, z: number, maxD: number) => {

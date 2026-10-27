@@ -995,6 +995,17 @@ export default function build(ctx: Ctx) {
     for (const k of tries) { const s = FISH_BY_ID.get(k); if (s) return s; }
     return FISH_BY_GDD?.get(id) ?? (game.state.byGdd?.(id) as FishSpecies | undefined);
   };
+  /** 디버그 굴림·후보가 볼 구역(지구): 물가(뭍)에 서 있으면 보는 쪽으로 던졌을 때 찌가 떨어질 물 — onCast 와 같은 자리 */
+  const castZoneHere = () => {
+    const pl = game.player;
+    const f = pl.facing();
+    const d = L.landingDistance(6, (k) => earthWater(pl.pos.x + f.x * k, pl.pos.z + f.z * k) !== null);
+    const x = d === null ? pl.pos.x : pl.pos.x + f.x * d, z = d === null ? pl.pos.z : pl.pos.z + f.z * d;
+    return game.geo?.zoneAt?.(x, z) ?? null;
+  };
+  /** 지금 낚는 판(던진 중이면 그 판, 아니면 지금 서 있는 자리) — 끝난 판의 plan 을 다른 세계까지 들고 가지 않게 */
+  const planNow = (): L.CastPlan => (S.phase !== 'idle' && cur.plan ? cur.plan
+    : L.planCast({ world: game.world, pond: game.world === 'space', zone: game.world === 'earth' ? castZoneHere() : null, onBoat: !!game.player.mounted && L.deckFishingOk(vehicleNow()) }));
   /** 바로 결과로(연출 포함) */
   const fakeRoll = (id?: string, size?: number, variant?: Variant): RollResult | null => {
     if (id && (id.startsWith('t_') || id === 'm_seaweed' || id === 'junk')) return { species: null, rarity: 0, junk: id === 'junk' ? 't_boot' : id, combo: 0 };
@@ -1003,7 +1014,7 @@ export default function build(ctx: Ctx) {
       if (!sp) return null;
       return { species: sp, rarity: sp.rarity, size: size ?? L.fallbackSize(sp, 0.9), combo: 0, ...(variant ? { variant } : {}) };
     }
-    const plan = cur.plan ?? L.planCast({ world: game.world, pond: game.world === 'space', zone: game.geo?.zoneAt?.(game.player.pos.x, game.player.pos.z) ?? null, onBoat: false });
+    const plan = planNow();
     const r = roll({ activity: plan.activity, pool: poolAt(plan.zone, plan.island), commit: false });
     if (size) r.size = size;
     if (variant) r.variant = variant;
@@ -1126,10 +1137,11 @@ export default function build(ctx: Ctx) {
     },
     /** 바로 잡기: catchNow(id?, size?, variant?) — id 는 'fish-…'·GDD 'f_…'·쓰레기 't_…'. 없으면 이 자리 후보에서 굴린다 */
     catchNow: (id?: string, size?: number, variant?: Variant) => {
+      const plan = planNow();
       const r = fakeRoll(id, size, variant);
       if (!r) return null;
       if (S.phase !== 'idle') end();
-      if (!cur.plan) cur.plan = L.planCast({ world: game.world, pond: game.world === 'space', zone: null, onBoat: false });
+      cur.plan = plan;
       L.resolveCatch(r, cur.plan.activity, hooks, r.size ?? sizeFallback(r));
       if (r.rarity >= 3) sparkBorn = game.time - 0.6;
       return r.junk ?? speciesOf(r)?.name ?? null;
@@ -1148,7 +1160,7 @@ export default function build(ctx: Ctx) {
     shadows: () => cur.rolls.map((r, i) => ({ i, id: r.species?.id ?? r.junk, rarity: r.rarity, variant: r.variant, size: r.size, target: i === cur.target, pos: shadows.pos(i) })),
     ambient: () => ambient.live(),
     pool: (zone?: string) => {
-      const zi = game.world === 'earth' ? game.geo?.zoneAt?.(game.player.pos.x, game.player.pos.z) : null;
+      const zi = game.world === 'earth' ? castZoneHere() : null;
       const z = zone ?? (game.world === 'space' ? 'moonpond' : L.fishingZone(zi?.zone, false));
       return poolAt(z, zi?.island ?? null).map((s) => s.id);
     },

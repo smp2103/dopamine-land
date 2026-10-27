@@ -737,61 +737,132 @@ export class Game {
   /** scripts/loop.mjs 가 화면 없이 게임을 몰 수 있게(계약 v2 3장) */
   private installDebug() {
     if (typeof window === 'undefined') return;
-    const g = this;
-    const unlockAll = () => {
-      const econ = g.econ;
-      if (!econ || typeof econ.unlock !== 'function') { console.warn('[__dl] econ 이 아직 없어요'); return 0; }
-      const keys: string[] = [...UNLOCK_KEYS];
-      for (const d of Island.ISLANDS) {
-        keys.push(`lighthouse:${d.id}`);
-        for (let i = 1; i <= 5; i++) keys.push(`dev:${d.id}:${i}`);
-      }
-      let n = 0;
-      for (const k of keys) {
-        try { if (!econ.isUnlocked?.(k)) { econ.unlock(k, 'debug'); n++; } } catch (e) { console.error(`[__dl] unlock ${k}`, e); }
-      }
-      return n;
-    };
-    const dl = {
-      game: g,
-      /** 가방에 넣기(econ.give 가 있으면 가방 규칙대로) */
-      give: (id: string, n = 1) => {
-        const econ = g.econ;
-        if (econ && typeof econ.give === 'function') return econ.give(id, n, 'debug');
-        g.state.addItem(id, n);
-        return n;
-      },
-      coins: (n: number) => { g.state.addCoins(n, 'debug'); return g.state.coins; },
-      stars: (n: number) => {
-        const econ = g.econ;
-        if (econ && typeof econ.addStars === 'function') { econ.addStars(n, 'debug'); return econ.stars; }
-        console.warn('[__dl] econ.addStars 가 아직 없어요');
-        return 0;
-      },
-      teleport: (x: number, z: number, y?: number) => { g.player.teleport(x, z, y); return g.player.pos.clone(); },
-      world: (w: 'earth' | 'space') => { g.setWorld(w); return g.world; },
-      hour: (h: number) => {
-        const env = g.env;
-        if (env && typeof env.setHour === 'function') env.setHour(h);
-        else g.engine.applyTod(todOf(h)); // 시계가 없으면 시간대 프리셋만
-        return h;
-      },
-      advance: (sec: number) => {
-        const env = g.env;
-        if (env && typeof env.advance === 'function') { env.advance(sec); return true; }
-        console.warn('[__dl] env.advance 가 아직 없어요');
-        return false;
-      },
-      list: () => g.listInteractions(),
-      interact: (id: string) => g.interact(id, { force: true }),
-      unlockAll,
-      save: () => { g.state.saveNow(); return true; },
-      /** 덤: 레이어별 청크 통계·잠금 주인 */
-      layers: () => g.chunks.layerStats(),
-      locks: () => g.player.lockedBy(),
-      /** dt 만 늦춘다(t·game.time 은 그대로 흐른다) */
-      timeScale: (k: number) => { g.engine.timeScale = k; return k; },
-    };
-    (window as unknown as { __dl?: typeof dl }).__dl = dl;
+    (window as unknown as { __dl?: DebugApi }).__dl = makeDebugApi(this);
   }
+}
+
+// ───────────── window.__dl (진짜 Game · 테스트 가짜 게임 둘 다) ─────────────
+/** __dl 이 쓰는 게임 표면 — 진짜 Game 과 tests/kit 가짜 게임이 둘 다 맞는다 */
+export interface DebugHost {
+  econ: EconApi | null;
+  env: EnvApi | null;
+  state: GameState;
+  world: 'earth' | 'space';
+  player: { pos: THREE.Vector3; teleport(x: number, z: number, y?: number): void; lockedBy?(): string[] };
+  points: Array<{ id: string; position: () => THREE.Vector3; enabled?: () => boolean }>;
+  chunks: { layerStats?: () => unknown };
+  engine: { timeScale: number; applyTod?: (name: string) => void };
+  setWorld(w: 'earth' | 'space', spawn?: THREE.Vector3): void;
+  listInteractions(): unknown[];
+  interact(id: string, o?: { force?: boolean }): boolean;
+}
+
+/** 이벤트 기록 한 줄(종·객체는 id 로 줄인다 — 페이지 밖으로 꺼내기 쉽게) */
+export interface DebugEvent { i: number; type: string; [k: string]: unknown }
+
+/** 이벤트 값 줄이기: 종 객체 → id, 배열 → id 목록(앞 20개), 함수·큰 객체는 버린다 */
+function slimValue(v: unknown): unknown {
+  if (v === null || typeof v !== 'object') return typeof v === 'function' ? undefined : v;
+  if (Array.isArray(v)) return v.slice(0, 20).map((x) => (x && typeof x === 'object' ? (x as { id?: unknown }).id ?? slimFlat(x) : x));
+  const o = v as { id?: unknown };
+  return typeof o.id === 'string' ? o.id : slimFlat(v);
+}
+function slimFlat(v: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) if (x === null || ['string', 'number', 'boolean'].includes(typeof x)) out[k] = x;
+  return out;
+}
+
+export type DebugApi = ReturnType<typeof makeDebugApi>;
+
+/**
+ * window.__dl 본체. 진짜 Game 은 init 에서, 루프 테스트(tests/loop)는 가짜 게임으로 부른다.
+ * give·coins·stars·teleport·world·hour·advance·list·interact·unlockAll·save(계약 v2 3장) +
+ * 루프용 덤: where/goto(상호작용 id 자리), places(고정 자리표), events/mark(이벤트 기록), layers·locks·timeScale.
+ */
+export function makeDebugApi(g: DebugHost) {
+  const unlockAll = () => {
+    const econ = g.econ;
+    if (!econ || typeof econ.unlock !== 'function') { console.warn('[__dl] econ 이 아직 없어요'); return 0; }
+    const keys: string[] = [...UNLOCK_KEYS];
+    for (const d of Island.ISLANDS) {
+      keys.push(`lighthouse:${d.id}`);
+      for (let i = 1; i <= 5; i++) keys.push(`dev:${d.id}:${i}`);
+    }
+    let n = 0;
+    for (const k of keys) {
+      try { if (!econ.isUnlocked?.(k)) { econ.unlock(k, 'debug'); n++; } } catch (e) { console.error(`[__dl] unlock ${k}`, e); }
+    }
+    return n;
+  };
+  // 이벤트 기록(최근 2000개) — 자동 루프가 단계마다 mark() 하고 events(since) 로 본다
+  const rec: DebugEvent[] = [];
+  let seq = 0;
+  g.state.on((e) => {
+    const row: DebugEvent = { i: seq++, type: e.type };
+    for (const [k, v] of Object.entries(e)) if (k !== 'type') { const x = slimValue(v); if (x !== undefined) row[k] = x; }
+    rec.push(row);
+    if (rec.length > 2000) rec.splice(0, rec.length - 2000);
+  });
+  /** 점 상호작용 자리(켜진 것만) */
+  const where = (id: string) => {
+    const pt = g.points.find((p) => p.id === id && (!p.enabled || p.enabled()));
+    if (!pt) return null;
+    try { return pt.position().clone(); } catch (e) { console.error(`[__dl] where ${id}`, e); return null; }
+  };
+  return {
+    game: g,
+    /** 가방에 넣기(econ.give 가 있으면 가방 규칙대로) */
+    give: (id: string, n = 1) => {
+      const econ = g.econ;
+      if (econ && typeof econ.give === 'function') return econ.give(id, n, 'debug');
+      g.state.addItem(id, n);
+      return n;
+    },
+    coins: (n: number) => { g.state.addCoins(n, 'debug'); return g.state.coins; },
+    stars: (n: number) => {
+      const econ = g.econ;
+      if (econ && typeof econ.addStars === 'function') { econ.addStars(n, 'debug'); return econ.stars; }
+      console.warn('[__dl] econ.addStars 가 아직 없어요');
+      return 0;
+    },
+    teleport: (x: number, z: number, y?: number) => { g.player.teleport(x, z, y); return g.player.pos.clone(); },
+    world: (w: 'earth' | 'space') => { g.setWorld(w); return g.world; },
+    hour: (h: number) => {
+      const env = g.env;
+      if (env && typeof env.setHour === 'function') env.setHour(h);
+      else g.engine.applyTod?.(todOf(h)); // 시계가 없으면 시간대 프리셋만
+      return h;
+    },
+    advance: (sec: number) => {
+      const env = g.env;
+      if (env && typeof env.advance === 'function') { env.advance(sec); return true; }
+      console.warn('[__dl] env.advance 가 아직 없어요');
+      return false;
+    },
+    list: () => g.listInteractions(),
+    interact: (id: string) => g.interact(id, { force: true }),
+    unlockAll,
+    save: () => { g.state.saveNow(); return true; },
+    /** 점 상호작용 id 의 자리(없으면 null) */
+    where,
+    /** 점 상호작용 옆(back m 떨어진 곳)으로 순간이동 — 그 자리에서 E 가 잡히게 */
+    goto: (id: string, back = 1.6) => {
+      const p = where(id);
+      if (!p) return null;
+      g.player.teleport(p.x + back, p.z + back * 0.4);
+      return g.player.pos.clone();
+    },
+    /** 고정 자리표(마을 시설·부두·발사대·섬) */
+    places: { PLACES: Island.PLACES, HERO: Island.HERO, ISLANDS: Island.ISLANDS },
+    /** 지금까지 쌓인 이벤트 번호(다음 이벤트가 받을 i) */
+    mark: () => seq,
+    /** since 번 이후의 이벤트(type 을 주면 그것만) */
+    events: (since = 0, type?: string) => rec.filter((e) => e.i >= since && (!type || e.type === type)),
+    /** 덤: 레이어별 청크 통계·잠금 주인 */
+    layers: () => g.chunks.layerStats?.() ?? [],
+    locks: () => g.player.lockedBy?.() ?? [],
+    /** dt 만 늦춘다(t·game.time 은 그대로 흐른다) */
+    timeScale: (k: number) => { g.engine.timeScale = k; return k; },
+  };
 }

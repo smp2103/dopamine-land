@@ -1,4 +1,7 @@
 // 렌더러·조명·하늘·후처리·모듈 로더. 룩 테스트의 공통 뼈대.
+// 성능(웨이브 6): 적응형 픽셀 비율(22 ms 넘는 프레임이 3초 → 한 단계 내림, URL quality= 를 주면 끔) ·
+//   작은 것 빼기(화면에서 아주 작은 메시는 그리지 않음, 품질별 QUALITY.cull·shadowCull) · 품질 → 청크(장식 반경·먼 고리·거리 숨김) 전달.
+// 디버그: window.__perf = { state(), pixelRatio(v?), adaptive(on?), cull(k?, shadowK?) }
 import * as THREE from 'three';
 import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect,
@@ -12,7 +15,7 @@ import { PALETTE } from './palette';
 import { applyCurve, curveUniforms } from './curve';
 import { rngFor } from './rng';
 import { TOD, CAMS, CURVE_K, type TodPreset } from './presets';
-import { QUALITY, QUALITY_ORDER, type QualityName } from './quality';
+import { QUALITY, QUALITY_ORDER, PixelRatioGovernor, bigEnough, isQuality, type QualityName } from './quality';
 import { MiniDofEffect } from '../modules/atmosphere/miniDof';
 import { SoftGradeEffect } from '../modules/atmosphere/grade';
 import '../modules/atmosphere/fogChunks'; // 높이 안개·공기 원근(전역 fog 청크 교체)
@@ -29,6 +32,47 @@ export interface EngineOpts {
   fx: Record<string, boolean>;
   curveK: number | null;
   quality: QualityName;
+  /** 적응형 픽셀 비율(기본: 촬영 모드가 아니고 URL 에 quality= 가 없을 때만 켬) */
+  adaptive?: boolean;
+}
+
+// ───────────── 작은 것 빼기(contribution culling) ─────────────
+// 렌더러·그림자 패스 모두 Mesh.intersectsFrustum 으로 절두체 검사를 한다 → 거기에 '화면에서 너무 작으면 빼기'를 얹는다.
+// 기준 = 눈(주 카메라)에서 본 경계 구의 (반지름 / 거리). 품질별 QUALITY.cull, fx=cull:0 이면 끔, userData.noCull 이면 늘 그림.
+// 그림자 패스(그림자 맵 그리는 동안)는 더 센 기준 QUALITY.shadowCull — 작은 것의 그림자는 잘 안 보이는데 draw call 은 똑같다(shadowCull 0.02 ≈ 1900px 화면에서 지름 ~38px 아래).
+// 본 화면을 그리는 동안(active)만 건다 — 환경광 굽기(PMREM)·사진·미니맵처럼 다른 카메라로 그리는 것은 그대로.
+const CULL = { k: 0, shadowK: 0, active: false, inShadow: false, eye: new THREE.Vector3(), skipped: 0, skippedShadow: 0 };
+const cullSphere = new THREE.Sphere();
+let cullInstalled = false;
+function installCull() {
+  if (cullInstalled) return;
+  cullInstalled = true;
+  type Cullable = THREE.Mesh & { boundingSphere?: THREE.Sphere | null };
+  const proto = THREE.Mesh.prototype as unknown as { intersectsFrustum: (this: Cullable, f: THREE.Frustum) => boolean };
+  const base = proto.intersectsFrustum;
+  proto.intersectsFrustum = function (this: Cullable, frustum: THREE.Frustum) {
+    if (!base.call(this, frustum)) return false;
+    if (!CULL.active) return true;
+    const k = CULL.inShadow ? Math.max(CULL.k, CULL.shadowK) : CULL.k;
+    if (k <= 0 || this.userData.noCull) return true;
+    // 위 검사가 경계 구를 이미 계산해 두었다(InstancedMesh 는 자기 것, 나머지는 지오메트리 것)
+    const bs = this.boundingSphere ?? this.geometry?.boundingSphere;
+    if (!bs) return true;
+    cullSphere.copy(bs).applyMatrix4(this.matrixWorld);
+    if (bigEnough(cullSphere.radius, cullSphere.center.distanceTo(CULL.eye), k)) return true;
+    if (CULL.inShadow) CULL.skippedShadow++; else CULL.skipped++;
+    return false;
+  };
+}
+
+/** 그림자 맵을 그리는 동안만 inShadow — 렌더러마다 한 번 감싼다 */
+function wrapShadowPass(r: THREE.WebGLRenderer) {
+  const sm = r.shadowMap as THREE.WebGLShadowMap & { render: (...a: unknown[]) => void };
+  const base = sm.render;
+  sm.render = function (...a: unknown[]) {
+    CULL.inShadow = true;
+    try { base.apply(this, a); } finally { CULL.inShadow = false; }
+  };
 }
 
 type Loader = () => Promise<{ default: ModuleBuild; order?: number }>;
@@ -48,6 +92,9 @@ export class Engine {
   pmrem: THREE.PMREMGenerator;
   envRT: THREE.WebGLRenderTarget | null = null;
   updates: Array<(t: number, dt: number) => void> = [];
+  /** 적응형 픽셀 비율 조절기(adaptive=false 면 쉰다) */
+  pixelGov = new PixelRatioGovernor();
+  adaptive: boolean;
   todHooks: Array<(name: string, p: TodPreset) => void> = [];
   /** 시간대 이름이 바뀔 때만(ctx.onTodChange) */
   todChangeHooks: Array<(name: string, prev: string) => void> = [];
@@ -58,7 +105,10 @@ export class Engine {
   occupied: Array<{ x: number; z: number; r: number }> = [];
   timer = new THREE.Timer();
   todName: string;
-  game: Game | null = null;
+  private _game: Game | null = null;
+  /** 게임을 붙이면 지금 품질의 청크 설정(장식 반경·먼 고리·거리 숨김 배율)을 바로 넘긴다 */
+  get game(): Game | null { return this._game; }
+  set game(g: Game | null) { this._game = g; if (g) this.applyChunkQuality(); }
   /** 게임 모드: 넓은 세계용 안개 거리 */
   fogOverride: { near: number; far: number } | null = null;
   errors: string[] = [];
@@ -73,8 +123,12 @@ export class Engine {
   constructor(public opts: EngineOpts) {
     this.todName = TOD[opts.tod] ? opts.tod : 'day';
     this.todFired = this.todName;
-    this.fx = { ao: true, bloom: true, tilt: true, smaa: true, grade: true, shadows: true, curve: true, ...opts.fx };
+    this.fx = { ao: true, bloom: true, tilt: true, smaa: true, grade: true, shadows: true, curve: true, cull: true, ...opts.fx };
     this.quality = opts.quality;
+    // 사람이 URL 로 품질을 콕 집었으면 그 해상도를 지킨다(벤치·촬영도)
+    const urlQ = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('quality') : null;
+    this.adaptive = opts.adaptive ?? (!opts.shot && !isQuality(urlQ));
+    installCull();
 
     const r = new THREE.WebGLRenderer({
       antialias: false, stencil: false, depth: true, powerPreference: 'high-performance',
@@ -89,6 +143,7 @@ export class Engine {
     r.outputColorSpace = THREE.SRGBColorSpace;
     document.body.appendChild(r.domElement);
     this.renderer = r;
+    wrapShadowPass(r);
     this.pmrem = new THREE.PMREMGenerator(r);
 
     const cp = CAMS[opts.cam] ?? CAMS.ac;
@@ -422,12 +477,27 @@ export class Engine {
       sh.map = null;
     }
     const pr = Math.min(window.devicePixelRatio, q.pixelRatio);
-    if (this.renderer.getPixelRatio() !== pr) {
-      this.renderer.setPixelRatio(pr);
-      this.resize();
-    }
-    if (this.game) this.game.chunks.detail = q.detail;
+    this.pixelGov.reset(pr, Math.min(pr, q.minPixelRatio));
+    this.setPixelRatio(pr);
+    this.applyChunkQuality();
     this.applyFx();
+  }
+
+  /** 렌더 픽셀 비율을 바꾼다(후처리 버퍼까지) */
+  setPixelRatio(pr: number) {
+    if (this.renderer.getPixelRatio() === pr) return;
+    this.renderer.setPixelRatio(pr);
+    this.resize();
+  }
+
+  /** 품질 → 청크: 장식 반경 배율·먼 고리·거리 숨김 배율 */
+  applyChunkQuality() {
+    const g = this._game;
+    if (!g) return;
+    const q = QUALITY[this.quality];
+    g.chunks.detail = q.detail;
+    g.chunks.farDetail = q.farDetail;
+    g.chunks.lodScale = q.lod;
   }
 
   /** 다음 단계로(높음 → 보통 → 낮음 → 높음) */
@@ -447,6 +517,8 @@ export class Engine {
     // 마지막 패스를 끄면 화면이 비므로 패스는 두고 효과 불투명도만 0 으로
     for (const g of [e.hue, e.bc, e.vig]) g.blendMode.opacity.value = f.grade ? 1 : 0;
     this.sun.castShadow = f.shadows;
+    CULL.k = f.cull ? QUALITY[this.quality].cull : 0;
+    CULL.shadowK = f.cull ? QUALITY[this.quality].shadowCull : 0;
     curveUniforms.uCurveK.value = f.curve ? (this.opts.curveK ?? CURVE_K) : 0;
   }
 
@@ -546,6 +618,7 @@ export class Engine {
     const f = gui.addFolder('효과 켜고 끄기');
     const labels: Record<string, string> = {
       ao: '구석 그늘(AO)', bloom: '빛 번짐(블룸)', tilt: '틸트시프트', smaa: '안티에일리어싱', grade: '색보정·비네트', shadows: '그림자', curve: '휘는 땅',
+      cull: '작은 것 빼기',
     };
     for (const k of Object.keys(labels)) {
       f.add(this.fx, k).name(labels[k]).onChange(() => this.applyFx());
@@ -565,9 +638,48 @@ export class Engine {
   /** 사람이 품질을 바꿨을 때(저장용) */
   onQualityChange: ((q: QualityName) => void) | null = null;
 
+  /** 적응형 픽셀 비율: 실제 프레임 간격(ms)을 넣는다. 바뀌면 렌더러에 적용 */
+  private adaptPixelRatio(frameMs: number) {
+    if (!this.adaptive || document.hidden) return;
+    const next = this.pixelGov.feed(frameMs, performance.now() / 1000);
+    if (next === null) return;
+    this.setPixelRatio(next);
+    console.info(`[quality] 픽셀 비율 ${next} (평균 ${this.pixelGov.avg?.toFixed(1)} ms)`);
+  }
+
+  /** window.__perf — 벤치·디버그용 */
+  private installPerfDebug() {
+    const perf = {
+      state: () => {
+        const ch = this._game?.chunks;
+        return {
+          quality: this.quality, adaptive: this.adaptive, pixelRatio: this.renderer.getPixelRatio(),
+          gov: { cap: this.pixelGov.cap, floor: this.pixelGov.floor, current: this.pixelGov.current, avg: this.pixelGov.avg, drops: this.pixelGov.drops },
+          cull: { k: CULL.k, shadowK: CULL.shadowK, skipped: CULL.skipped, skippedShadow: CULL.skippedShadow },
+          chunks: ch ? { budgetMs: ch.budgetMs, frameMs: ch.frameMs, pending: ch.pending, detail: ch.detail, farDetail: ch.farDetail, lodScale: ch.lodScale, lod: ch.lod.stats() } : null,
+        };
+      },
+      /** 픽셀 비율을 직접(적응형은 끈다) */
+      pixelRatio: (v?: number) => { if (typeof v === 'number' && v > 0) { this.adaptive = false; this.setPixelRatio(v); } return this.renderer.getPixelRatio(); },
+      adaptive: (on?: boolean) => { if (typeof on === 'boolean') { this.adaptive = on; if (on) { this.pixelGov.reset(this.pixelGov.cap, this.pixelGov.floor); this.setPixelRatio(this.pixelGov.cap); } } return this.adaptive; },
+      /** 작은 것 빼기 기준(r/d) — 0 이면 끔 */
+      cull: (k?: number, shadowK?: number) => {
+        if (typeof k === 'number' && k >= 0) CULL.k = k;
+        if (typeof shadowK === 'number' && shadowK >= 0) CULL.shadowK = shadowK;
+        return { k: CULL.k, shadowK: CULL.shadowK };
+      },
+    };
+    (window as unknown as { __perf?: typeof perf }).__perf = perf;
+  }
+
   start(onFrame?: (n: number) => void) {
     let n = 0;
+    this.installPerfDebug();
+    let lastFrame = -1;
     const loop = () => {
+      const nowMs = performance.now();
+      if (lastFrame >= 0) this.adaptPixelRatio(nowMs - lastFrame);
+      lastFrame = nowMs;
       this.timer.update();
       // 긴 멈춤(탭 전환 등) 뒤 순간이동을 막으려 먼저 자르고, 그 다음 시간 배율을 곱한다
       const ts = Number.isFinite(this.timeScale) ? Math.max(0, this.timeScale) : 1;
@@ -584,7 +696,10 @@ export class Engine {
       // 복사본으로 돈다 — 훅 안에서 해제해도 이번 프레임 순서가 흔들리지 않게
       for (const fn of this.updates.slice()) fn(t, this.opts.freezeT !== null ? 0 : dt);
       this.renderer.info.reset();
-      this.composer.render(rawDt);
+      this.camera.getWorldPosition(CULL.eye);
+      CULL.skipped = CULL.skippedShadow = 0;
+      CULL.active = true;
+      try { this.composer.render(rawDt); } finally { CULL.active = false; }
       onFrame?.(++n);
       requestAnimationFrame(loop);
     };

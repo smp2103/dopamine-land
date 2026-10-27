@@ -251,7 +251,7 @@ export default function build(ctx: Ctx) {
     const look = isl ? ISLAND_LOOK[isl.theme] ?? ISLAND_LOOK.islet : place.startsWith('moon:') ? { sub: '둥실둥실 토끼달', color: '#a99bff' } : null;
     const card = discoverCard({ place, name, kind }, { islandName, island: isl?.id ?? null, theme: isl?.theme ?? null, color: look?.color ?? null, sub: look?.sub ?? null });
     // 시작하자마자(첫 섬에 서서 시작) 뜨는 발견은 조용히 — 도장만 찍는다
-    if (now() - bornAt > 3000) view.discover(card, kind === 'landmark' ? 2800 : 3200, kind !== 'landmark' && !!isl);
+    if (now() - bornAt > 3000) view.discover(card, kind === 'landmark' ? 2800 : 3200, kind !== 'landmark' && !!isl, place.startsWith('moon:') || place.startsWith('planet:') ? 'space' : 'earth');
     discAt.set(place, now());
     if (isl) discAt.set(isl.id, now());
     st.emit({ type: 'fanfare', kind: 'discover', place, name: card.name, island: isl?.id ?? null });
@@ -447,8 +447,10 @@ export default function build(ctx: Ctx) {
   // ───────────── 매 프레임 ─────────────
   let slowAt = -1;
   let startHotAt = SHOT ? Infinity : now() + 4500;
+  let lastWorld = game.world;
   game.onUpdate(() => {
     const t = now();
+    if (game.world !== lastWorld) { lastWorld = game.world; view.dropDiscovers(game.world); }
     const hold = holdNow();
     view.setHold(hold);
     // 3D(그리기만 — DOM 아님): 빛기둥 · 줌 · 쇼케이스

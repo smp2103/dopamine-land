@@ -16,7 +16,7 @@ export type PartKind = 'confetti' | 'star' | 'spark' | 'note' | 'coin';
 /** 조각 하나가 사는 시간(ms) — CSS 키프레임 길이와 같다 */
 const PART_MS: Record<PartKind, number> = { confetti: 1500, star: 1100, spark: 1100, note: 1400, coin: 1600 };
 
-type CenterItem = { ms: number; kind: 'discover'; card: DiscoverCard; small?: boolean } | { ms: number; kind: 'ceremony'; c: Ceremony };
+type CenterItem = { ms: number; kind: 'discover'; card: DiscoverCard; small?: boolean; world?: string } | { ms: number; kind: 'ceremony'; c: Ceremony };
 
 export class FxView {
   readonly root: HTMLElement;
@@ -244,7 +244,9 @@ export class FxView {
   }
 
   // ───────────── 가운데 카드 ─────────────
-  discover(card: DiscoverCard, ms = 3200, small = false) { this.centers.push({ kind: 'discover', card, ms, small }); this.pump(performance.now()); }
+  discover(card: DiscoverCard, ms = 3200, small = false, world?: string) { this.centers.push({ kind: 'discover', card, ms, small, world }); this.pump(performance.now()); }
+  /** 다른 세계로 건너가면 이전 세계의 밀린 발견 카드는 버린다(달에 내려서 지구 명소 카드가 뜨지 않게) */
+  dropDiscovers(world: string) { return this.centers.drop((it) => it.kind === 'discover' && !!it.world && it.world !== world); }
   ceremony(c: Ceremony) { this.centers.push({ kind: 'ceremony', c, ms: c.ms }); this.pump(performance.now()); }
   /** 가운데 카드 차례 — 자주 불러도 된다(바뀔 때만 DOM) */
   pump(now: number) {

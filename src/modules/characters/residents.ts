@@ -10,6 +10,7 @@ import { applyCurve } from '../../core/curve';
 import { buildAnimal, type AnimalRig, type Outfit, type Accessory } from './animal';
 import { buildSpecial } from './special';
 import { blobShadow } from './kit';
+import { trimSmallShadows } from '../../core/chunks';
 import { bubbleTexture, type BubbleKind } from './tex';
 import { SpeechBubble } from './bubble';
 import type { ResidentDef } from './data';
@@ -112,6 +113,8 @@ export interface Live extends Talker {
   rnd: () => number;
   /** 이 시각까지 (x,z) 를 마주 본다(수다) */
   look: { x: number; z: number; until: number } | null;
+  /** 거리 숨김으로 멀어져 쉬는 중(움직임·표정 갱신을 건너뛴다) */
+  sleeping?: boolean;
 }
 
 /** 부두에서 섬 안쪽으로 걸어가며 평평한 땅을 찾는다 */
@@ -182,6 +185,8 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
     const y = island.heightAt(h.x, h.z);
     container.position.set(h.x, y, h.z);
     container.add(rig.root);
+    // 눈·볼·귀·손·장식은 그림자 패스에서 뺀다(발밑 동그란 그림자가 따로 있다 — 몸통·머리만 그림자)
+    trimSmallShadows(rig.root, 0.16 * (def.spec.scale ?? 1));
     const sh = blobShadow(0.34 * (def.spec.scale ?? 1), 0.38);
     sh.position.y = 0.012;
     container.add(sh);
@@ -201,6 +206,8 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       news: false, moodEvery: 11 + rnd() * 10, react: null,
       speech: null, speechGone: -1, talking: false, rnd, look: null,
     };
+    // 멀리(90m 넘게) 가면 숨기고 쉬게 한다 — 청크 반경(260m)보다 훨씬 안쪽이라 그리기 비용을 크게 던다
+    game?.chunks.lod?.register(container, 90, { at: live.p, onChange: (near) => { live.sleeping = !near; } });
     return live;
   }
 
@@ -298,6 +305,7 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
   function update(t: number, dt: number, player: THREE.Vector3 | null, tod: string) {
     now = t;
     for (const L of active) {
+      if (L.sleeping && !L.talking) continue;
       const toP = player ? Math.hypot(player.x - L.p.x, player.z - L.p.z) : 99;
       const talking = L.talking;
       const R = L.react && t < L.react.until ? L.react : null;

@@ -169,10 +169,16 @@ export class HudRegistryStore implements HudRegistry {
     const prev = this.state?.kind ?? null;
     // 다른 패널이 열려 있으면 onClose 만 부르고 그리기는 openPanel 이 바꿔 친다(잠금이 풀렸다 걸리는 깜빡임 없이)
     if (this.state) this.closeInner(false);
-    this.state = { kind, tab: tab ?? def.defaultTab ?? safeTabs(def)[0]?.id, arg, sel: null };
+    this.state = { kind, tab, arg, sel: null };
     try { def.onOpen?.(arg); } catch (e) { console.error(`[hud] ${kind}.onOpen`, e); }
     // onOpen 안에서 닫았을 수도 있다
     if (this.state?.kind !== kind) { if (prev) this.fire(null, prev); return; }
+    // 탭은 onOpen 다음에 고른다(가게처럼 arg 에 따라 탭이 바뀌는 패널). 기본 탭이 목록에 없으면 첫 탭
+    if (tab == null) {
+      const list = safeTabs(def);
+      const d = def.defaultTab;
+      this.state.tab = d != null && (!list.length || list.some((t) => t.id === d)) ? d : list[0]?.id ?? d;
+    }
     this.impl.openPanel(def, this.ctx());
     this.fire(kind, prev);
   }

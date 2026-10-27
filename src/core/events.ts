@@ -1,7 +1,7 @@
 // 계약 v2 이벤트(docs/CONTRACT2.md 4장). game.state.emit 으로 보내는 것들의 타입 모음 + 정해진 id 표.
 // 모르는 이벤트도 흘러갈 수 있게 GameEvent 에는 느슨한 꼬리({type:string})가 붙어 있다 → 좁힐 땐 isEvent()/onEvent().
 import type { Species } from './state';
-import type { Activity, ChestTier, Cost, LootItem, Tod, Variant, Weather } from './api';
+import type { Activity, ChestTier, Cost, KeyColor, LootItem, Tod, Variant, Weather } from './api';
 
 /** 이벤트 하나 정의: {type} + 필드 */
 type Ev<T extends string, F = {}> = { type: T } & F;
@@ -35,6 +35,8 @@ export type OpenBoardEvent = Ev<'open-board'>;
 
 // ── 가방·시계
 export type BagFullEvent = Ev<'bag-full', { id: string }>;
+/** 열쇠 조각이 바뀜(3조각 = 열쇠 1개) */
+export type KeysEvent = Ev<'keys', { color: KeyColor; delta: number; pieces: number }>;
 /** 게임 1시간마다 + 플레이어 자리 날씨가 바뀔 때 */
 export type EnvEvent = Ev<'env', { tod: Tod; weather: Weather; hour: number; day: number }>;
 export type DayEvent = Ev<'day', { day: number; prev: number }>;
@@ -121,7 +123,7 @@ export type NetCoopEvent = Ev<'net-coop', { kind: string; data: unknown }>;
 export type KnownEvent =
   | RegisterEvent | CollectEvent | CoinsEvent | BagEvent | SellEvent | BuyEvent | CraftEvent | DonateEvent | StarsEvent
   | UnlockEvent | ChestLootEvent | ChestOpenEvent | RequestDoneEvent | OpenShopEvent | OpenMuseumEvent | OpenCraftEvent | OpenBoardEvent
-  | BagFullEvent | EnvEvent | DayEvent | TodEvent | WeatherEvent
+  | BagFullEvent | KeysEvent | EnvEvent | DayEvent | TodEvent | WeatherEvent
   | CatchEvent | CatchFailEvent | HarvestEvent
   | TreeShakeEvent | RockHitEvent | BeehiveEvent | StungEvent
   | NpcTalkEvent | BefriendEvent | GiftEvent | ClapEvent

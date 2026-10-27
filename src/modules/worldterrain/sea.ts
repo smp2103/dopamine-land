@@ -1,12 +1,18 @@
 // 세계 바다 — 플레이어를 따라다니는 큰 판(가운데 촘촘, 멀수록 성김) + 셰이더.
 // 깊이·해안 거리는 세계 전체를 16 m 칸으로 한 번 구운 텍스처에서(해안 거리는 거의 선형이라 보간이 정확하다).
 // 해안 얕은 민트 → 깊은 파랑, 해안선 거품 줄이 밀려왔다 빠짐, 잔물결 법선, 해 반짝임, 수평선까지.
+// 꼬르륵 해구(GDD 2.3)는 텍스처 B 칸에 세기를 구워 짙은 남색 + 발광 생물 점으로.
 import * as THREE from 'three';
 import type * as Island from '../../core/island';
 import { COMMON_GLSL } from '../terrain/glsl';
 import { getField, sharedUniforms } from '../terrain/field';
 
 const SEA_TEX = { min: -4096, size: 8192, n: 512 };
+
+const sm = (e0: number, e1: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
 
 function bakeSeaField(island: typeof Island): THREE.DataTexture {
   const n = SEA_TEX.n, cell = SEA_TEX.size / n;
@@ -18,10 +24,11 @@ function bakeSeaField(island: typeof Island): THREE.DataTexture {
     for (let i = 0; i < n; i++) {
       const x = SEA_TEX.min + (i + 0.5) * cell;
       let best = -1e9;
+      let bestD: Island.IslandDef | null = null;
       for (const d of isl) {
         if (Math.abs(x - d.x) > d.r * 1.6 + 400 || Math.abs(z - d.z) > d.r * 1.6 + 400) continue;
         const c = island.islandCoast(d, x, z);
-        if (c > best) best = c;
+        if (c > best) { best = c; bestD = d; }
       }
       if (best < -1e8) best = -400;
       let h = 3;
@@ -29,8 +36,11 @@ function bakeSeaField(island: typeof Island): THREE.DataTexture {
       const k = (j * n + i) * 4;
       data[k] = h16(Math.max(-40, Math.min(10, h)));
       data[k + 1] = h16(Math.max(-400, Math.min(60, best)));
-      data[k + 2] = 0;
-      data[k + 3] = h16(1);
+      // 해구 세기(world.ts seaFloor 와 같은 식: 타원 안쪽 × 해안 비탈 120 m 지킴)
+      data[k + 2] = h16(best < 0 ? island.trenchAt(x, z) * sm(0, 120, -best) : 0);
+      // A = 이 칸에 바다 물이 있나(바다 1 · 섬 안 석호·맹그로브 1 · 그냥 땅 0).
+      // 섬 안 호수 바닥이 해수면(0) 아래로 파인 곳에서 바다 판이 비쳐 하얀 거품이 깔리지 않게 셰이더가 0 인 곳을 버린다.
+      data[k + 3] = h16(best <= 0 || (bestD?.theme === 'coral' && seaWaterNear(island, x, z, cell)) ? 1 : 0);
     }
   }
   const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat, THREE.HalfFloatType);
@@ -41,6 +51,15 @@ function bakeSeaField(island: typeof Island): THREE.DataTexture {
   tex.colorSpace = THREE.NoColorSpace;
   tex.needsUpdate = true;
   return tex;
+}
+
+/** 섬 안이지만 바다와 이어진 물(석호·맹그로브 수로)이 칸 안에 있나 — 좁은 수로도 놓치지 않게 칸을 3×3 으로 훑는다 */
+function seaWaterNear(island: typeof Island, x: number, z: number, cell: number): boolean {
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const s = island.worldSample(x + i * cell * 0.4, z + j * cell * 0.4);
+    if (s.coast <= 0 || (s.water === 0 && s.h < 0)) return true;
+  }
+  return false;
 }
 
 /** 가운데 1 m, 바깥으로 갈수록 성긴 판(반경 ~4.6 km) */
@@ -86,6 +105,7 @@ export function buildSea(island: typeof Island, villageRect: THREE.Vector4): THR
     uMid: { value: c('#46cbd6') },
     uDeep: { value: c('#2f95d6') },
     uAbyss: { value: c('#2277c4') },
+    uTrench: { value: c('#1a3a86') },
     uFogC: { value: new THREE.Color('#bfe3f0') },
     uFogR: { value: new THREE.Vector2(300, 1200) },
   };
@@ -101,18 +121,28 @@ export function buildSea(island: typeof Island, villageRect: THREE.Vector4): THR
         uniform sampler2D uSea;
         uniform vec3 uSeaRect;
         uniform vec4 uVillageSea;
-        uniform vec3 uShallow, uMid, uDeep, uAbyss, uFogC;
+        uniform vec3 uShallow, uMid, uDeep, uAbyss, uTrench, uFogC;
         uniform vec2 uFogR;
         ${COMMON_GLSL}
-        vec2 seaField( vec2 xz ) {
+        // R = 바닥 높이, G = 해안 거리, B = 해구 세기
+        vec3 seaField( vec2 xz ) {
           vec2 uv = ( xz - uSeaRect.xy ) * uSeaRect.z;
-          if ( uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ) return vec2( -40.0, -400.0 );
-          return texture2D( uSea, uv ).rg;
+          if ( uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ) return vec3( -40.0, -400.0, 0.0 );
+          return texture2D( uSea, uv ).rgb;
         }
+        // 바다 물이 있는 칸인가(A) — 해안 12 m 안쪽 땅은 늘 그린다(해변 물결막)
+        bool seaWet( vec2 xz ) {
+          vec2 uv = ( xz - uSeaRect.xy ) * uSeaRect.z;
+          if ( uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ) return true;
+          vec4 t = texture2D( uSea, uv );
+          return t.g < 12.0 || t.a > 0.5;
+        }
+        float dlGlow = 0.0;
         float dlRipple( vec2 q ) {
           return 0.6 * dlNoise( q * 1.1 + uTime * vec2( 0.22, 0.13 ) ) + 0.4 * dlNoise( q * 2.7 - uTime * vec2( 0.17, 0.31 ) );
         }`)
       .replace('void main() {', `void main() {
+        if ( !seaWet( vWP.xz ) ) discard;
         if ( vWP.x > uVillageSea.x && vWP.x < uVillageSea.z && vWP.z > uVillageSea.y && vWP.z < uVillageSea.w ) discard;`)
       .replace('#include <color_fragment>', SEA_COLOR)
       .replace('#include <normal_fragment_maps>', SEA_NORMAL)
@@ -130,7 +160,7 @@ export function buildSea(island: typeof Island, villageRect: THREE.Vector4): THR
 }
 
 const SEA_COLOR = /* glsl */ `
-  vec2 SF = seaField( vWP.xz );
+  vec3 SF = seaField( vWP.xz );
   float depth = max( 0.0, -SF.x );
   float coastD = SF.y;
   float dist = length( vWP.xz - cameraPosition.xz );
@@ -141,11 +171,23 @@ const SEA_COLOR = /* glsl */ `
   vec3 wc = mix( uShallow, uMid, dk );
   wc = mix( wc, uDeep, dk2 );
   wc = mix( wc, uAbyss, dk3 );
+  // 꼬르륵 해구: 짙은 남색으로 가라앉고, 가까우면 발광 생물 점이 깜빡
+  float trench = SF.z;
+  if ( trench > 0.001 ) {
+    wc = mix( wc, uTrench, trench * 0.85 );
+    vec2 gq = vWP.xz * 0.22 + vec2( uTime * 0.05, -uTime * 0.03 );
+    vec2 gi = floor( gq ), gf = fract( gq );
+    vec2 gp = dlHash2( gi );
+    float on = step( 0.82, dlHash( gi + 1.7 ) );
+    float blink = pow( 0.5 + 0.5 * sin( uTime * ( 0.8 + gp.x * 1.6 ) + gp.y * 6.2831 ), 4.0 );
+    dlGlow = smoothstep( 0.1, 0.0, length( gf - ( 0.2 + gp * 0.6 ) ) ) * on * blink * trench * ( 1.0 - smoothstep( 40.0, 180.0, dist ) );
+  }
   // 넓은 색 얼룩(바다가 단색판이 아니게)
   wc *= 1.0 + 0.04 * dlNoise( vWP.xz * 0.006 + uTime * 0.004 ) * smoothstep( 60.0, 200.0, dist );
   float alpha = mix( 0.22, 0.8, smoothstep( 0.0, 1.2, depth ) );
   alpha = mix( alpha, 0.97, dk2 );
   alpha = mix( alpha, 1.0, dk3 );
+  alpha = mix( alpha, 1.0, trench );
   // 해안선을 따라 밀려오는 거품 줄(해안 거리 -14..0 m 사이를 바깥에서 안쪽으로)
   float foam = 0.0;
   if ( coastD > -40.0 ) {
@@ -189,6 +231,8 @@ const SEA_SPARKLE = /* glsl */ `
     vec3 V = normalize( vViewPosition );
     float fr = pow( 1.0 - clamp( dot( V, normal ), 0.0, 1.0 ), 5.0 );
     diffuseColor.a = mix( diffuseColor.a, 1.0, fr * 0.6 );
+    // 해구 발광 점(빛과 상관없이 스스로 빛난다 — 밤에 더 또렷)
+    totalEmissiveRadiance += vec3( 0.45, 0.95, 1.0 ) * dlGlow * 1.4;
 #if NUM_DIR_LIGHTS > 0
     vec3 L = directionalLights[ 0 ].direction;
     vec3 R = reflect( -V, normal );

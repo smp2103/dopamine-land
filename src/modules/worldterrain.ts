@@ -1,12 +1,21 @@
 // 세계 지형(마을 밖 전부) — 청크 스트리밍 2단계 LOD + 끝없는 바다 + 섬 안 호수·강.
 // 가까이: 64 m 청크·1 m 격자. 멀리: 512 m 청크·16 m 격자(가까운 영역은 픽셀 단위로 잘라 겹치지 않게).
 // 색은 정점이 아니라 프래그먼트에서(worldterrain/terrainMat.ts) — 마을 지형과 같은 문법으로 경계가 매끈하다.
+// game.geo(구역 판정·랜드마크·발견 기록)도 여기서 붙인다(worldterrain/geo.ts, order 2 — 뒤 모듈이 바로 쓴다).
+// 특별한 물(은하수 크레이터·온천 김·늪·안개 호수)은 worldterrain/waterfx.ts 청크 레이어.
+//
+// game.geo = { zoneAt(x,z), islandName(id), landmarks, addLandmark(l), discovered(id), currentAt(x,z) }
+//   flags.world = { disc: { [섬 id | 랜드마크 id]: 발견한 게임 날(1부터) } }
+//   이벤트: discover{place, name, kind: 'island'|'islet'|'landmark'} — 섬은 처음 올라설 때, 랜드마크는 처음 40 m 안에 들 때 한 번
+// 디버그: window.__geo = { zoneAt(x,z), here(), disc(), landmarks(), discovered(id), check() }
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import { worldTerrainMaterial, themeIndex } from './worldterrain/terrainMat';
 import { buildSea } from './worldterrain/sea';
 import { buildInlandWater } from './worldterrain/inland';
 import { sharedUniforms } from './terrain/field';
+import { installGeo } from './worldterrain/geo';
+import { waterFxLayers } from './worldterrain/waterfx';
 
 export const order = 2;
 
@@ -24,6 +33,18 @@ export default function build(ctx: Ctx) {
   const { island, game } = ctx;
   // 룩 테스트(game=0)는 마을 섬 단독 구도(마을 지형·바다가 바깥까지 그린다)
   if (!game) return;
+  // 구역·랜드마크·발견(다른 모듈이 build 때 바로 읽고 addLandmark 하므로 지형보다 먼저)
+  const geo = installGeo(game);
+  if (typeof window !== 'undefined') {
+    (window as unknown as { __geo?: unknown }).__geo = {
+      zoneAt: (x: number, z: number) => geo.zoneAt(x, z),
+      here: () => geo.zoneAt(game.player.pos.x, game.player.pos.z),
+      disc: () => geo.disc(),
+      landmarks: () => geo.landmarks.map((l) => ({ ...l })),
+      discovered: (id: string) => geo.discovered(id),
+      check: () => geo.check(),
+    };
+  }
   const B = island.ISLAND_BOUNDS;
   const U = {
     uNearC: { value: new THREE.Vector2() },
@@ -115,6 +136,8 @@ export default function build(ctx: Ctx) {
     game.chunks.add({ key: 'terrain-near', size: NEAR.size, radius: NEAR.radius, build: (c) => makeChunk(c.x0, c.z0, c.size, NEAR.res, false) });
     game.chunks.add({ key: 'terrain-mid', size: MID.size, radius: MID.radius, build: (c) => makeChunk(c.x0, c.z0, c.size, MID.res, true, 1) });
     game.chunks.add({ key: 'terrain-far', size: FAR.size, radius: FAR.radius, build: (c) => makeChunk(c.x0, c.z0, c.size, FAR.res, true) });
+    // 은하수 크레이터 물 + 물 장식(김·물안개·연잎·반짝이 — detail)
+    for (const L of waterFxLayers(island, (k) => ctx.rng(k))) game.chunks.add(L);
   } else {
     // 룩 테스트(마을 고정 카메라): 원점 둘레만 한 번 만든다
     for (const [L, far] of [[NEAR, false], [FAR, true]] as const) {

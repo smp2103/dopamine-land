@@ -1,5 +1,7 @@
 // 섬 안 호수·강 물면 — world.ts 의 worldLakes/worldRivers 가 정한 물 높이에 판·띠를 깐다.
 // 정점마다 물 깊이(물 높이 − 땅)를 구워 두고, 얕은 민트 → 깊은 청록, 물가 거품, 강 흐름 대시, 폭포는 흰 커튼.
+// 호수 종류마다 물빛(aK): 온천 젖빛 청록·분홍, 늪 탁한 초록, 안개 호수 회보라, 하트 연못 분홍, 오아시스 진한 청록.
+// 크레이터 은하수 물은 waterfx.ts 가 청크로 따로 그린다(여기선 건너뛴다).
 import * as THREE from 'three';
 import type * as Island from '../../core/island';
 import { COMMON_GLSL } from '../terrain/glsl';
@@ -13,11 +15,12 @@ function waterMat(island: typeof Island): THREE.MeshStandardMaterial {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 aW;\nvarying vec4 vW;\nvarying vec3 vWP;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = aW;\nvWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
+      .replace('#include <common>', '#include <common>\nattribute vec4 aW;\nattribute float aK;\nvarying vec4 vW;\nvarying float vK;\nvarying vec3 vWP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = aW;\nvK = aK;\nvWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec4 vW;
+        varying float vK;
         varying vec3 vWP;
         ${COMMON_GLSL}
         float dlRipple( vec2 q ) {
@@ -59,6 +62,34 @@ function waterMat(island: typeof Island): THREE.MeshStandardMaterial {
           alpha = mix( alpha, 0.95, fall );
           foam = max( foam, smoothstep( 0.04, 0.0, slope ) * smoothstep( 0.5, 0.15, vW.w + 0.0 ) * 0.0 );
         }
+        // 호수 종류별 물빛(LAKE_TINT 와 같은 번호)
+        if ( vK > 0.5 ) {
+          if ( vK < 1.5 ) {
+            // 온천: 젖빛 청록에 분홍 기운이 몽글몽글 번진다
+            vec3 hs = mix( vec3( 0.12, 0.6, 0.68 ), vec3( 0.95, 0.5, 0.7 ), 0.3 + 0.4 * dlNoise( vWP.xz * 0.35 + uTime * vec2( 0.05, -0.04 ) ) );
+            wc = mix( wc, hs, 0.85 );
+            alpha = max( alpha, 0.88 );
+            foam *= 0.3;
+          } else if ( vK < 2.5 ) {
+            // 늪: 탁한 초록 + 개구리밥 얼룩(거의 불투명)
+            float duck = smoothstep( 0.1, 0.7, dlNoise( vWP.xz * 0.21 + 5.0 ) );
+            vec3 sw = mix( vec3( 0.24, 0.38, 0.2 ), vec3( 0.36, 0.48, 0.22 ), smoothstep( -0.5, 0.6, dlNoise( vWP.xz * 0.06 ) ) );
+            sw = mix( sw, vec3( 0.5, 0.7, 0.26 ), duck * 0.7 );
+            wc = mix( wc, sw, 0.92 );
+            alpha = max( alpha, 0.95 );
+            foam *= 0.5;
+          } else if ( vK < 3.5 ) {
+            // 안개 호수: 잔잔한 회보랏빛
+            wc = mix( wc, vec3( 0.6, 0.64, 0.8 ), 0.58 );
+            alpha = max( alpha, 0.8 );
+          } else if ( vK < 4.5 ) {
+            // 하트 연못: 분홍 물빛
+            wc = mix( wc, vec3( 1.0, 0.72, 0.84 ), 0.38 );
+          } else {
+            // 오아시스: 진한 청록
+            wc = mix( wc, vec3( 0.16, 0.8, 0.84 ), 0.32 );
+          }
+        }
         wc = mix( wc, vec3( 1.0 ), foam );
         alpha = max( alpha, foam * 0.95 );
         diffuseColor = vec4( wc, alpha );
@@ -69,8 +100,20 @@ function waterMat(island: typeof Island): THREE.MeshStandardMaterial {
           float e = 0.04, k = 0.07;
           float h0 = dlRipple( q ), hx = dlRipple( q + vec2( e, 0.0 ) ), hz = dlRipple( q + vec2( 0.0, e ) );
           vec3 nW = normalize( vec3( -( hx - h0 ) / e * k, 1.0, -( hz - h0 ) / e * k ) );
+          // 늪은 잔물결이 거의 없다(걸쭉한 물)
+          if ( vK > 1.5 && vK < 2.5 ) nW = normalize( mix( vec3( 0.0, 1.0, 0.0 ), nW, 0.25 ) );
           if ( vW.w < 0.12 ) normal = normalize( ( viewMatrix * vec4( nW, 0.0 ) ).xyz );
         }`)
+      .replace('#include <opaque_fragment>', `
+        // 물빛이 하늘 반사에 하얗게 묻히지 않게(온천·늪은 절반, 안개 호수는 조금 — 제 색을 남긴다)
+        if ( vK > 0.5 && vK < 2.5 ) outgoingLight = mix( min( outgoingLight, vec3( 1.1 ) ), diffuseColor.rgb * 1.15, 0.7 );
+        else if ( vK > 2.5 && vK < 3.5 ) outgoingLight = mix( min( outgoingLight, vec3( 1.1 ) ), diffuseColor.rgb, 0.35 );
+        #include <opaque_fragment>`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        // 온천·늪은 하늘을 덜 비춘다(물빛이 하얗게 날아가지 않게)
+        if ( vK > 0.5 && vK < 1.5 ) roughnessFactor = 0.8;
+        if ( vK > 1.5 && vK < 2.5 ) roughnessFactor = 0.9;
+        if ( vK > 2.5 && vK < 3.5 ) roughnessFactor = 0.55;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         {
           vec3 V = normalize( vViewPosition );
@@ -96,6 +139,9 @@ function waterMat(island: typeof Island): THREE.MeshStandardMaterial {
   return mat;
 }
 
+/** 호수 종류 → 물빛 번호(셰이더 vK) */
+const LAKE_TINT: Partial<Record<string, number>> = { hotspring: 1, swamp: 2, foglake: 3, heartpond: 4, oasis: 5 };
+
 export function buildInlandWater(island: typeof Island): THREE.Group {
   const g = new THREE.Group();
   g.name = 'inland-water';
@@ -107,6 +153,8 @@ export function buildInlandWater(island: typeof Island): THREE.Group {
       for (let k = 0; k < (L.holes?.length ?? 0); k++) g.add(holeDisc(island, L.holes[k], L.level, mat, `lake-${L.id}-hole${k}`));
       continue;
     }
+    // 은하수 크레이터 물은 waterfx.ts(청크) 몫
+    if (L.galaxy) continue;
     const R = L.r * 1.45, N = 56;
     const pos: number[] = [], aw: number[] = [], idx: number[] = [];
     for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
@@ -119,7 +167,7 @@ export function buildInlandWater(island: typeof Island): THREE.Group {
       if (aw[a * 4] < -0.5 && aw[b * 4] < -0.5 && aw[c * 4] < -0.5 && aw[d * 4] < -0.5) continue;
       idx.push(a, c, d, a, d, b);
     }
-    g.add(mesh(pos, aw, idx, mat, 'lake-' + L.id));
+    g.add(mesh(pos, aw, idx, mat, 'lake-' + L.id, LAKE_TINT[L.kind] ?? 0));
   }
   // 강: 중심선을 따라 띠(폭포 마디는 촘촘히)
   for (const Rv of island.worldRivers()) {
@@ -187,10 +235,11 @@ const sm = (e0: number, e1: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-function mesh(pos: number[], aw: number[], idx: number[], mat: THREE.Material, name: string): THREE.Mesh {
+function mesh(pos: number[], aw: number[], idx: number[], mat: THREE.Material, name: string, tint = 0): THREE.Mesh {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('aW', new THREE.Float32BufferAttribute(aw, 4));
+  geo.setAttribute('aK', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3).fill(tint), 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   // 법선은 위로(폭포 커튼도 빛을 고르게)

@@ -89,6 +89,8 @@ export interface EnvApi {
   eclipse: boolean;
   /** 플레이어 자리 날씨 */
   weather: Weather;
+  /** 플레이어가 있는 날씨 구역(가장 가까운 큰 섬, 아니면 'sea') */
+  region: RegionId;
   regionWeather(x: number, z: number): Weather;
   weatherOf(region: RegionId): Weather;
   forecast(region: RegionId, hoursAhead: number): Weather;
@@ -209,7 +211,7 @@ export interface WitnessRegistry {
 }
 
 // ───────────── 5. HUD 레지스트리 타입 ─────────────
-export interface PanelTab { id: string; label: string; icon?: string }
+export interface PanelTab { id: string; label: string; icon?: string; /** 탭 옆 작은 숫자 뱃지(예: '12') */ badge?: string }
 export interface HudHelpers {
   /** HTML 이스케이프 */
   esc(s: unknown): string;
@@ -244,6 +246,8 @@ export interface PanelDef {
   color: string;
   icon?: string;
   defaultTab?: string;
+  /** true 면 넓은 창(도감처럼 칸이 많은 패널) */
+  wide?: boolean;
   tabs?(): PanelTab[];
   /** 제목 옆 작은 글(예: '12/20칸') */
   meta?(): string;
@@ -326,6 +330,18 @@ export interface HudRegistry {
   showRegion(name: string, sub: string, color: string, dark?: string): void;
   attach(impl: HudRenderer): void;
   readonly attached: boolean;
+  // ── 렌더러·다른 모듈이 쓰는 것(계약 추가분)
+  /** 열려 있으면 닫고, 아니면 연다 */
+  toggle(kind: string, tab?: string, arg?: unknown): void;
+  /** 열린 패널이 바뀔 때. 해제 함수를 돌려준다 */
+  onChange(fn: (kind: string | null, prev: string | null) => void): () => void;
+  panel(kind: string): PanelDef | null;
+  /** 열린 패널 다시 그리기 */
+  rerender(): void;
+  chips(): ChipDef[];
+  hotkeys(): readonly HotkeyDef[];
+  layers(): MapLayerDef[];
+  readonly gauges: Map<string, GaugeOpts>;
 }
 
 /** game.dex — 예전 이름. hud 위의 얇은 외관 */

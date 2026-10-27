@@ -1,649 +1,582 @@
-// 우주(달 표면): 몽글몽글 크레이터 지형(자체 trimesh 충돌) + 하늘의 지구·토성·별 + 착륙한 로켓(E 지구로 귀환)
-// + 우주 생물 14종(E 잡기 → showCatch) + 별 조각(반짝이 수집품).
+// 우주(토끼달, GDD 3.9 · 6.3): SPACE_ORIGIN 둘레 반경 400 m 달 — 청크 지형(가까운 땅 trimesh 충돌 + 먼 땅 LOD) · 도톰한 크레이터 30 ·
+// 결정 덤불 · 발광 달꽃(하루 한 번) · 별가루 반짝이 · 하늘의 큰 지구 · 착륙장(로켓 E '지구로!' · 펭박사 깃발) ·
+// 떡방아 토끼 마을(떡순이) · 크레이터 연못 3 · 월석 들판 · 지구 전망 언덕 · 별공룡 둥지 · UFO 잔해(삐리) · 우주상자 15(하루마다) ·
+// 산소(캡슐 1 = 게임 4시간, env.gameSec) + 0 이면 '숨차!' 자동 귀환 · 도착 이벤트 · 우주 생물 18종(GDD) + 예전 달 친구들 ·
+// 행성 등록소(registerPlanet · goPlanet · addSpawn — 활성 행성만 짓는다).
+//
+// game.space(SpaceApi, 계약 2장) — 주인은 이 모듈 하나:
+//   planet            지금 행성 id('moon' …)
+//   ponds / pondAt    달 연못(월드 좌표 {x, z, r, y}) · 그 자리 물 높이(낚시 zone moonpond)
+//   oxygen            {value, max, capsules} — value·max 는 게임 초(캡슐 1개 = 300), capsules = 가방의 it_oxygen
+//   landingSpawn      달 착륙장(로켓 발사가 여기로 setWorld) · returnSpawn 지구 발사대 앞
+//   registerPlanet(def)  def.heightAt(lx, lz) 는 '국소 좌표'(origin 기준)를 받아 '국소 높이'(origin.y 기준)를 돌려준다.
+//                        def.gravity: 음수면 그대로 가속(m/s², 달 −4.5), 0~1.5 면 지구(−22) 배율. def.clampFrac(선택, 기본 0.96).
+//                        build() 는 들어갈 때마다 불리고 나갈 때 버린다(활성 행성만 지어진다). 땅 충돌은 행성 주인이 짓는다.
+//                        origin 은 SPACE_ORIGIN 에서 2 km 넘게 떨어뜨린다 — 달 청크(먼 땅 반경 900 m + 칸 200 m)는 '안 짓는다(null)'도
+//                        칸마다 기억해서, 가까이 붙이면 행성을 오갈 때 빈 칸·남은 달 충돌이 생긴다.
+//   goPlanet(id, spawn?) 지구에서면 setWorld('space') 로, 우주에서면 행성끼리 갈아탄다. 도착하면 arrive {to:id}.
+//   addSpawn(planetId, {id, build(root), update?(t, dt)}) 그 행성에 들어갈 때마다 build(root), 있는 동안 update.
+//   덤: planets() · active() · returnToEarth(why?) · photoSpots
+// flags.space: {visited, oxy, daily:{day, done}, chests:{day, open}, found}
+// window.__space: goPad · pond(i) · go(place) · oxygen() · setOxygen(v) · capsules() · returnNow() · chests() · openChest(i) · actors() · use(id) · planets() · goPlanet(id)
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import { SPACE_ORIGIN } from '../core/game';
-import { SPACE_SPECIES, type SpaceSpecies } from './space/data';
-import { makeCreature, fur, G, starGeometry, type Creature } from './space/model';
+import * as Island from '../core/island';
+import { curveUniforms, applyCurve } from '../core/curve';
+import { CURVE_K } from '../core/presets';
+import { disposeGeometries } from '../core/chunks';
+import type { PlanetSpawner, Pond, SpaceApi, Witness } from '../core/api';
+import { SPACE_SPECIES, SPACE_BY_ID, type SpaceSpecies } from './space/data';
+import { makeCreature, type Creature } from './space/model';
+import {
+  MOON_R, MOON_GRAVITY, PAD_H, PAD_R, OXY_PER_CAPSULE, OXY_GRACE, FIRST_VISIT_CAPSULES, FLOAT_SEC, FLOAT_FALL, MOON_PLACES, PLACE_NAMES,
+  moonHeight, pondsWorld, pondAtIn, stepOxygen, PlanetRegistry, planetGround, clampToPlanet, floorRescue, defaultSpawn, dailyFor,
+  gravityOf, actRank, type PlanetEntry, type DailyLog, type OxyState,
+} from './space/logic';
+import { addMoonTerrain, type Pickup } from './space/terrain';
+import { addLifeLayer, inCone, spawnCritter } from './space/creatures';
+import { addPlacesLayer, buildChests, type SpaceChests } from './space/places';
+import { makeMoonSky, type MoonSky } from './space/sky';
+import { makePad, makePengFlag, makeRocket } from './space/props';
+import { disposeDeep, onDispose, runDispose, type Actor, type Hub, type Ticker, type WitnessRec } from './space/hub';
 
 export const order = 40;
 
-const O = SPACE_ORIGIN;
-const HALF = 260;
-const SEG = 260;
-/** 착륙한 로켓 자리(국소 좌표) — 시작 시선 왼쪽 앞에 랜드마크로 */
-const RKX = -15, RKZ = -33;
+/** 지구 발사대 앞 귀환 자리(발사대 PLACES.launchPad 에서 섬 쪽으로) */
+export const RETURN_OFFSET = { x: 0, z: 20 };
+/** 달에서 땅을 작은 행성처럼 휘는 정도(모험 카메라) */
+const MOON_CURVE = 0.0007;
 
-interface Crater { x: number; z: number; r: number; d: number }
+interface SpaceFlags {
+  visited?: boolean;
+  oxy?: number;
+  daily?: DailyLog;
+  chests?: { day: number; open: number[] };
+  found?: Record<string, 1>;
+}
 
 export default function build(ctx: Ctx) {
-  const game = ctx.game;
-  if (!game) return;
-  const root = game.spaceRoot;
-  const rnd = ctx.rng('space:craters');
-
-  // ── 크레이터 ──
-  const craters: Crater[] = [];
-  for (let i = 0; i < 70 && craters.length < 46; i++) {
-    const a = rnd() * Math.PI * 2, rr = 22 + rnd() * 200;
-    const c = { x: Math.cos(a) * rr, z: Math.sin(a) * rr, r: 4 + rnd() * rnd() * 22, d: 0 };
-    c.d = c.r * (0.16 + rnd() * 0.08);
-    if (craters.some((o) => Math.hypot(o.x - c.x, o.z - c.z) < (o.r + c.r) * 0.8)) continue;
-    craters.push(c);
-  }
-  craters.push({ x: -34, z: -46, r: 16, d: 3.0 }, { x: 40, z: 18, r: 9, d: 1.8 }, { x: 14, z: -20, r: 5, d: 1.0 },
-    // 시작 시선(-Z) 앞 작은 크레이터들: 가까운 땅에도 굴곡·그늘이 보이게
-    { x: -7, z: -11, r: 3.2, d: 0.7 }, { x: 5, z: -30, r: 6.5, d: 1.4 }, { x: -18, z: -24, r: 4.2, d: 0.9 }, { x: 9, z: 6, r: 2.6, d: 0.55 },
-    { x: -12, z: 7, r: 3.6, d: 0.75 }, { x: 22, z: -48, r: 9, d: 1.9 }, { x: -3, z: -60, r: 7.5, d: 1.6 }, { x: 3, z: -6, r: 1.8, d: 0.4 });
-
-  /** 국소 좌표 높이 + 크레이터 바닥 정도(0~1) */
-  function hl(x: number, z: number) {
-    let h = 1.2 + 1.1 * Math.sin(x * 0.021 + 0.7) * Math.cos(z * 0.017) + 0.55 * Math.sin(x * 0.052 + z * 0.031) + 0.25 * Math.sin(x * 0.13 - z * 0.11);
-    // 발밑 잔물결(몽글몽글한 둔덕): 가까운 땅에도 빛과 그늘이 생기게
-    h += 0.32 * Math.sin(x * 0.55 + Math.sin(z * 0.3) * 1.5) * Math.cos(z * 0.47 - 0.6) + 0.18 * Math.sin(x * 0.93 - z * 0.71 + 2.0);
-    let bowl = 0, rim = 0;
-    for (const c of craters) {
-      const dx = x - c.x, dz = z - c.z;
-      const d2 = (dx * dx + dz * dz) / (c.r * c.r);
-      if (d2 > 2.6) continue;
-      const d = Math.sqrt(d2);
-      if (d < 1.05) { const k = 1 - Math.min(1, d2); const b = k * k * (3 - 2 * k); h -= c.d * b; bowl = Math.max(bowl, b); }
-      const rr = Math.exp(-((d - 1.02) * (d - 1.02)) / 0.05);
-      h += c.d * 0.42 * rr;
-      rim = Math.max(rim, rr);
-    }
-    // 바깥 둘레: 낮고 둥근 언덕 능선 → 그 너머는 작은 별처럼 둥글게 떨어진다(검은 하늘 수평선이 보이게)
-    const R = Math.hypot(x, z), ang = Math.atan2(z, x);
-    const e = THREE.MathUtils.smoothstep(R, HALF * 0.66, HALF * 0.86);
-    h += e * (5 + 3.2 * Math.sin(ang * 5) + 1.8 * Math.sin(ang * 13 + 1.1)) * (1 - THREE.MathUtils.smoothstep(R, HALF * 0.86, HALF * 0.97));
-    const fall = Math.max(0, R - HALF * 0.86);
-    h -= fall * fall * 0.012;
-    return { h: Math.max(h, -60), bowl, rim, edge: e };
-  }
-  const heightLocal = (x: number, z: number) => hl(x, z).h;
-
-  // ── 우주 전용 보조광(공간 그룹이 숨으면 같이 꺼진다): 역광 쪽 얼굴도 파스텔로 ──
-  const fillHemi = new THREE.HemisphereLight('#cfc8ff', '#ffd9ee', 0.95);
-  root.add(fillHemi);
-  const fill = new THREE.DirectionalLight('#bcd0ff', 0.7);
-  fill.position.set(O.x + 60, 50, O.z - 40);
-  fill.target.position.copy(O);
-  root.add(fill, fill.target);
-
-  // ── 지형 메시 ──
-  const geo = new THREE.PlaneGeometry(HALF * 2, HALF * 2, SEG, SEG);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position;
-  const col = new Float32Array(pos.count * 3);
-  // 밝은 라일락 고원 + 푸른 보라 '바다(마리아)' 얼룩 + 크레이터 안은 진한 보라 AO, 능선은 하얗게
-  const cBase = new THREE.Color('#d9cff3'), cHigh = new THREE.Color('#efe9fd'), cMare = new THREE.Color('#a59de0'),
-    cBowl = new THREE.Color('#6a56b4'), cRim = new THREE.Color('#fdfaff'), cPink = new THREE.Color('#f4c9e4'),
-    cMint = new THREE.Color('#bfe6ec'), cFar = new THREE.Color('#7d78c4');
-  const tmp = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    const s = hl(x, z);
-    pos.setY(i, s.h);
-    tmp.copy(cBase).lerp(cHigh, THREE.MathUtils.clamp((s.h - 1.6) * 0.45, 0, 1));
-    // 큰 얼룩: 마리아(어두운 평원)·분홍 모래·민트 먼지
-    const mare = Math.sin(x * 0.017 + 0.4) * Math.cos(z * 0.021 - 1.2) + 0.45 * Math.sin(x * 0.041 - z * 0.033);
-    const pk = 0.5 + 0.5 * Math.sin(x * 0.011 + 1.3) * Math.sin(z * 0.013 - 0.4);
-    const mt = 0.5 + 0.5 * Math.sin(x * 0.009 - 2.1) * Math.cos(z * 0.012 + 0.8);
-    tmp.lerp(cMare, THREE.MathUtils.smoothstep(mare, 0.15, 0.85) * 0.75);
-    tmp.lerp(cPink, Math.max(0, pk - 0.55) * 1.5).lerp(cMint, Math.max(0, mt - 0.6) * 1.5);
-    // 크레이터: 안쪽 깊을수록 진한 보라(AO), 테두리 능선은 하얀 라일락
-    tmp.lerp(cBowl, Math.min(1, Math.pow(s.bowl, 0.8) * 0.85)).lerp(cRim, s.rim * 0.9);
-    // 멀리 능선·떨어지는 가장자리는 짙은 남보라(깊이감)
-    const R = Math.hypot(x, z);
-    tmp.lerp(cFar, THREE.MathUtils.smoothstep(R, HALF * 0.45, HALF * 0.95) * 0.55);
-    // 중간 크기 얼룩(분홍·하늘 먼지 반점) — 단색 바닥이 안 되게
-    const sp = Math.sin(x * 0.21 + Math.cos(z * 0.17) * 2.0) * Math.sin(z * 0.19 - Math.cos(x * 0.13) * 1.7);
-    if (sp > 0.35) tmp.lerp(cPink, (sp - 0.35) * 0.55); else if (sp < -0.45) tmp.lerp(cMint, (-sp - 0.45) * 0.6);
-    const n = (Math.sin(x * 1.7 + z * 2.3) * Math.sin(x * 2.9 - z * 1.1)) * 0.03 + (Math.sin(x * 0.37 + z * 0.29) * 0.025);
-    col[i * 3] = tmp.r + n; col[i * 3 + 1] = tmp.g + n; col[i * 3 + 2] = tmp.b + n;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0, emissive: '#3a2c78', emissiveIntensity: 0.1 }));
-  ground.position.copy(O);
-  ground.receiveShadow = true;
-  root.add(ground);
-
-  // 충돌: 같은 높이 함수로 2 m 격자 trimesh(한 덩어리, 우주에서만 존재)
-  {
-    const n = 200, step = (HALF * 2) / n;
-    const vs = new Float32Array((n + 1) * (n + 1) * 3);
-    const is = new Uint32Array(n * n * 6);
-    for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
-      const x = -HALF + i * step, z = -HALF + j * step, k = (j * (n + 1) + i) * 3;
-      vs[k] = O.x + x; vs[k + 1] = heightLocal(x, z); vs[k + 2] = O.z + z;
-    }
-    let q = 0;
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      const a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
-      is[q++] = a; is[q++] = c; is[q++] = b; is[q++] = b; is[q++] = c; is[q++] = d;
-    }
-    game.physics.add({ shape: { kind: 'mesh', vertices: vs, indices: is }, type: 'fixed', position: { x: 0, y: 0, z: 0 }, tag: 'ground' });
-  }
-  const worldH = (x: number, z: number) => heightLocal(x - O.x, z - O.z);
-
-  // ── 바위·크리스털(InstancedMesh) ──
-  const rockGeo = (() => {
-    const g = new THREE.SphereGeometry(1, 20, 14);
-    const p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const k = 1 + 0.12 * Math.sin(x * 3.1 + y * 2.3) * Math.cos(z * 2.7 - y);
-      p.setXYZ(i, x * k, Math.max(y, -0.35) * k * 0.72, z * k);
-    }
-    g.computeVertexNormals();
-    return g;
-  })();
-  const rockR = ctx.rng('space:rocks');
-  const ROCKS = 260;
-  const rocks = new THREE.InstancedMesh(rockGeo, new THREE.MeshStandardMaterial({ roughness: 0.85 }), ROCKS);
-  const m4 = new THREE.Matrix4(), qq = new THREE.Quaternion(), sc = new THREE.Vector3(), pp = new THREE.Vector3();
-  const rockCols = ['#d9cff2', '#c8bce9', '#e8def8', '#f2d6ea', '#d3e9f0'];
-  for (let i = 0; i < ROCKS; i++) {
-    let x = 0, z = 0;
-    for (let t = 0; t < 8; t++) {
-      if (rockR() < 0.8) {
-        // 크레이터 테두리에 모여 있는 바위(충돌로 튀어나온 느낌)
-        const c = craters[Math.floor(rockR() * craters.length)];
-        const a = rockR() * 6.28, rr = c.r * (1.0 + Math.pow(rockR(), 1.5) * 0.45);
-        x = c.x + Math.cos(a) * rr; z = c.z + Math.sin(a) * rr;
-      } else { x = (rockR() * 2 - 1) * HALF * 0.8; z = (rockR() * 2 - 1) * HALF * 0.8; }
-      if (Math.hypot(x, z) > 9 && Math.hypot(x - RKX, z - RKZ) > 8 && Math.hypot(x, z) < HALF * 0.84) break;
-    }
-    const s = 0.3 + Math.pow(rockR(), 2.4) * 1.6;
-    pp.set(O.x + x, worldH(O.x + x, O.z + z) + s * 0.05, O.z + z);
-    qq.setFromEuler(new THREE.Euler(0, rockR() * 6.28, 0));
-    sc.set(s * (0.8 + rockR() * 0.5), s, s * (0.8 + rockR() * 0.5));
-    rocks.setMatrixAt(i, m4.compose(pp, qq, sc));
-    rocks.setColorAt(i, new THREE.Color(rockCols[Math.floor(rockR() * rockCols.length)]));
-  }
-  rocks.castShadow = true; rocks.receiveShadow = true;
-  root.add(rocks);
-
-  // 작은 자갈 + 반짝 전구풀(빈 땅 없이)
-  {
-    const pr = ctx.rng('space:pebbles');
-    const NP = 2600;
-    const peb = new THREE.InstancedMesh(rockGeo, new THREE.MeshStandardMaterial({ roughness: 0.8 }), NP);
-    // 자갈은 크레이터 테두리(분출물 띠)에 군집: 큰 크레이터일수록 많이, 테두리 바깥으로 갈수록 듬성
-    const wsum = craters.reduce((a, c) => a + c.r, 0);
-    const pickC = () => { let u = pr() * wsum; for (const c of craters) { u -= c.r; if (u <= 0) return c; } return craters[0]; };
-    for (let i = 0; i < NP; i++) {
-      let x: number, z: number;
-      if (i % 10 < 9) {
-        const c = pickC();
-        const a = pr() * 6.28, rr = c.r * (0.92 + Math.pow(pr(), 2) * 0.9);
-        x = c.x + Math.cos(a) * rr; z = c.z + Math.sin(a) * rr;
-      } else { const a = pr() * 6.28, r = Math.pow(pr(), 0.8) * HALF * 0.8; x = Math.cos(a) * r; z = Math.sin(a) * r; }
-      const s = 0.06 + pr() * pr() * 0.3;
-      pp.set(O.x + x, heightLocal(x, z), O.z + z);
-      qq.setFromEuler(new THREE.Euler(0, pr() * 6, 0));
-      peb.setMatrixAt(i, m4.compose(pp, qq, sc.set(s * 1.3, s, s)));
-      peb.setColorAt(i, new THREE.Color(rockCols[i % rockCols.length]).multiplyScalar(0.92));
-    }
-    peb.receiveShadow = true;
-    root.add(peb);
-    const NB = 900;
-    const stem = new THREE.CylinderGeometry(0.025, 0.04, 1, 6); stem.translate(0, 0.5, 0);
-    const bulb = new THREE.SphereGeometry(1, 16, 12);
-    const stems = new THREE.InstancedMesh(stem, new THREE.MeshStandardMaterial({ color: '#d9cdf7', roughness: 0.7, emissive: '#9f8fd8', emissiveIntensity: 0.2 }), NB);
-    const bulbs = new THREE.InstancedMesh(bulb, new THREE.MeshBasicMaterial({ color: '#ffffff' }), NB);
-    const bCols = ['#ffb8e4', '#a8f0ff', '#d6c4ff', '#b8ffd9', '#fff1a8'];
-    for (let i = 0; i < NB; i++) {
-      // 무리 지어 핀다
-      const ga = Math.floor(i / 7) * 2.39996, gr = Math.sqrt((Math.floor(i / 7) + 0.5) / (NB / 7)) * HALF * 0.5 + 3;
-      const x = Math.cos(ga) * gr + (pr() - 0.5) * 3, z = Math.sin(ga) * gr + (pr() - 0.5) * 3;
-      const hgt = 0.25 + pr() * 0.45, y = heightLocal(x, z);
-      qq.setFromEuler(new THREE.Euler((pr() - 0.5) * 0.4, 0, (pr() - 0.5) * 0.4));
-      stems.setMatrixAt(i, m4.compose(pp.set(O.x + x, y, O.z + z), qq, sc.set(1, hgt, 1)));
-      const top = new THREE.Vector3(0, hgt, 0).applyQuaternion(qq);
-      bulbs.setMatrixAt(i, m4.compose(pp.set(O.x + x + top.x, y + top.y, O.z + z + top.z), qq, sc.setScalar(0.07 + pr() * 0.06)));
-      bulbs.setColorAt(i, new THREE.Color(bCols[Math.floor(i / 7) % bCols.length]));
-    }
-    root.add(stems, bulbs);
-  }
-
-  // 작은 구멍 크레이터(땅에 붙은 링 데칼): 가까운 땅에도 달 표면 결이 보이게
-  {
-    const prof: THREE.Vector2[] = [];
-    const NPF = 14;
-    for (let i = 0; i <= NPF; i++) {
-      const r = (i / NPF) * 1.45;
-      const y = r < 1 ? -0.12 * (1 - r * r) + 0.015 : 0.05 * Math.exp(-((r - 1.02) ** 2) / 0.015) + 0.015 * (1 - (r - 1) / 0.45);
-      prof.push(new THREE.Vector2(Math.max(r, 0.001), y));
-    }
-    prof.reverse(); // 바깥→안쪽 순서여야 법선이 위를 본다
-    const lg = new THREE.LatheGeometry(prof, 28);
-    const lp = lg.attributes.position;
-    const lc = new Float32Array(lp.count * 3);
-    const cIn = new THREE.Color('#a093d8'), cRm = new THREE.Color('#ece6fb'), cOut = new THREE.Color('#d6ccf1');
-    for (let i = 0; i < lp.count; i++) {
-      const r = Math.hypot(lp.getX(i), lp.getZ(i));
-      tmp.copy(cIn).lerp(cRm, THREE.MathUtils.smoothstep(r, 0.35, 1.0)).lerp(cOut, THREE.MathUtils.smoothstep(r, 1.05, 1.4));
-      lc[i * 3] = tmp.r; lc[i * 3 + 1] = tmp.g; lc[i * 3 + 2] = tmp.b;
-    }
-    lg.setAttribute('color', new THREE.BufferAttribute(lc, 3));
-    lg.computeVertexNormals();
-    const NC = 520;
-    const cl = new THREE.InstancedMesh(lg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, emissive: '#3a2c78', emissiveIntensity: 0.1, transparent: false }), NC);
-    const clr = ctx.rng('space:craterlets');
-    let k = 0;
-    const placed: Array<[number, number, number]> = [];
-    for (let i = 0; i < NC * 2 && k < NC; i++) {
-      const a = clr() * 6.28, r = i < NC * 0.5 ? 3 + Math.pow(clr(), 0.9) * 55 : 20 + clr() * HALF * 0.6;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      const s0 = hl(x, z);
-      if (s0.bowl > 0.3 || s0.rim > 0.4 || s0.edge > 0.2 || Math.hypot(x - RKX, z - RKZ) < 5) continue;
-      const s = 0.22 + Math.pow(clr(), 2.6) * 0.9;
-      if (placed.some((q) => Math.hypot(q[0] - x, q[1] - z) < (q[2] + s) * 1.6)) continue;
-      placed.push([x, z, s]);
-      // 지형 기울기에 맞춰 눕힌다
-      const e = 0.4, nx = heightLocal(x - e, z) - heightLocal(x + e, z), nz = heightLocal(x, z - e) - heightLocal(x, z + e);
-      qq.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(nx, 2 * e, nz).normalize());
-      cl.setMatrixAt(k, m4.compose(pp.set(O.x + x, Math.min(heightLocal(x + s, z), heightLocal(x - s, z), heightLocal(x, z + s), heightLocal(x, z - s), s0.h) + 0.03, O.z + z), qq, sc.set(s, s * 0.9, s)));
-      cl.setColorAt(k, new THREE.Color().setHSL(0.72 + clr() * 0.08, 0.3, 0.88 + clr() * 0.12));
-      k++;
-    }
-    cl.count = k;
-    cl.receiveShadow = true;
-    root.add(cl);
-  }
-
-  const crystalGeo = new THREE.OctahedronGeometry(1, 0);
-  crystalGeo.scale(0.45, 1.3, 0.45);
-  const CRY = 160;
-  const crystals = new THREE.InstancedMesh(crystalGeo, new THREE.MeshPhysicalMaterial({ roughness: 0.08, transmission: 0, clearcoat: 1, emissive: '#ffffff', emissiveIntensity: 0.35, flatShading: true }), CRY);
-  const crR = ctx.rng('space:crystals');
-  const cryCols = ['#ffb8e4', '#a8f0ff', '#c9b6ff', '#b8ffd9', '#fff1a8'];
-  let ci = 0;
-  for (let k = 0; ci < CRY && k < 400; k++) {
-    const c = craters[Math.floor(crR() * craters.length)];
-    const a = crR() * 6.28, rr = c.r * (0.9 + crR() * 0.3);
-    const x = c.x + Math.cos(a) * rr, z = c.z + Math.sin(a) * rr;
-    if (Math.hypot(x, z) > HALF * 0.75) continue;
-    // 덩어리(3개씩)
-    for (let j = 0; j < 3 && ci < CRY; j++) {
-      const s = 0.35 + crR() * 0.6;
-      const xx = x + (crR() - 0.5) * 0.9, zz = z + (crR() - 0.5) * 0.9;
-      pp.set(O.x + xx, worldH(O.x + xx, O.z + zz) + s * 0.5, O.z + zz);
-      qq.setFromEuler(new THREE.Euler((crR() - 0.5) * 0.7, crR() * 6, (crR() - 0.5) * 0.7));
-      crystals.setMatrixAt(ci, m4.compose(pp, qq, sc.setScalar(s)));
-      crystals.setColorAt(ci, new THREE.Color(cryCols[(k + j) % cryCols.length]));
-      ci++;
-    }
-  }
-  crystals.count = ci;
-  crystals.castShadow = true;
-  root.add(crystals);
-
-  // ── 하늘: 지구·토성·분홍 행성·반짝 별 (카메라를 따라다녀 무한히 멀리 보인다) ──
-  const sky = new THREE.Group();
-  sky.userData.noCurve = true;
-  root.add(sky);
-  const skyMat = (m: THREE.Material) => { m.userData.noCurve = true; (m as THREE.MeshBasicMaterial).fog = false; return m; };
-  const earth = makeEarth(skyMat);
-  earth.position.set(760, 70, -2700); earth.scale.setScalar(0.62); // 기본 시선(-Z) 오른쪽 수평선 위로 떠오르는 지구 = 랜드마크
-  sky.add(earth);
-  const saturn = makeSaturn(skyMat);
-  saturn.position.set(-2300, 900, -2400);
-  sky.add(saturn);
-  const pinkP = new THREE.Mesh(new THREE.SphereGeometry(140, 48, 32), skyMat(new THREE.MeshStandardMaterial({ map: stripeTex(['#ffc4dd', '#ffd9e8', '#f7b0d0', '#ffe4ee']), roughness: 0.8, emissive: '#ff9fc8', emissiveIntensity: 0.35 })));
-  pinkP.position.set(900, 2000, 2600);
-  sky.add(pinkP);
-  const mintP = new THREE.Mesh(new THREE.SphereGeometry(70, 32, 24), skyMat(new THREE.MeshStandardMaterial({ map: stripeTex(['#a8f0de', '#d4fff1', '#8fe0cc']), roughness: 0.8, emissive: '#8fe0cc', emissiveIntensity: 0.15 })));
-  mintP.position.set(-2600, 700, 900);
-  sky.add(mintP);
-  // 은하수 띠: 분홍·하늘빛 성운 먼지 + 촘촘한 별(하늘을 비스듬히 가로지른다)
-  {
-    const { c, g: x } = canvas(2048, 512);
-    const mr = ctx.rng('space:milky');
-    for (let i = 0; i < 520; i++) {
-      const u = mr() * 2048, w = 0.5 + 0.5 * Math.sin(u / 2048 * Math.PI * 4 + 1);
-      const v = 256 + (mr() + mr() + mr() - 1.5) * 70 * (0.6 + w * 0.6) + Math.sin(u * 0.004) * 30;
-      const r = 20 + mr() * 70;
-      const col = ['255,170,220', '160,200,255', '200,170,255', '255,230,200'][Math.floor(mr() * 4)];
-      const gr = x.createRadialGradient(u, v, 0, u, v, r);
-      gr.addColorStop(0, `rgba(${col},${0.05 + 0.07 * w})`); gr.addColorStop(1, `rgba(${col},0)`);
-      x.fillStyle = gr; x.fillRect(u - r, v - r, r * 2, r * 2);
-    }
-    for (let i = 0; i < 2600; i++) {
-      const u = mr() * 2048, v = 256 + (mr() + mr() + mr() + mr() - 2) * 70 + Math.sin(u * 0.004) * 30;
-      x.fillStyle = `rgba(255,255,255,${0.25 + mr() * 0.6})`; x.fillRect(u, v, mr() < 0.1 ? 2 : 1, mr() < 0.1 ? 2 : 1);
-    }
-    const mt = tex(c); mt.wrapS = THREE.RepeatWrapping;
-    const band = new THREE.Mesh(new THREE.SphereGeometry(3600, 64, 32), skyMat(new THREE.MeshBasicMaterial({ map: mt, transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.95 })));
-    band.rotation.set(1.05, 0.4, 0.35);
-    band.renderOrder = -1;
-    band.userData.noCurve = true;
-    sky.add(band);
-  }
-  // 반짝 별(4갈래 스프라이트)
-  const sparkTex = sparkleTex();
-  const twinkles: THREE.Sprite[] = [];
-  const twR = ctx.rng('space:twinkle');
-  const twCols = ['#ffffff', '#fff2b0', '#ffd0ea', '#c8e4ff'];
-  for (let i = 0; i < 70; i++) {
-    const a = twR() * 6.28, el = 0.12 + twR() * 1.2, d = 3800;
-    const s = new THREE.Sprite(skyMat(new THREE.SpriteMaterial({ map: sparkTex, color: twCols[i % 4], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })) as THREE.SpriteMaterial);
-    s.position.set(Math.cos(a) * Math.cos(el) * d, Math.sin(el) * d, Math.sin(a) * Math.cos(el) * d);
-    const base = 30 + twR() * twR() * 110;
-    s.scale.setScalar(base);
-    s.userData = { base, ph: twR() * 6.28, noCurve: true };
-    twinkles.push(s);
-    sky.add(s);
-  }
-
-  // ── 착륙한 로켓 ──
-  const rocket = makeRocket();
-  const rx = O.x + RKX, rz = O.z + RKZ;
-  rocket.position.set(rx, worldH(rx, rz) - 0.2, rz);
-  rocket.rotation.y = 0.5;
-  root.add(rocket);
-  game.physics.addStatic({ kind: 'cylinder', halfH: 4, r: 1.9 }, { x: rx, y: worldH(rx, rz) + 4, z: rz });
-  game.addInteractable({
-    id: 'space-rocket', position: () => rocket.position, radius: 6, label: '지구로 귀환',
-    enabled: () => game.world === 'space',
-    onUse: () => { game.ui.toast('🚀 지구로 귀환!'); game.setWorld('earth'); },
-  } as Parameters<typeof game.addInteractable>[0]);
-
-  // ── 생물 ──
+  const g0 = ctx.game;
+  if (!g0) return;
+  const game = g0;
+  const O = SPACE_ORIGIN;
   game.state.register(SPACE_SPECIES);
-  interface Spawn { sp: SpaceSpecies; m: Creature; base: THREE.Vector3; ph: number; goneUntil: number; wander: number }
-  const spawns: Spawn[] = [];
-  const cr = ctx.rng('space:creatures');
-  // 시작 지점 주변에 한 바퀴씩(보이게), 나머지는 넓게
-  const placements: Array<[number, number]> = [
-    [-6, 6], [5, 9], [-11, -2], [9, -1], [-3, 13], [17, 8], [-16, 10], [2, -14], [-9, -12], [22, -4], [-22, -6], [12, 18], [-4, 22], [26, 12],
-  ];
-  const pick = (i: number) => {
-    // 희귀종은 한 마리, 흔한 종은 여럿
-    if (i < SPACE_SPECIES.length) return SPACE_SPECIES[i];
-    const pool = SPACE_SPECIES.filter((s) => s.rarity <= 3);
-    return pool[Math.floor(cr() * pool.length)];
+
+  const F = (): SpaceFlags => {
+    const f = game.state.flags as Record<string, unknown>;
+    if (!f.space || typeof f.space !== 'object') f.space = {};
+    return f.space as SpaceFlags;
   };
-  const N = 34;
-  for (let i = 0; i < N; i++) {
-    const sp = pick(i);
-    let x: number, z: number;
-    if (i < placements.length) { [x, z] = placements[i]; z = -z * 1.1 - 3; } // 시작 시선(-Z) 앞에 보이게
-    else { const a = cr() * 6.28, r = 30 + cr() * 150; x = Math.cos(a) * r; z = Math.sin(a) * r; }
-    if (sp.kind === 'whale') { x = -40 + cr() * 20; z = 45 + cr() * 20; }
-    const m = makeCreature(sp);
-    const base = new THREE.Vector3(O.x + x, 0, O.z + z);
-    base.y = worldH(base.x, base.z) + sp.hover * (sp.kind === 'whale' ? 1 : 1);
-    if (sp.kind === 'whale') { base.y += 4; m.scale.multiplyScalar(2.2); m.traverse((o) => { o.castShadow = false; }); }
-    m.position.copy(base);
-    m.rotation.y = cr() * 6.28;
-    root.add(m);
-    spawns.push({ sp, m, base, ph: cr() * 10, goneUntil: 0, wander: 0.5 + cr() * 1.5 });
-  }
-  // 멀리 유영하는 거대 우주 고래(풍경용, 잡을 수 없음)
-  const bigWhales: Creature[] = [];
-  for (let i = 0; i < 2; i++) {
-    const w = makeCreature(SPACE_SPECIES.find((s) => s.kind === 'whale')!);
-    w.scale.setScalar(10 - i * 3);
-    w.traverse((o) => { o.castShadow = false; });
-    root.add(w);
-    bigWhales.push(w);
-  }
+  const save = () => game.state.save();
+  const day = () => Math.floor(game.env?.day ?? game.econ?.day?.() ?? 0);
+  const hour = () => game.env?.hour ?? 12;
 
-  const near = (p: THREE.Vector3) => {
-    let best: Spawn | null = null, bd = 3.2;
-    for (const s of spawns) {
-      if (s.goneUntil > game.time) continue;
-      const d = s.m.position.distanceTo(p) - s.m.userData.radius;
-      if (d < bd) { bd = d; best = s; }
-    }
-    return best ? { s: best, d: bd } : null;
+  // ── 살아 있는 E 행동·틱·목격
+  const actors = new Map<string, Actor>();
+  const tickers = new Set<Ticker>();
+  const witnesses = new Set<WitnessRec>();
+
+  const daily = () => { const f = F(); f.daily = dailyFor(f.daily, day()); return f.daily; };
+  const unlocked = (k: string) => { try { return game.econ?.isUnlocked?.(k) ?? true; } catch { return true; } };
+  const give = (id: string, n: number, why: string) => {
+    const econ = game.econ;
+    if (econ && typeof econ.give === 'function') return econ.give(id, n, why);
+    game.state.addItem(id, n);
+    return n;
   };
-  game.addProvider('space-catch', (pl) => {
-    if (game.world !== 'space') return null;
-    const n = near(pl.pos);
-    if (!n) return null;
-    return {
-      label: `${n.s.sp.name} 잡기`, dist: n.d,
-      use: () => {
-        const s = n.s;
-        const [lo, hi] = s.sp.cm;
-        const size = lo + (hi - lo) * (0.5 + 0.5 * Math.sin(game.time * 7.3 + s.ph));
-        const model = makeCreature(s.sp);
-        model.scale.multiplyScalar(s.sp.kind === 'whale' ? 0.35 : 0.6);
-        game.ui.showCatch({ species: s.sp, sizeText: `${size.toFixed(1)}cm`, model, line: s.sp.line });
-        s.goneUntil = game.time + 25;
-        s.m.visible = false;
-      },
-    };
-  });
+  const toast = (t: string) => game.ui.toast(t);
+  const emit = (e: { type: string; [k: string]: unknown }) => game.state.emit(e);
 
-  // ── 별 조각(반짝이 수집품) ──
-  const SH = 48;
-  const shardGeo = starGeometry(0.32, 0.15, 0.12);
-  const shards = new THREE.InstancedMesh(shardGeo, new THREE.MeshPhysicalMaterial({ color: '#ffe066', emissive: '#ffcc33', emissiveIntensity: 0.9, roughness: 0.2, clearcoat: 1 }), SH);
-  const shR = ctx.rng('space:shards');
-  const shardPos: THREE.Vector3[] = [];
-  const shardGone: number[] = [];
-  const shardCols = ['#ffe066', '#ffb3e0', '#a8e8ff', '#c7ffb0'];
-  for (let i = 0; i < SH; i++) {
-    const a = shR() * 6.28, r = i < 8 ? 4 + i * 2.2 : 12 + shR() * 170;
-    const x = O.x + Math.cos(a) * r, z = O.z + Math.sin(a) * r;
-    shardPos.push(new THREE.Vector3(x, worldH(x, z) + 0.9, z));
-    shardGone.push(0);
-    shards.setColorAt(i, new THREE.Color(shardCols[i % 4]));
-  }
-  shards.castShadow = true;
-  root.add(shards);
-  game.addProvider('space-shard', (pl) => {
-    if (game.world !== 'space') return null;
-    let bi = -1, bd = 2.2;
-    for (let i = 0; i < SH; i++) {
-      if (shardGone[i] > game.time) continue;
-      const d = shardPos[i].distanceTo(pl.pos);
-      if (d < bd) { bd = d; bi = i; }
+  const hub: Hub = {
+    game, O,
+    rng: (k) => ctx.rng(k),
+    groundY: (lx, lz) => O.y + moonHeight(lx, lz),
+    day, hour,
+    addActor: (a) => { actors.set(a.id, a); return () => { if (actors.get(a.id) === a) actors.delete(a.id); }; },
+    addTicker: (fn) => { tickers.add(fn); return () => { tickers.delete(fn); }; },
+    addWitness: (w) => { witnesses.add(w); return () => { witnesses.delete(w); }; },
+    addCollider: (shape, at) => {
+      const b = game.physics.addStatic(shape, { x: at.x, y: at.y, z: at.z });
+      return () => b.remove();
+    },
+    catchSpecies: (sp, o) => catchSpecies(sp, o),
+    greet: (sp, model, line) => greet(sp, model, line),
+    give, unlocked, toast, emit,
+    takenToday: (id) => !!daily().done[id],
+    markToday: (id) => { daily().done[id] = 1; save(); },
+    discover: (place) => {
+      const f = F();
+      f.found ??= {};
+      if (f.found[place]) return;
+      f.found[place] = 1;
+      save();
+      const name = PLACE_NAMES[place] ?? place;
+      emit({ type: 'discover', place: `moon:${place}`, name, kind: 'landmark' });
+      toast(`✨ ${name} 발견!`);
+    },
+  };
+
+  // ── 잡기·인사
+  function catchSpecies(sp: SpaceSpecies, o: { model?: THREE.Object3D; keep?: boolean; how: string }) {
+    const econ = game.econ;
+    let res: ReturnType<NonNullable<typeof econ>['rollCatch']> | null = null;
+    try { res = econ?.rollCatch?.({ activity: 'space', pool: [{ ...sp, where: undefined }] }) ?? null; } catch (e) { console.error('[space rollCatch]', e); }
+    const [lo, hi] = sp.cm;
+    let size = res?.size;
+    if (!(typeof size === 'number' && size > 0)) size = lo + (hi - lo) * ctx.rng(`space:size:${sp.id}:${game.time.toFixed(2)}`)();
+    game.ui.showCatch({ species: sp, sizeText: `${size.toFixed(1)}cm`, size, model: o.model, line: sp.line, variant: res?.variant, activity: 'space', keep: o.keep });
+    if (res && res.species) {
+      res.rarity = sp.rarity; // 한 종만 굴렸으니 희귀도는 그 종 그대로
+      try { econ?.reportCatch?.(res); } catch (e) { console.error('[space reportCatch]', e); }
     }
-    if (bi < 0) return null;
-    return {
-      label: '별 조각 줍기', dist: bd,
-      use: () => { shardGone[bi] = game.time + 60; game.state.addItem('star-shard', 1); game.ui.toast('✨ 별 조각을 주웠다!'); },
-    };
-  });
-
-  // ── 세계 전환 ──
-  let prevTod = ctx.tod;
-  game.onWorld((w) => {
-    if (w === 'space') { prevTod = game.engine.todName === 'space' ? prevTod : game.engine.todName; game.engine.applyTod('space'); }
-    else game.engine.applyTod(prevTod || 'day');
-  });
-
-  // ── 매 프레임 ──
-  const cam = ctx.camera;
-  ctx.onUpdate((t, dt) => {
-    if (game.world !== 'space') return;
-    // 안전망: 지형 아래(순간이동·전환 직후)면 표면 위로
-    const pl = game.player;
-    const gh = worldH(pl.pos.x, pl.pos.z);
-    if (Math.abs(pl.pos.x - O.x) < HALF && Math.abs(pl.pos.z - O.z) < HALF && pl.pos.y < gh - 0.25) pl.teleport(pl.pos.x, pl.pos.z, gh + 0.05);
-    // 가장자리(둥글게 떨어지는 곳) 너머로 못 나가게 살짝 되돌린다
-    {
-      const lx = pl.pos.x - O.x, lz = pl.pos.z - O.z, R = Math.hypot(lx, lz), lim = HALF * 0.84;
-      if (R > lim && R < HALF * 3) { const k = lim / R; const nx = O.x + lx * k, nz = O.z + lz * k; pl.teleport(nx, nz, worldH(nx, nz) + 0.1); }
-    }
-    sky.position.copy(cam.position);
-    earth.userData.clouds.rotation.y = t * 0.01;
-    earth.rotation.y = 0.6 + t * 0.004;
-    saturn.rotation.y = t * 0.003;
-    for (const s of twinkles) s.scale.setScalar(s.userData.base * (0.75 + 0.35 * Math.sin(t * 2.3 + s.userData.ph)));
-    for (const s of spawns) {
-      if (!s.m.visible && s.goneUntil <= game.time) s.m.visible = true;
-      if (!s.m.visible) continue;
-      const tt = t + s.ph;
-      s.m.userData.anim(tt);
-      if (s.sp.hover === 0) {
-        // 플레이어가 가까우면 쳐다본다(얼굴이 보이게)
-        const dx = pl.pos.x - s.m.position.x, dz = pl.pos.z - s.m.position.z;
-        if (dx * dx + dz * dz < 196) {
-          const want = Math.atan2(dx, dz);
-          let d = want - s.m.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
-          s.m.rotation.y += d * (dt > 0 ? Math.min(1, dt * 4) : 1);
-        }
-      } else {
-        const r = s.sp.kind === 'whale' ? 6 : 1.2;
-        s.m.position.set(s.base.x + Math.sin(tt * 0.3 * s.wander) * r, s.base.y + Math.sin(tt * 0.9) * 0.3, s.base.z + Math.cos(tt * 0.25 * s.wander) * r);
-        s.m.rotation.y = Math.atan2(Math.cos(tt * 0.3 * s.wander), -Math.sin(tt * 0.25 * s.wander) * 0.8) ;
+    if (sp.drop) {
+      const n = give(sp.drop.id, sp.drop.n, `space:${sp.id}`);
+      if (n > 0) {
+        const nm = sp.drop.id === 'm_stardust' ? '별가루' : sp.drop.id === 'm_moonrock' ? '월석' : sp.drop.id;
+        toast(`✨ ${nm} ${n}개도 얻었어요!`);
+        emit({ type: 'harvest', kind: sp.drop.id === 'm_stardust' ? 'stardust' : 'moonrock', item: sp.drop.id, n, island: 'moon' });
       }
     }
+  }
+  function greet(sp: SpaceSpecies, model: THREE.Object3D | null, line?: string) {
+    const key = `greet:${sp.id}`;
+    const first = !daily().done[key];
+    if (!first && game.state.dex[sp.id]) { toast(`${sp.name}: ${line ?? '반가워!'} (오늘은 벌써 인사했어요)`); return false; }
+    daily().done[key] = 1;
+    save();
+    game.ui.showCatch({ species: sp, model: model ?? undefined, line: line ?? sp.line, activity: 'space', keep: false });
+    return true;
+  }
+
+  // ── 행성 등록소
+  const reg = new PlanetRegistry();
+  let active: { def: PlanetEntry; root: THREE.Object3D } | null = null;
+  let pendingPlanet: string | null = null;
+  let arrivedFix = false;
+  const moonActive = () => active?.def.id === 'moon';
+
+  const L = Island.PLACES.launchPad;
+  const rx = L.x + RETURN_OFFSET.x, rz = L.z + RETURN_OFFSET.z;
+  const ponds: Pond[] = pondsWorld(O);
+  const oxy: OxyState & { capsules: number } = {
+    value: 0, max: OXY_PER_CAPSULE,
+    get capsules() { return game.state.bag['it_oxygen'] ?? 0; },
+  } as OxyState & { capsules: number };
+
+  const api: SpaceApi & {
+    planets(): string[]; active(): string | null; returnToEarth(why?: string): void;
+    photoSpots: Array<{ id: string; name: string; x: number; z: number }>;
+  } = {
+    planet: 'moon',
+    ponds,
+    pondAt: (x, z) => pondAtIn(ponds, x, z),
+    oxygen: oxy,
+    landingSpawn: new THREE.Vector3(O.x, O.y + PAD_H + 0.1, O.z + PAD_R - 0.5),
+    returnSpawn: new THREE.Vector3(rx, Island.heightAt(rx, rz), rz),
+    registerPlanet: (def) => {
+      reg.register(def as PlanetEntry);
+    },
+    goPlanet: (id, spawn) => goPlanet(id, spawn),
+    addSpawn: (planetId, s) => {
+      reg.addSpawn(planetId, s);
+      // 이미 그 행성에 있으면 바로 짓는다
+      if (active && active.def.id === planetId) buildSpawner(s, active.root);
+    },
+    planets: () => reg.list().map((d) => d.id),
+    active: () => active?.def.id ?? null,
+    returnToEarth: (why = 'rocket') => startReturn(why),
+    photoSpots: [{ id: 'moon-earthview', name: PLACE_NAMES.hill, x: O.x + MOON_PLACES.hill.x, z: O.z + MOON_PLACES.hill.z }],
+  };
+  game.space = api;
+
+  function buildSpawner(s: PlanetSpawner, root: THREE.Object3D) {
+    try { s.build(root); } catch (e) { console.error(`[space spawner ${s.id}]`, e); }
+  }
+  function enterPlanet(id: string) {
+    if (active?.def.id === id) return;
+    if (active) exitPlanet();
+    const def = reg.get(id) ?? reg.get('moon')!;
+    let root: THREE.Object3D;
+    try { root = def.build(); } catch (e) { console.error(`[space planet ${def.id}]`, e); root = new THREE.Group(); }
+    if (!root.name) root.name = `planet-${def.id}`;
+    game.spaceRoot.add(root);
+    applyCurve(root);
+    active = { def, root };
+    api.planet = def.id;
+    game.physics.setGravity(gravityOf(def.gravity));
+    game.focusOverride = null;
+    for (const s of reg.spawnersOf(def.id)) buildSpawner(s, root);
+    try { def.onEnter?.(); } catch (e) { console.error(`[space planet ${def.id} onEnter]`, e); }
+    // 새로 붙은 것에도 곡률
+    applyCurve(root);
+  }
+  function exitPlanet() {
+    if (!active) return;
+    const { def, root } = active;
+    try { def.onExit?.(); } catch (e) { console.error(`[space planet ${def.id} onExit]`, e); }
+    active = null;
+    // 행성을 떠나면 그 행성 틱이 멈춘다 — 느린 줍기 잠금이 지구까지 따라오지 않게
+    game.player.unlock?.('space-pickup', true);
+    game.spaceRoot.remove(root);
+    root.traverse((o) => runDispose(o));
+    disposeGeometries(root);
+  }
+  function spawnFor(def: PlanetEntry) {
+    return def.id === 'moon' ? api.landingSpawn.clone() : defaultSpawn(def);
+  }
+  function goPlanet(id: string, spawn?: THREE.Vector3) {
+    const def = reg.get(id);
+    if (!def) { console.warn(`[space] 모르는 행성 '${id}'`); return; }
+    const at = spawn ?? spawnFor(def);
+    if (game.world !== 'space') {
+      pendingPlanet = id;
+      game.setWorld('space', at);
+      return;
+    }
+    if (active?.def.id !== id) {
+      enterPlanet(id);
+      emit({ type: 'arrive', to: id });
+    }
+    game.player.teleport(at.x, at.z, at.y);
+  }
+
+  // ── 달(첫 행성)
+  let sky: MoonSky | null = null;
+  let chests: SpaceChests | null = null;
+  let rocket: THREE.Group | null = null;
+  let rocketBaseY = 0;
+  const bigWhales: Creature[] = [];
+  function buildMoon(): THREE.Object3D {
+    const root = new THREE.Group();
+    root.name = 'planet-moon';
+    // 보조광(우주 그룹이 숨으면 같이 꺼진다): 역광 쪽 얼굴도 파스텔로
+    const hemi = new THREE.HemisphereLight('#d9d2ff', '#ffe6ee', 0.6);
+    const fill = new THREE.DirectionalLight('#c8d6ff', 0.7);
+    fill.position.set(O.x + 60, O.y + 60, O.z - 40);
+    fill.target.position.copy(O);
+    root.add(hemi, fill, fill.target);
+    // 하늘(한 번 만들어 두고 다시 쓴다)
+    sky ??= makeMoonSky((k) => ctx.rng(k));
+    sky.group.traverse((o) => { const g = (o as THREE.Mesh).geometry; if (g) g.userData.shared = true; });
+    root.add(sky.group);
+    // 착륙장 + 로켓 + 펭박사 깃발
+    const pad = makePad(PAD_R);
+    pad.position.set(O.x, O.y + PAD_H - 0.28, O.z);
+    root.add(pad);
+    const padLights = pad.userData.lights as THREE.Mesh[];
+    rocket = makeRocket();
+    rocketBaseY = O.y + PAD_H + 0.02;
+    rocket.position.set(O.x, rocketBaseY, O.z - 1);
+    root.add(rocket);
+    const flag = makePengFlag();
+    flag.position.set(O.x + 5.5, O.y + PAD_H - 0.05, O.z - 3);
+    flag.rotation.y = -0.5;
+    root.add(flag);
+    const rk = rocket;
+    onDispose(root,
+      hub.addCollider({ kind: 'cylinder', halfH: 4.2, r: 1.8 }, new THREE.Vector3(O.x, O.y + PAD_H + 4.2, O.z - 1)),
+      hub.addActor({
+        id: 'space:rocket', pos: new THREE.Vector3(O.x, O.y + PAD_H + 0.5, O.z - 1), r: 6.5, flat: true,
+        label: '지구로! 🚀', use: () => startReturn('rocket'),
+      }),
+      hub.addTicker((t) => {
+        padLights.forEach((l, i) => { l.scale.setScalar(0.16 * (0.75 + 0.45 * Math.max(0, Math.sin(t * 3 - i * 0.52)))); });
+        const fm = flag.userData.flag as THREE.Mesh;
+        const p = fm.geometry.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < p.count; i++) { const x = p.getX(i) + 0.9; p.setZ(i, Math.sin(x * 3 - t * 2.4) * 0.08 * x); }
+        p.needsUpdate = true;
+        (rk.userData.beacon as THREE.Mesh).scale.setScalar(0.28 * (0.8 + 0.3 * Math.sin(t * 4)));
+      }),
+    );
+    // 달브라키오: 먼 언덕을 천천히(늘 보이는 큰 친구)
+    const H = MOON_PLACES.farHill;
+    spawnCritter(hub, root, SPACE_BY_ID.get('s_moon_brachio')!, H.x, H.z, { ph: 4.2, scale: 1.7, wanderR: 10, label: '달브라키오에게 인사하기' });
+    // 멀리 유영하는 하늘고래(풍경 — 잡을 수 없다)
+    bigWhales.length = 0;
+    const whaleSp = SPACE_BY_ID.get('space-whale')!;
+    for (let i = 0; i < 2; i++) {
+      const w = makeCreature(whaleSp, 0.3 * i);
+      w.scale.setScalar(10 - i * 3);
+      w.traverse((o) => { o.castShadow = false; });
+      root.add(w);
+      bigWhales.push(w);
+    }
+    // 우주상자 15(하루마다 자리가 바뀐다)
+    const ch = buildChests(hub, () => { const f = F(); f.chests ??= { day: -1, open: [] }; return f.chests; }, save);
+    chests = ch;
+    ch.rebuild(day());
+    root.add(ch.group);
+    onDispose(root, () => disposeDeep(ch.group));
+    return root;
+  }
+  reg.register({
+    id: 'moon', name: '토끼달', origin: O, radius: MOON_R, gravity: MOON_GRAVITY, heightAt: moonHeight,
+    build: buildMoon,
+    onExit: () => { chests = null; rocket = null; },
+  });
+
+  // ── 지형·생물·장소 청크(달이 활성일 때만)
+  const terrain = addMoonTerrain({ game, origin: O, rng: (k) => ctx.rng(k), active: moonActive, takenToday: (id) => !!daily().done[id] });
+  addLifeLayer(hub, moonActive);
+  addPlacesLayer(hub, moonActive);
+
+  // ── 땅 공급자: 우주에선 활성 행성(없으면 점이 든 행성) 높이
+  game.addGroundProvider((x, z) => {
+    if (game.world !== 'space') return null;
+    const def = active?.def ?? reg.planetAt(x, z);
+    return def ? planetGround(def, x, z) : null;
+  }, 'space');
+
+  // ── 목격 등록소(사진 모드·인사)
+  game.witnesses.add((): Witness[] => {
+    if (game.world !== 'space') return [];
+    const p = game.player.pos, out: Witness[] = [];
+    for (const w of witnesses) if (w.visible() && w.pos.distanceToSquared(p) < 80 * 80) out.push({ speciesId: w.speciesId, pos: w.pos.clone() });
+    return out;
+  });
+
+  // ── E 행동(가장 가까운 것 하나). 내미는 거리는 actRank 로 눌러 담는다 — 우주를 모르는 공급자(낚시가 달 밑 지구 바다를 보고
+  //    늘 1.6 으로 '낚시하기')에게 지지 않게. 진짜 고침은 fishing.ts 쪽(우주에선 pondAt 만).
+  const pickupUse = (pk: Pickup) => {
+    if (pk.taken) return;
+    const isFlower = pk.kind === 'flower';
+    const item = isFlower ? 'm_moonflower' : 'm_stardust';
+    const n = give(item, 1, isFlower ? 'moonflower' : 'stardust');
+    if (n <= 0) return; // 가방이 꽉 찼다(economy 가 알려 준다) — 그 자리에 그대로 둔다
+    hub.markToday(pk.id);
+    terrain.take(pk);
+    game.player.act?.('pick', 0.5);
+    emit({ type: 'harvest', kind: isFlower ? 'moonflower' : 'stardust', item, n, island: 'moon' });
+    toast(isFlower ? '🌼 반짝이는 달꽃을 땄어요!' : '✨ 별가루를 주웠어요!');
+  };
+  const flatD = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(a.x - b.x, a.z - b.z);
+  game.addProvider('space-act', (pl) => {
+    if (game.world !== 'space' || leaving) return null;
+    let best: Actor | null = null, bd = Infinity;
+    const f = pl.facing();
+    for (const a of actors.values()) {
+      const d = a.flat ? flatD(a.pos, pl.pos) : a.pos.distanceTo(pl.pos);
+      if (d > a.r || d >= bd) continue;
+      try { if (a.ok && !a.ok()) continue; } catch { continue; }
+      if (a.cone && !inCone(f, pl.pos, a.pos)) continue;
+      best = a; bd = d;
+    }
+    let pick: Pickup | null = null;
+    for (const pk of terrain.pickups.values()) {
+      if (pk.taken) continue;
+      const d = pk.pos.distanceTo(pl.pos) - 0.5;
+      if (d < 1.6 && d < bd) { bd = d; pick = pk; best = null; }
+    }
+    if (pick) {
+      const pk = pick;
+      return { id: `space:${pk.kind}`, label: pk.kind === 'flower' ? '달꽃 따기 🌼' : '별가루 줍기 ✨', dist: actRank(bd), use: () => pickupUse(pk) };
+    }
+    if (!best) return null;
+    const a = best;
+    return { id: a.id, label: typeof a.label === 'function' ? a.label() : a.label, dist: actRank(bd), use: a.use };
+  });
+
+  // ── 도착·산소
+  let lastSec: number | null = null;
+  let lowWarned = false;
+  const takeCapsule = () => {
+    if (!game.state.has('it_oxygen')) return false;
+    game.state.addItem('it_oxygen', -1);
+    return true;
+  };
+  function startOxygen() {
+    const f = F();
+    lastSec = game.env?.gameSec ?? null;
+    lowWarned = false;
+    if (!f.visited) {
+      f.visited = true;
+      const n = give('it_oxygen', FIRST_VISIT_CAPSULES, 'peng');
+      game.hud?.card?.({ title: '펭박사의 선물', body: `"달은 공기가 없으니까! 산소 캡슐 ${n}개 챙겨 가~" 캡슐 1개 = 게임 4시간`, icon: '🐧', color: '#8fd3f4' });
+      toast(`🐧 펭박사: 산소 캡슐 ${n}개 챙겨 가!`);
+    }
+    oxy.value = Math.max(0, Math.min(OXY_PER_CAPSULE, f.oxy ?? 0));
+    if (oxy.value <= 0) {
+      if (takeCapsule()) oxy.value = OXY_PER_CAPSULE;
+      else { oxy.value = OXY_GRACE; toast('🫧 산소 캡슐이 없어요! 비상 산소로 1시간만 둘러볼 수 있어요'); }
+    }
+    f.oxy = oxy.value;
+    save();
+  }
+  let saveAcc = 0;
+  function tickOxygen(dt: number) {
+    const sec = game.env?.gameSec;
+    let d: number;
+    if (typeof sec === 'number' && Number.isFinite(sec)) { d = lastSec === null ? 0 : sec - lastSec; lastSec = sec; }
+    else d = dt;
+    const r = stepOxygen(oxy, Math.max(0, d), takeCapsule);
+    if (r.used > 0) { lowWarned = false; toast(`🫧 산소 캡슐을 열었어요 (남은 캡슐 ${oxy.capsules}개)`); }
+    if (!lowWarned && oxy.value < oxy.max * 0.2 && oxy.capsules <= 0 && !r.out) { lowWarned = true; toast('🫧 산소가 얼마 안 남았어요! 로켓으로 돌아가요'); }
+    saveAcc += dt;
+    if (r.used > 0 || r.out || saveAcc > 3) { saveAcc = 0; F().oxy = oxy.value; save(); }
+    if (r.out) {
+      F().oxy = 0;
+      toast('숨차! 🫧 산소가 다 떨어졌어요 — 지구로 돌아가요');
+      emit({ type: 'oxygen-out', where: 'space' });
+      startReturn('oxygen');
+    }
+  }
+
+  // ── 귀환(로켓 E '지구로!' 또는 산소 0): 로켓이 들썩 → 하얀 페이드 → 지구 발사대 앞 → arrive {to:'earth'}
+  let leaving: { t: number; why: string; done: boolean } | null = null;
+  let fadeOut = 0;
+  const fade = makeFade();
+  function startReturn(why: string) {
+    if (leaving || game.world !== 'space') return;
+    leaving = { t: 0, why, done: false };
+    game.player.lock?.('space-return');
+    if (why === 'rocket') toast('🚀 지구로 출발!');
+    game.audio?.sfx?.('rocket-launch');
+    const fl = rocket?.userData.flame as THREE.Object3D | undefined;
+    if (fl) fl.visible = true;
+  }
+  function finishReturn() {
+    if (!leaving || leaving.done) return;
+    leaving.done = true;
+    game.player.unlock?.('space-return', true);
+    const at = api.returnSpawn.clone();
+    game.setWorld('earth', at);
+    emit({ type: 'arrive', to: 'earth' });
+    leaving = null;
+    fadeOut = 0.9;
+  }
+
+  // ── 세계 전환
+  let prevTod = ctx.tod;
+  game.onWorld((w) => {
+    if (w === 'space') {
+      const id = pendingPlanet ?? active?.def.id ?? 'moon';
+      pendingPlanet = null;
+      enterPlanet(id);
+      arrivedFix = true;
+      const name = game.engine?.todName;
+      if (name && name !== 'space') prevTod = name;
+      game.engine?.applyTod?.('space');
+      if (id === 'moon') {
+        startOxygen();
+        if (!unlocked('space:moon')) game.econ?.unlock?.('space:moon', 'arrive');
+        game.hud?.showRegion?.('토끼달', `산소 ${Math.round(oxy.value / 75 * 10) / 10}시간 · 캡슐 ${oxy.capsules}개`, '#c9b6f2', '#3b3566');
+      }
+      emit({ type: 'arrive', to: id });
+    } else {
+      if (active) { F().oxy = oxy.value; save(); exitPlanet(); }
+      pendingPlanet = null;
+      game.engine?.applyTod?.(prevTod || 'day');
+      (game as unknown as { applyCurveForStyle?: () => void }).applyCurveForStyle?.();
+    }
+  });
+
+  // ── 매 프레임
+  let floatT = 0, dayCheck = 0, chestDay = day();
+  ctx.onUpdate((t, dt) => {
+    // 페이드(지구로 돌아온 뒤에도 마저 걷힌다)
+    if (leaving) {
+      leaving.t += dt > 0 ? dt : 1 / 60;
+      fade(Math.min(1, leaving.t / 1.2));
+      if (rocket) {
+        const k = Math.max(0, leaving.t - 0.2);
+        rocket.position.y = rocketBaseY + k * k * 4;
+        rocket.rotation.z = Math.sin(leaving.t * 40) * 0.01;
+      }
+      if (leaving.t >= 1.3) finishReturn();
+    } else if (fadeOut > 0) {
+      fadeOut = Math.max(0, fadeOut - (dt > 0 ? dt : 1 / 60));
+      fade(fadeOut / 0.9);
+    }
+    if (game.world !== 'space' || !active) return;
+    const def = active.def;
+    const pl = game.player;
+    // 착륙 직후: 기본 자리(origin 바로 위 = 로켓 속)면 착륙장 가장자리로
+    if (arrivedFix) {
+      arrivedFix = false;
+      if (def.id === 'moon' && Math.hypot(pl.pos.x - O.x, pl.pos.z - O.z) < 3) pl.teleport(api.landingSpawn.x, api.landingSpawn.z, api.landingSpawn.y);
+    }
+    // 바닥 안전망 + 가장자리 가두기(활성 행성 기준)
+    const up = floorRescue(def, pl.pos.x, pl.pos.y, pl.pos.z);
+    if (up !== null) pl.teleport(pl.pos.x, pl.pos.z, up);
+    const c = clampToPlanet(def, pl.pos.x, pl.pos.z);
+    if (c) pl.teleport(c.x, c.z, (planetGround(def, c.x, c.z) ?? pl.pos.y) + 0.1);
+    // 공중에서 Space 꾹 = 3초 둥실
+    if (pl.mode === 'ground' || pl.mode === 'swim') floatT = 0;
+    else if ((pl.mode === 'air' || pl.mode === 'glide') && !pl.mounted && game.input.down('Space') && pl.vel.y < 0.6 && floatT < FLOAT_SEC) {
+      floatT += dt;
+      // 플레이어 갱신이 다음 프레임에 빼는 만큼 미리 더해 둔다 → 실제로는 FLOAT_FALL 로 살살
+      const pre = pl.mode === 'glide' ? 22 : -game.physics.gravity;
+      pl.vel.y = Math.max(pl.vel.y, pre * dt - FLOAT_FALL);
+    }
+    // 작은 행성 곡률
+    curveUniforms.uCurveK.value = game.cam.style === 'cozy' ? Math.max(CURVE_K, MOON_CURVE) : MOON_CURVE;
+    // 행성 스포너
+    for (const s of reg.spawnersOf(def.id)) { try { s.update?.(t, dt); } catch (e) { console.error(`[space spawner ${s.id}]`, e); } }
+    if (def.id !== 'moon') return;
+    // ── 달
+    if (!leaving) tickOxygen(dt);
+    sky?.update(t, ctx.camera.position, hour());
+    for (const fn of tickers) { try { fn(t, dt); } catch (e) { console.error('[space tick]', e); } }
+    terrain.update(t);
     bigWhales.forEach((w, i) => {
-      const a = t * (0.02 + i * 0.012) - Math.PI / 2 - 0.22 + i * 2.6, R = 320 + i * 120;
-      w.position.set(O.x + Math.cos(a) * R, 30 + i * 30 + Math.sin(t * 0.2 + i) * 6, O.z + Math.sin(a) * R);
+      const a = t * (0.02 + i * 0.012) - Math.PI / 2 - 0.22 + i * 2.6, R = 330 + i * 120;
+      w.position.set(O.x + Math.cos(a) * R, O.y + 40 + i * 30 + Math.sin(t * 0.2 + i) * 6, O.z + Math.sin(a) * R);
       w.rotation.y = -a;
       w.userData.anim(t + i);
     });
-    for (let i = 0; i < SH; i++) {
-      const p = shardPos[i];
-      const gone = shardGone[i] > game.time;
-      pp.set(p.x, p.y + Math.sin(t * 2 + i) * 0.15, p.z);
-      qq.setFromEuler(new THREE.Euler(0, t * 1.8 + i, 0.2));
-      shards.setMatrixAt(i, m4.compose(pp, qq, sc.setScalar(gone ? 0 : 0.75 + 0.1 * Math.sin(t * 5 + i))));
+    // 날이 바뀌면: 상자 자리·달꽃·월석 되살리기
+    dayCheck += dt;
+    if (dayCheck > 1) {
+      dayCheck = 0;
+      const d = day();
+      if (d !== chestDay) { chestDay = d; chests?.rebuild(d); terrain.refresh(); }
     }
-    shards.instanceMatrix.needsUpdate = true;
   });
-  void G; void fur;
+
+  // ── 디버그 훅
+  if (typeof window !== 'undefined') {
+    const goLocal = (lx: number, lz: number, faceX?: number, faceZ?: number) => {
+      if (game.world !== 'space' || !moonActive()) goPlanet('moon');
+      game.player.teleport(O.x + lx, O.z + lz, O.y + moonHeight(lx, lz) + 0.1);
+      if (faceX !== undefined && faceZ !== undefined) game.cam.yaw = Math.atan2(lx - faceX, lz - faceZ);
+      return game.player.pos.clone();
+    };
+    (window as unknown as { __space?: unknown }).__space = {
+      api,
+      goPad: () => { if (game.world !== 'space' || !moonActive()) goPlanet('moon'); else game.player.teleport(api.landingSpawn.x, api.landingSpawn.z, api.landingSpawn.y); game.cam.yaw = 0; return game.player.pos.clone(); },
+      pond: (i = 0) => { const p = MOON_PLACES.ponds[i] ?? MOON_PLACES.ponds[0]; const pp = ponds[i] ?? ponds[0]; return goLocal(p.x + pp.r + 4, p.z + 3, p.x, p.z); },
+      go: (place: keyof typeof MOON_PLACES) => {
+        const p = MOON_PLACES[place] as { x: number; z: number } | Array<{ x: number; z: number }>;
+        const q = Array.isArray(p) ? p[0] : p;
+        return goLocal(q.x, q.z + 16, q.x, q.z);
+      },
+      oxygen: () => ({ value: oxy.value, max: oxy.max, capsules: oxy.capsules }),
+      setOxygen: (v: number) => { oxy.value = Math.max(0, v); return oxy.value; },
+      capsules: () => oxy.capsules,
+      returnNow: () => { startReturn('debug'); finishReturn(); return game.world; },
+      chests: () => chests?.spots().map((s, i) => ({ i, x: O.x + s.x, z: O.z + s.z, open: chests!.isOpen(i) })) ?? [],
+      openChest: (i: number) => chests?.open(i) ?? false,
+      actors: () => [...actors.values()].map((a) => ({ id: a.id, x: a.pos.x, y: a.pos.y, z: a.pos.z, ok: a.ok ? a.ok() : true })),
+      use: (id: string) => { const a = actors.get(id); if (!a) return false; a.use(); return true; },
+      planets: () => api.planets(),
+      goPlanet: (id: string) => { goPlanet(id); return api.planet; },
+      species: () => SPACE_SPECIES.map((s) => s.id),
+    };
+  }
 }
 
-// ───────── 하늘 오브젝트 ─────────
-function canvas(w: number, h: number) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  return { c, g: c.getContext('2d')! };
-}
-function tex(c: HTMLCanvasElement) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
-
-function makeEarth(skyMat: (m: THREE.Material) => THREE.Material) {
-  const g = new THREE.Group();
-  const { c, g: x } = canvas(1024, 512);
-  const grd = x.createLinearGradient(0, 0, 0, 512);
-  grd.addColorStop(0, '#9fe4ff'); grd.addColorStop(0.5, '#4fb8f5'); grd.addColorStop(1, '#9fe4ff');
-  x.fillStyle = grd; x.fillRect(0, 0, 1024, 512);
-  // 대륙: 둥글둥글 블롭
-  const blob = (cx: number, cy: number, r: number, n: number, seed: number) => {
-    for (let i = 0; i < n; i++) {
-      const a = seed + i * 2.39, d = r * 0.6 * Math.sqrt((i + 0.5) / n);
-      const bx = cx + Math.cos(a) * d * 1.4, by = cy + Math.sin(a) * d, br = r * (0.35 + 0.25 * Math.sin(seed + i));
-      x.fillStyle = '#c4f0a0'; x.beginPath(); x.arc(bx, by, br + 6, 0, Math.PI * 2); x.fill();
+/** 화면 페이드(하얀 → 라벤더). DOM 이 없으면 아무것도 안 한다 */
+function makeFade(): (k: number) => void {
+  let el: HTMLDivElement | null = null;
+  return (k: number) => {
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return;
+    if (!el) {
+      el = document.createElement('div');
+      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:60;opacity:0;background:radial-gradient(circle at 50% 55%,#ffffff 0%,#fff8e8 45%,#e9e0ff 100%);transition:none';
+      document.body.appendChild(el);
     }
-    for (let i = 0; i < n; i++) {
-      const a = seed + i * 2.39, d = r * 0.6 * Math.sqrt((i + 0.5) / n);
-      const bx = cx + Math.cos(a) * d * 1.4, by = cy + Math.sin(a) * d, br = r * (0.35 + 0.25 * Math.sin(seed + i));
-      x.fillStyle = i % 3 ? '#7fd67a' : '#9ce07a'; x.beginPath(); x.arc(bx, by, br, 0, Math.PI * 2); x.fill();
-    }
+    el.style.opacity = String(Math.max(0, Math.min(1, k)));
+    el.style.display = k > 0.001 ? 'block' : 'none';
   };
-  blob(220, 200, 110, 14, 1); blob(300, 340, 70, 8, 3); blob(560, 190, 130, 16, 5); blob(620, 330, 80, 9, 7); blob(820, 250, 90, 10, 9); blob(900, 380, 40, 5, 2);
-  x.fillStyle = '#ffffff'; x.fillRect(0, 0, 1024, 26); x.fillRect(0, 490, 1024, 22);
-  const earth = new THREE.Mesh(new THREE.SphereGeometry(400, 64, 48), skyMat(new THREE.MeshStandardMaterial({ map: tex(c), roughness: 0.55, emissive: '#3a8fd8', emissiveIntensity: 0.3 })));
-  g.add(earth);
-  // 구름
-  const cl = canvas(1024, 512);
-  // 가늘고 길게 흐르는 구름 띠(몽글한 작은 구름 줄) — 대륙이 사이로 보이게
-  for (let i = 0; i < 46; i++) {
-    const bx = (i * 157.3) % 1024, by = 50 + ((i * 89.7) % 410), r = 6 + ((i * 37) % 10);
-    cl.g.fillStyle = `rgba(255,255,255,${0.75 + 0.2 * ((i * 13) % 3) / 2})`;
-    const n = 5 + (i % 4);
-    for (let k = 0; k < n; k++) { cl.g.beginPath(); cl.g.arc(bx + k * r * 1.1, by + Math.sin(k * 0.9 + i) * 4, r * (1 - Math.abs(k - (n - 1) / 2) / n * 0.8), 0, Math.PI * 2); cl.g.fill(); }
-  }
-  const clouds = new THREE.Mesh(new THREE.SphereGeometry(409, 64, 48), skyMat(new THREE.MeshStandardMaterial({ map: tex(cl.c), transparent: true, roughness: 1, depthWrite: false, emissive: '#ffffff', emissiveIntensity: 0.15 })));
-  g.add(clouds);
-  g.userData.clouds = clouds;
-  // 대기 테두리 빛
-  const halo = new THREE.Mesh(new THREE.SphereGeometry(440, 48, 32), skyMat(new THREE.MeshBasicMaterial({ color: '#8fd4ff', transparent: true, opacity: 0.22, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending })));
-  g.add(halo);
-  const halo2 = new THREE.Mesh(new THREE.SphereGeometry(480, 48, 32), skyMat(new THREE.MeshBasicMaterial({ color: '#6fb8ff', transparent: true, opacity: 0.08, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending })));
-  g.add(halo2);
-  g.traverse((o) => { o.userData.noCurve = true; });
-  return g;
-}
-
-function stripeTex(cols: string[]) {
-  const { c, g } = canvas(64, 256);
-  for (let y = 0; y < 256; y++) {
-    const k = y / 256;
-    const i = Math.floor((k * cols.length * 2.3 + Math.sin(k * 20) * 0.4) % cols.length + cols.length) % cols.length;
-    g.fillStyle = cols[i]; g.fillRect(0, y, 64, 1);
-  }
-  g.globalAlpha = 0.25; g.filter = 'blur(3px)'; g.drawImage(c, 0, 0);
-  return tex(c);
-}
-
-function makeSaturn(skyMat: (m: THREE.Material) => THREE.Material) {
-  const g = new THREE.Group();
-  const p = new THREE.Mesh(new THREE.SphereGeometry(300, 64, 48), skyMat(new THREE.MeshStandardMaterial({ map: stripeTex(['#ffd9a8', '#ffe8c4', '#f7c08a', '#ffe1b8', '#f4b48a']), roughness: 0.75, emissive: '#ffb37a', emissiveIntensity: 0.4 })));
-  g.add(p);
-  const { c, g: x } = canvas(512, 8);
-  for (let i = 0; i < 512; i++) { const k = i / 512; x.fillStyle = `rgba(${255},${200 + 40 * Math.sin(k * 30)},${210 + 40 * Math.cos(k * 17)},${0.25 + 0.6 * Math.abs(Math.sin(k * 9)) * (k > 0.08 && k < 0.95 ? 1 : 0)})`; x.fillRect(i, 0, 1, 8); }
-  const rg = new THREE.RingGeometry(380, 620, 128, 1);
-  const uv = rg.attributes.uv, pp = rg.attributes.position;
-  for (let i = 0; i < uv.count; i++) { const r = Math.hypot(pp.getX(i), pp.getY(i)); uv.setXY(i, (r - 380) / 240, 0.5); }
-  const ring = new THREE.Mesh(rg, skyMat(new THREE.MeshBasicMaterial({ map: tex(c), transparent: true, side: THREE.DoubleSide, depthWrite: false, color: '#ffe6f0' })));
-  ring.rotation.x = Math.PI / 2 - 0.35; ring.rotation.y = 0.25;
-  g.add(ring);
-  g.rotation.z = 0.25;
-  g.traverse((o) => { o.userData.noCurve = true; });
-  return g;
-}
-
-function sparkleTex() {
-  const { c, g } = canvas(128, 128);
-  const r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.12, 'rgba(255,255,255,0.8)'); r.addColorStop(0.35, 'rgba(255,255,255,0.12)'); r.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
-  g.fillStyle = 'rgba(255,255,255,0.9)';
-  g.beginPath(); g.moveTo(64, 0); g.quadraticCurveTo(68, 60, 128, 64); g.quadraticCurveTo(68, 68, 64, 128); g.quadraticCurveTo(60, 68, 0, 64); g.quadraticCurveTo(60, 60, 64, 0); g.fill();
-  return tex(c);
-}
-
-function makeRocket() {
-  const g = new THREE.Group();
-  const body = new THREE.LatheGeometry(
-    Array.from({ length: 24 }, (_, i) => { const k = i / 23; const y = k * 8.4; const r = 1.55 * Math.sin(Math.PI * Math.min(1, 0.1 + k * 0.95)) ** 0.6 * (k > 0.86 ? 1 - (k - 0.86) * 4 : 1); return new THREE.Vector2(Math.max(0.05, r), y); }),
-    48,
-  );
-  body.computeVertexNormals();
-  const white = new THREE.MeshPhysicalMaterial({ color: '#fff8f2', roughness: 0.35, clearcoat: 0.8 });
-  const pink = new THREE.MeshPhysicalMaterial({ color: '#ff8fb5', roughness: 0.35, clearcoat: 0.8 });
-  const mint = new THREE.MeshPhysicalMaterial({ color: '#7fdcc8', roughness: 0.35, clearcoat: 0.8 });
-  const b = new THREE.Mesh(body, white); b.position.y = 1.4; b.castShadow = true; g.add(b);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24, 0, Math.PI * 2, 0, Math.PI / 2), pink);
-  nose.scale.set(1.05, 1.6, 1.05); nose.position.y = 1.4 + 7.0; nose.castShadow = true; g.add(nose);
-  const band = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.18, 16, 48), pink); band.rotation.x = Math.PI / 2; band.position.y = 1.4 + 2.2; g.add(band);
-  // 창문(동그란 현창 2개)
-  for (const [y, s] of [[5.2, 0.62], [3.4, 0.42]] as const) {
-    const win = new THREE.Group(); win.position.set(0, 1.4 + y, 0); g.add(win);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(s, 0.13, 16, 40), mint); rim.position.z = 1.52 * (y > 4 ? 0.98 : 1.0); win.add(rim);
-    const glass = new THREE.Mesh(new THREE.SphereGeometry(s, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshPhysicalMaterial({ color: '#9fdcff', roughness: 0.05, clearcoat: 1, emissive: '#5fb0ff', emissiveIntensity: 0.35 }));
-    glass.rotation.x = Math.PI / 2; glass.scale.z = 0.35; glass.position.z = rim.position.z - 0.02; win.add(glass);
-  }
-  // 날개(둥근 지느러미) 3개 + 다리
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    const fin = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), i === 0 ? pink : mint);
-    fin.scale.set(0.22, 1.5, 1.0);
-    fin.position.set(Math.sin(a) * 1.55, 2.0, Math.cos(a) * 1.55);
-    fin.rotation.y = a;
-    fin.castShadow = true;
-    g.add(fin);
-    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 12), white);
-    foot.scale.y = 0.5; foot.position.set(Math.sin(a) * 2.2, 0.25, Math.cos(a) * 2.2); g.add(foot);
-  }
-  const top = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), new THREE.MeshStandardMaterial({ color: '#fff2a8', emissive: '#ffe066', emissiveIntensity: 1.2 }));
-  top.position.y = 1.4 + 8.6; g.add(top);
-  // 엔진 노즐 + 사다리 대신 깃발
-  const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 1.0, 0.8, 32), new THREE.MeshStandardMaterial({ color: '#b9b0d8', roughness: 0.4, metalness: 0.4 }));
-  noz.position.y = 1.0; g.add(noz);
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 8), white); pole.position.set(3.4, 1.6, 1.2); g.add(pole);
-  const flag = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.8, 0.04), pink); flag.position.set(4.05, 2.8, 1.2); g.add(flag);
-  const st = new THREE.Mesh(G.star, new THREE.MeshStandardMaterial({ color: '#fff2a8', emissive: '#ffe066', emissiveIntensity: 0.6 })); st.scale.setScalar(0.25); st.position.set(4.05, 2.8, 1.25); g.add(st);
-  g.scale.setScalar(1.0);
-  return g;
 }

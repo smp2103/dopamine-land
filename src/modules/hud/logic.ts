@@ -240,8 +240,12 @@ export function promptChips(
 }
 
 // ───────────── 해금 카드 ─────────────
+/** 행성 id → 이름(지역 이름표·해금 카드) */
+export const PLANET_NAME: Record<string, string> = { moon: '토끼달' };
 /** 카드로 안 띄우는 해금 이유(처음 받는 기본 도구·디버그·저장 옮기기) */
 export const QUIET_UNLOCK = new Set(['start', 'starter', 'debug', 'migrate', 'load', 'p0', 'cheat']);
+/** 다른 모듈이 더 자세한 카드를 직접 띄우는 해금(키, 이유 — 이유가 없으면 늘) */
+const OWN_CARD: Array<[RegExp, string | undefined]> = [[/^dino:/, 'befriend'], [/^v:dino_/, 'befriend'], [/^v:raft$/, undefined]];
 const UNLOCK_KIND: Array<[RegExp, { title: string; icon: string; color: string }]> = [
   [/^tool:/, { title: '새 도구!', icon: '🧰', color: '#7cc8ff' }],
   [/^(v|licence):/, { title: '새 탈것!', icon: '🚲', color: '#ffb36b' }],
@@ -260,6 +264,8 @@ const UNLOCK_KIND: Array<[RegExp, { title: string; icon: string; color: string }
 /** 해금 → 카드(조용한 이유면 null). nameOf 는 해금 키 → 사람 이름(없으면 키 꼬리) */
 export function unlockCard(key: string, why: string | undefined, nameOf: (key: string) => string | undefined): CardOpts | null {
   if (!key || (why && QUIET_UNLOCK.has(why))) return null;
+  // 제 카드를 직접 띄우는 해금 — 공룡 친구(dinos, 보상 글 포함)·뗏목(vehicles, F 안내 포함). 두 장 겹치지 않게
+  if (OWN_CARD.some(([re, w]) => re.test(key) && (!w || w === why))) return null;
   const k = UNLOCK_KIND.find(([re]) => re.test(key))?.[1] ?? { title: '새로 열렸어요!', icon: '✨', color: '#ffcf4a' };
   const name = nameOf(key) ?? key.slice(key.indexOf(':') + 1).replace(/[_:]/g, ' ');
   return { title: k.title, body: name, icon: k.icon, color: k.color, ms: 3200 };

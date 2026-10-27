@@ -1,6 +1,7 @@
 // 탈것 모델 — 전부 코드로 만든 통통한 장난감 같은 탈것. 앞 = +z, 원점 = 바닥(배는 수면) 가운데.
 import * as THREE from 'three';
 import { part, live, bake, face, chubbyWheel, sphere, capsule, cyl, torus, cone, rbox, lathe, tube, bean, stripes, colorize } from './kit';
+import { addBlush } from '../../core/art';
 
 export interface Model {
   root: THREE.Group;
@@ -428,6 +429,7 @@ export function rocket(): Model {
   // 물방울 무늬
   for (let i = 0; i < 10; i++) {
     const a = i * 2.4, y = 3.6 + (i % 5) * 0.62;
+    if (Math.cos(a) > 0.3) continue; // 앞쪽(얼굴·창)은 비워 둔다
     part(body, sphere(0.2, 24, 16), 'paint', ['#ffe27a', '#b9e6ff', '#c9b6ff'][i % 3] as string, [Math.sin(a) * 1.33, y, Math.cos(a) * 1.33], [0, a, 0], [1, 1, 0.25]);
   }
   // 코(빨강)
@@ -435,11 +437,20 @@ export function rocket(): Model {
   // 띠
   part(body, torus(1.36, 0.16, 14, 72), 'paint', '#7cc8ff', [0, 3.0, 0], [Math.PI / 2, 0, 0]);
   part(body, torus(1.3, 0.16, 14, 72), 'paint', '#7cc8ff', [0, 7.4, 0], [Math.PI / 2, 0, 0], [1, 1, 1]);
-  // 창문(동그란)
-  part(body, torus(0.55, 0.12, 16, 56), 'metal', '#ffd75e', [0, 6.0, 1.3], [0, 0, 0]);
-  part(body, sphere(0.52, 32, 20), 'glass', null, [0, 6.0, 1.22], [0, 0, 0], [1, 1, 0.35]);
-  // 얼굴(창 아래)
-  face(body, [0, 4.35, 1.38], 2.0, { gap: 0.32 });
+  // 조종석: 앞으로 볼록 튀어나온 유리 거품 — 탄 사람 얼굴이 보인다(6.2 0초)
+  const cockpitY = 6.15, cockpitZ = 1.2;
+  part(body, torus(0.72, 0.13, 16, 56), 'metal', '#ffd75e', [0, cockpitY, cockpitZ + 0.08], [0, 0, 0]);
+  part(body, sphere(0.74, 36, 24), 'glass', null, [0, cockpitY, cockpitZ], [0, 0, 0], [1, 1, 0.82]);
+  // 거품 안 쿠션 등받이(사람 뒤를 채워 비어 보이지 않게)
+  part(body, bean(0.62, 0.62, 0.2), 'soft', ['#ffe3ee', '#fff6fa'], [0, cockpitY, cockpitZ - 0.42]);
+  // 얼굴(GDD 7.5): 창 = 눈. 금테 둥근 창 두 개 안에 먹색 세로 타원 + 하이라이트 둘, 그 아래 웃는 입
+  const eyeY = 4.45, eyeGap = 0.36, eyeS = 1.75;
+  face(body, [0, eyeY, 1.36], eyeS, { gap: eyeGap, blush: false });
+  for (const sx of [-1, 1]) {
+    const ex = sx * eyeGap * eyeS;
+    const a = Math.asin(ex / 1.36);
+    part(body, torus(0.3, 0.06, 12, 40), 'metal', '#ffd75e', [Math.sin(a) * 1.34, eyeY + 0.07, Math.cos(a) * 1.34], [0, a, 0], [0.86, 1.06, 1]);
+  }
   // 지느러미 3장(통통한 곡선)
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + Math.PI / 3;
@@ -456,9 +467,125 @@ export function rocket(): Model {
   part(flame, lathe([[0.8, 0], [0.95, -0.6], [0.7, -2.2], [0.25, -3.6], [0, -4.2]], 32), 'flame', ['#ff7b2e', '#fff3a0', 'y', 0.6]);
   part(flame, lathe([[0.45, 0], [0.5, -0.5], [0.25, -1.8], [0, -2.4]], 24), 'flame', '#ffffff');
   flame.visible = false;
-  const seat = seatAt(body, 0, 5.4, 0.3);
+  // 볼터치 스티커(art.ts 공용 분홍 원판) — 몸통 곡면에 붙여 세운다
+  const cheeks = new THREE.Group();
+  cheeks.name = 'rocket-blush';
+  body.add(cheeks);
+  const bl = addBlush(cheeks, 0.62, { y: 0, z: 0, gap: 1.0 });
+  for (const m of bl) {
+    const side = Math.sign(m.position.x) || 1;
+    const a = side * 0.72;
+    m.position.set(Math.sin(a) * 1.365, eyeY - 0.52, Math.cos(a) * 1.365);
+    m.rotation.set(0, a, 0);
+    m.scale.set(0.62, 0.42, 1);
+  }
+  // 앉는 자리: 머리가 유리 거품 안에 오게(아바타 발 기준)
+  const seat = seatAt(body, 0, cockpitY - 0.62, cockpitZ + 0.02);
   // 철탑(옆 발판)
   for (const [x, z] of [[-2.4, -1.6], [-2.4, -2.8], [-3.4, -1.6], [-3.4, -2.8]] as const) part(root, cyl(0.09, 0.09, 9, 12), 'paint', '#ff9a8a', [x, 4.5, z]);
   for (let y = 1; y < 9; y += 1.6) part(root, rbox(1.25, 0.1, 1.45, 0.04, 2), 'paint', '#ffd9d2', [-2.9, y, -2.2]);
   return done({ root, seat, wheels: [], spin: [], bits: { body, flame }, tail: new THREE.Vector3(0, -0.5, 0) });
+}
+
+// ───────────── 통나무 뗏목(P0) ─────────────
+/** 통통한 통나무 5개 + 묶은 밧줄 + 작은 깃발 + 노(bits.oar 가 돈다). 원점 = 수면 */
+export function raft(): Model {
+  const root = new THREE.Group();
+  const L = 2.5, R = 0.21;
+  const logCols: Array<[string, string]> = [['#c98f55', '#e2b07a'], ['#d39a5e', '#ecbf89'], ['#c4894f', '#ddaa72'], ['#d39a5e', '#ecbf89'], ['#c98f55', '#e2b07a']];
+  for (let i = 0; i < 5; i++) {
+    const x = (i - 2) * R * 1.92;
+    const len = L - Math.abs(i - 2) * 0.16; // 가운데가 살짝 긴 뱃머리
+    part(root, capsule(R, len - R * 2), 'wood', [logCols[i][0], logCols[i][1], 'y'], [x, 0.04, 0.05], [Math.PI / 2, 0, 0]);
+    // 나이테 끝(앞·뒤)
+    for (const sz of [-1, 1]) {
+      part(root, cyl(R * 0.78, R * 0.78, 0.03, 28), 'wood', '#f6d9a8', [x, 0.04, 0.05 + sz * (len / 2 - 0.02)], [Math.PI / 2, 0, 0]);
+      part(root, torus(R * 0.42, 0.012, 8, 28), 'wood', '#d9a86f', [x, 0.04, 0.05 + sz * (len / 2 - 0.005)]);
+    }
+  }
+  // 가로대 두 개 + 밧줄 매듭
+  for (const z of [-0.75, 0.85]) {
+    part(root, capsule(0.075, 2.0), 'wood', ['#b97f48', '#d8a26c', 'y'], [0, 0.27, z], [0, 0, Math.PI / 2]);
+    for (let i = 0; i < 5; i += 2) part(root, torus(0.1, 0.03, 10, 28), 'soft', '#f4e3c0', [(i - 2) * R * 1.92, 0.24, z], [0, Math.PI / 2, 0], [1, 1.25, 1]);
+  }
+  // 방석(앉는 자리)
+  part(root, bean(0.32, 0.07, 0.3, 0.5), 'soft', ['#ff9fb8', '#ffc6d6'], [0, 0.3, -0.15]);
+  // 깃대 + 깃발(분홍 바탕에 흰 별점)
+  part(root, cyl(0.035, 0.04, 1.5, 16), 'wood', ['#b97f48', '#e0ad76'], [0.62, 0.95, -0.95]);
+  part(root, sphere(0.07, 20, 14), 'paint', '#ffd75e', [0.62, 1.72, -0.95]);
+  const flag = live(root, [0.62, 1.55, -0.95], 'flag');
+  part(flag, rbox(0.03, 0.3, 0.46, 0.012, 2), 'soft', ['#ff8fb2', '#ffb8cc', 'z'], [0, 0, -0.25]);
+  part(flag, sphere(0.06, 16, 12), 'soft', '#ffffff', [0.02, 0.02, -0.26], [0, 0, 0], [0.4, 1, 1]);
+  // 노: 어깨 높이 자루 + 둥근 물갈퀴(돌리면 원을 그리며 젓는다)
+  const oar = live(root, [0, 0.78, -0.05], 'oar');
+  part(oar, tube([[-0.95, -0.55, 0], [-0.4, -0.2, 0], [0.4, 0.15, 0]], 0.045, 16), 'wood', '#d9a86f');
+  part(oar, bean(0.05, 0.27, 0.17), 'wood', ['#e2b07a', '#9fe0d0'], [-1.06, -0.76, 0], [0, 0, 0.6]);
+  part(oar, capsule(0.04, 0.1), 'soft', '#9fe0d0', [0.36, 0.13, 0], [0, 0, Math.PI / 2 + 0.4]);
+  // 뱃머리 가운데 통나무 끝에 작은 얼굴
+  face(root, [0, 0.08, 0.05 + L / 2 + 0.005], 0.42, { gap: 0.3 });
+  const seat = seatAt(root, 0, 0.3, -0.15);
+  return done({ root, seat, wheels: [], spin: [], bits: { oar, flag }, tail: new THREE.Vector3(0, 0, -1.35) });
+}
+
+// ───────────── 통통배(P0) ─────────────
+/** 빨강 선체 + 흰 굴뚝 + 둥근 창 조타실. bits.chimney = 연기 나오는 곳 */
+export function tugboat(): Model {
+  const root = new THREE.Group();
+  hull(root, 2.25, 1.12, 0.78, '#ff4d63', '#ff8d9b', '#ffffff');
+  part(root, rbox(1.75, 0.08, 3.0, 0.04, 3), 'wood', ['#e0b07a', '#f1cd98', 'z'], [0, 0.2, -0.2]);
+  // 옆구리 고무 범퍼(통통한 타이어)
+  for (const sx of [-1, 1]) for (const z of [-0.9, 0.1, 1.0]) part(root, torus(0.15, 0.065, 12, 28), 'rubber', '#6a6c84', [sx * 1.08 * (1 - 0.32 * Math.max(0, z / 2.25)), 0.08, z], [0, Math.PI / 2, 0]);
+  // 조타실(앞쪽, 크림색 둥근 상자) + 둥근 지붕
+  const cz = 0.45;
+  part(root, rbox(1.3, 1.0, 1.15, 0.24), 'paint', ['#fff6e3', '#ffffff'], [0, 0.72, cz]);
+  part(root, bean(0.78, 0.2, 0.7, 0.5), 'paint', ['#ff6f7f', '#ff9aa6'], [0, 1.24, cz]);
+  // 둥근 창(금테 + 하늘 유리): 앞 2 · 옆 2씩 · 뒤 1
+  const port = (pos: [number, number, number], rot: [number, number, number], r = 0.16) => {
+    part(root, torus(r, 0.04, 12, 36), 'metal', '#ffd75e', pos, rot);
+    part(root, cyl(r, r, 0.03, 28), 'glass', null, pos, [rot[0] + Math.PI / 2, rot[1], rot[2]]);
+  };
+  for (const sx of [-1, 1]) port([sx * 0.3, 0.82, cz + 0.58], [0, 0, 0]);
+  for (const sx of [-1, 1]) for (const z of [cz - 0.25, cz + 0.22]) port([sx * 0.66, 0.82, z], [0, Math.PI / 2, 0], 0.13);
+  port([0, 0.82, cz - 0.58], [0, 0, 0], 0.18);
+  // 조타 바퀴(뒷벽, 플레이어 앞)
+  const wheel = live(root, [0, 0.72, cz - 0.62], 'helm');
+  part(wheel, torus(0.2, 0.03, 10, 36), 'wood', '#c98e57');
+  for (let i = 0; i < 4; i++) part(wheel, cyl(0.016, 0.016, 0.5, 8), 'wood', '#d9a26b', [0, 0, 0], [0, 0, (i / 4) * Math.PI]);
+  part(wheel, sphere(0.05, 16, 12), 'paint', '#ffd75e');
+  // 흰 굴뚝(빨간 띠) — 조타실 지붕 뒤쪽
+  part(root, cyl(0.2, 0.25, 0.9, 32), 'paint', ['#ffffff', '#f4f4ff'], [0, 1.65, cz - 0.15]);
+  part(root, torus(0.215, 0.06, 12, 36), 'paint', '#ff6f7f', [0, 1.85, cz - 0.15], [Math.PI / 2, 0, 0]);
+  part(root, torus(0.2, 0.05, 12, 36), 'paint', '#ffffff', [0, 2.1, cz - 0.15], [Math.PI / 2, 0, 0]);
+  const chimney = new THREE.Object3D();
+  chimney.position.set(0, 2.2, cz - 0.15);
+  chimney.name = 'chimney';
+  root.add(chimney);
+  // 뱃머리 얼굴 + 구명 튜브 + 뒤 깃발
+  face(root, [0, 0.02, 1.86], 1.0, { gap: 0.3 });
+  const ring = torus(0.2, 0.065, 16, 44);
+  stripes(ring, ['#ff6f7f', '#ffffff'], 8, 0);
+  part(root, ring, 'soft', null, [0.7, 0.9, cz], [0, Math.PI / 2, 0]);
+  part(root, cyl(0.025, 0.025, 0.9, 12), 'metal', '#eef2f8', [0, 0.65, -1.95]);
+  part(root, rbox(0.02, 0.2, 0.32, 0.01, 2), 'soft', '#7cc8ff', [0, 1.0, -2.1]);
+  const seat = seatAt(root, 0, 0.25, -0.55);
+  return done({ root, seat, wheels: [], spin: [wheel], bits: { chimney, helm: wheel }, tail: new THREE.Vector3(0, 0, -2.3) });
+}
+
+// ───────────── 오리튜브 ─────────────
+/** 노란 오리 고무 링 — 사람은 링 가운데 물속에 반쯤 잠겨 앉는다. 원점 = 수면 */
+export function duckTube(): Model {
+  const root = new THREE.Group();
+  part(root, torus(0.52, 0.24, 24, 64), 'paint', ['#ffd75e', '#fff1a8', 'y'], [0, 0.04, 0], [Math.PI / 2, 0, 0]);
+  // 목 + 머리 + 부리
+  part(root, capsule(0.15, 0.22), 'paint', ['#ffd75e', '#ffe98a'], [0, 0.34, 0.6], [0.25, 0, 0]);
+  part(root, sphere(0.27, 36, 26), 'paint', ['#ffd75e', '#fff3b8'], [0, 0.62, 0.66]);
+  part(root, bean(0.13, 0.055, 0.15, 0.3), 'paint', ['#ff9d4a', '#ffbf7a'], [0, 0.56, 0.93]);
+  face(root, [0, 0.68, 0.9], 0.45, { gap: 0.28, smile: false });
+  // 머리 깃털 하나 + 꼬리
+  part(root, bean(0.05, 0.11, 0.05), 'paint', '#ffd75e', [0, 0.92, 0.64], [-0.3, 0, 0]);
+  part(root, cone(0.13, 0.28, 24), 'paint', ['#ffd75e', '#fff1a8'], [0, 0.22, -0.66], [-0.9, 0, 0]);
+  // 손잡이 두 개(하늘색)
+  for (const sx of [-1, 1]) part(root, torus(0.09, 0.025, 8, 24, Math.PI), 'soft', '#9fdcff', [sx * 0.62, 0.27, -0.05], [0, Math.PI / 2, 0]);
+  const seat = seatAt(root, 0, -0.42, -0.02);
+  return done({ root, seat, wheels: [], spin: [], bits: {}, tail: new THREE.Vector3(0, 0, -0.8) });
 }

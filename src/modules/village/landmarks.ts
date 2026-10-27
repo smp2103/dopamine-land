@@ -1,55 +1,52 @@
 // 섬마다 랜드마크(멀리서도 보이는 큰 실루엣) + 도착 부두. 섬 하나 = 묶음 하나(bake 로 재질별 합침).
+// 등대 7(lighthouse.ts)·발사탑 80 m 단계형 + 펭박사 연구소(tower.ts)·부표 우체통 6(buoys.ts)도 여기서 놓는다.
+// 돌려주는 controls(village-town 이 game.ext.village 로 묶는다):
+//   lighthouses: Record<섬, {x, z, lit}>, setLighthouse(id, lit), setTowerStage(n 0~6), towerStage(),
+//   landmarks: Landmark[]('lm:<섬>:<종류>[:n]' — village.ts 가 geo.addLandmark 로 넣는다), buoys, pengLab, launchTower, moonDeck, volcanoVent
 import * as THREE from 'three';
 import type { Ctx } from '../../core/types';
+import type { Landmark } from '../../core/api';
 import type { Placer } from '../village';
-import { add, rod, cap, cyl, sph, dome, rbox, grad, blob, label, stripesY, stripesA, roundExtrude, roundRectShape, V, BONE, WOOD_DARK, type Built } from './common';
+import { add, rod, cap, cyl, sph, dome, rbox, grad, blob, label, stripesY, stripesA, roundExtrude, roundRectShape, canvasTex, V, BONE, WOOD_DARK, type Built } from './common';
 import { buildPier } from './town';
-import type { Imp, ImpKind } from './impostors';
+import { RAINBOW, type Imp, type ImpKind } from './impostors';
 import { giantRocket, gantry, fuelTank, radarDish, antenna, runway } from './rocketpad';
+import { buildLighthouse, LAMP_Y, LIGHTHOUSE_LOOK, type LighthouseCtl } from './lighthouse';
+import { buildLaunchTower, buildPengLab, buildMushTower, buildCoconutTower, MUSH, TOWER_H } from './tower';
+import { buildBuoy, type BuoyCtl } from './buoys';
 
 type FootY = (x: number, z: number, r: number) => number;
+const hasDom = () => typeof document !== 'undefined';
 
-// ───────── 시작 섬: 등대·풍차 ─────────
-function lighthouse(): Built {
-  const g = new THREE.Group();
-  add(g, cyl(5.2, 4.8, 1.2, 40), 'stone', ['#a9a094', '#cfc7b9'], 0, 0, 0);
-  const tw = new THREE.CylinderGeometry(1.7, 2.6, 15, 40, 60);
-  stripesY(tw, ['#ffffff', '#ff6f61'], 2.5, -7.5);
-  add(g, tw, 'gloss', null, 0, 7.8, 0);
-  add(g, cyl(2.3, 2.3, 0.5, 40), 'paint', '#3f5a52', 0, 15.5, 0);
-  add(g, new THREE.TorusGeometry(2.25, 0.07, 8, 48), 'gloss', '#3f5a52', 0, 16.4, 0, [Math.PI / 2, 0, 0]);
-  for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; add(g, cap(0.05, 0.8), 'gloss', '#3f5a52', Math.cos(a) * 2.25, 16.0, Math.sin(a) * 2.25); }
-  add(g, cyl(1.35, 1.35, 2.0, 32), 'glow', null, 0, 16.9, 0);
-  for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; add(g, cap(0.08, 2.0), 'gloss', '#3f5a52', Math.cos(a) * 1.4, 16.9, Math.sin(a) * 1.4); }
-  add(g, dome(1.8, 40, 16), 'gloss', ['#e8564a', '#ff7b6b'], 0, 17.9, 0, undefined, [1, 0.9, 1]);
-  add(g, sph(0.3), 'gold', null, 0, 19.7, 0);
-  const ds = new THREE.Shape(); ds.moveTo(-0.55, 0); ds.lineTo(0.55, 0); ds.lineTo(0.55, 1.2); ds.absarc(0, 1.2, 0.55, 0, Math.PI, false); ds.lineTo(-0.55, 0);
-  add(g, roundExtrude(ds, 0.14, 0.05, 24), 'wood', ['#7d4f33', '#a06b45'], 0, 0.3, 2.55);
-  for (const y of [6, 10, 13.5]) add(g, rbox(0.55, 0.75, 0.1, 0.18, 3), 'window', null, 0, y, 2.6 - ((y - 0.3) / 15) * 0.9 + 0.02, [-0.06, 0, 0]);
-  return { g, cols: [{ kind: 'cyl', r: 2.6, hh: 9, x: 0, y: 9, z: 0 }], foot: 4.5 };
-}
-
+// ───────── 시작 섬: 무지개 풍차 ─────────
 function windmill(): Built {
   const g = new THREE.Group();
-  const tw = cyl(3.2, 2.2, 9, 40);
-  grad(tw, '#f2e2c4', '#fff8ea');
+  // 몸통: 파스텔 무지개 띠 7줄
+  const tw = new THREE.CylinderGeometry(2.2, 3.2, 9, 48, 28);
+  stripesY(tw, RAINBOW.map((c) => new THREE.Color(c).lerp(new THREE.Color('#ffffff'), 0.35)), 9 / 7, -4.5);
   add(g, tw, 'matte', null, 0, 4.5, 0);
   add(g, rbox(7.2, 0.5, 7.2, 0.2, 4), 'stone', ['#bfb5a6', '#ddd5c6'], 0, 0.1, 0);
-  add(g, new THREE.ConeGeometry(3.0, 3.6, 40, 4), 'paint', ['#4f86c6', '#78a9e6'], 0, 10.7, 0);
+  add(g, new THREE.TorusGeometry(2.25, 0.18, 10, 48), 'paint', '#ffffff', 0, 9.0, 0, [Math.PI / 2, 0, 0]);
+  add(g, new THREE.ConeGeometry(3.0, 3.6, 40, 4), 'paint', ['#ff7fa8', '#ffb3cf'], 0, 10.7, 0);
   add(g, sph(0.35), 'gold', null, 0, 12.6, 0);
+  // 꼭대기 작은 무지개 아치(바람개비 장식)
+  for (let i = 0; i < RAINBOW.length; i++) add(g, new THREE.TorusGeometry(1.3 - i * 0.12, 0.06, 8, 32, Math.PI), 'paint', RAINBOW[i], 0, 12.9, 0);
   for (const y of [3.2, 6.2]) add(g, rbox(0.8, 1.0, 0.12, 0.25, 3), 'window', null, 0, y, 3.2 - (y / 9) * 1.0);
   const ds = new THREE.Shape(); ds.moveTo(-0.6, 0); ds.lineTo(0.6, 0); ds.lineTo(0.6, 1.3); ds.absarc(0, 1.3, 0.6, 0, Math.PI, false); ds.lineTo(-0.6, 0);
   add(g, roundExtrude(ds, 0.14, 0.05, 24), 'wood', ['#7d4f33', '#a06b45'], 0, 0.3, 3.15);
+  // 날개 4장: 날개마다 무지개 두 색 천
   const rotor = new THREE.Group();
   rotor.position.set(0, 8.4, 2.9);
   rotor.userData.live = true;
-  add(rotor, sph(0.5), 'paint', '#ff8f8f', 0, 0, 0.3);
+  add(rotor, sph(0.55), 'paint', '#ffe066', 0, 0, 0.3);
   for (let i = 0; i < 4; i++) {
     const arm = new THREE.Group();
     arm.rotation.z = (i / 4) * Math.PI * 2;
     add(arm, rbox(0.22, 6.2, 0.16, 0.08, 3), 'wood', WOOD_DARK, 0, 3.4, 0.2);
-    add(arm, rbox(1.5, 4.8, 0.08, 0.3, 4), 'cloth', ['#fff4e2', '#ffffff'], 0.8, 3.9, 0.25);
-    for (let k = 0; k < 4; k++) add(arm, rbox(1.6, 0.06, 0.1, 0.03, 2), 'wood', '#b98352', 0.8, 1.9 + k * 1.3, 0.3);
+    const sail = rbox(1.5, 4.8, 0.08, 0.3, 4);
+    grad(sail, RAINBOW[(i * 2) % 7], RAINBOW[(i * 2 + 1) % 7]);
+    add(arm, sail, 'cloth', null, 0.8, 3.9, 0.25);
+    for (let k = 0; k < 4; k++) add(arm, rbox(1.6, 0.06, 0.1, 0.03, 2), 'wood', '#ffffff', 0.8, 1.9 + k * 1.3, 0.3);
     rotor.add(arm);
   }
   g.add(rotor);
@@ -203,27 +200,27 @@ function mushroomHouse(s: number, capC: string, rng: () => number): Built {
     const t = i / 12;
     prof.push(new THREE.Vector2(1.0 * s * (1 + 0.18 * Math.sin(t * Math.PI) - 0.15 * t), t * 2.4 * s));
   }
-  const stem = new THREE.LatheGeometry(prof, 40);
+  const stem = new THREE.LatheGeometry(prof, 28);
   grad(stem, '#f2e2c4', '#fff8ea');
   add(g, stem, 'matte', null, 0, 0, 0);
-  const capG = new THREE.SphereGeometry(2.0 * s, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  const capG = new THREE.SphereGeometry(2.0 * s, 36, 14, 0, Math.PI * 2, 0, Math.PI * 0.55);
   const cc = new THREE.Color(capC);
   grad(capG, cc.clone().multiplyScalar(0.82), cc.clone().lerp(new THREE.Color('#ffffff'), 0.15));
   add(g, capG, 'gloss', null, 0, 2.0 * s, 0, undefined, [1, 0.75, 1]);
-  add(g, new THREE.TorusGeometry(1.75 * s, 0.22 * s, 16, 48), 'matte', '#fff2dc', 0, 2.25 * s, 0, [Math.PI / 2, 0, 0]);
+  add(g, new THREE.TorusGeometry(1.75 * s, 0.22 * s, 8, 36), 'matte', '#fff2dc', 0, 2.25 * s, 0, [Math.PI / 2, 0, 0]);
   for (let i = 0; i < 9; i++) {
     const a = rng() * Math.PI * 2, el = 0.25 + rng() * 0.9;
     const r = 2.0 * s;
     const x = Math.cos(a) * Math.sin(el) * r, y = Math.cos(el) * r * 0.75 + 2.0 * s, z = Math.sin(a) * Math.sin(el) * r;
-    const sp = add(g, sph(0.32 * s, 20, 12), 'matte', '#ffffff', x, y, z, undefined, [1, 0.35, 1]);
+    const sp = add(g, sph(0.32 * s, 12, 6), 'matte', '#ffffff', x, y, z, undefined, [1, 0.35, 1]);
     sp.quaternion.setFromUnitVectors(V(0, 1, 0), V(x, (y - 2.0 * s) / 0.75, z).normalize());
   }
   const ds = new THREE.Shape(); ds.moveTo(-0.35 * s, 0); ds.lineTo(0.35 * s, 0); ds.lineTo(0.35 * s, 0.7 * s); ds.absarc(0, 0.7 * s, 0.35 * s, 0, Math.PI, false); ds.lineTo(-0.35 * s, 0);
-  add(g, roundExtrude(ds, 0.12 * s, 0.04 * s, 24), 'wood', ['#9a6440', '#c08654'], 0, 0.05, 1.07 * s);
-  add(g, sph(0.05 * s, 12, 10), 'gold', null, 0.2 * s, 0.55 * s, 1.17 * s);
-  add(g, new THREE.TorusGeometry(0.26 * s, 0.06 * s, 10, 28), 'wood', '#b98352', 0.75 * s, 1.45 * s, 0.85 * s, [0, 0.72, 0]);
-  add(g, new THREE.CircleGeometry(0.24 * s, 28), 'window', null, 0.74 * s, 1.45 * s, 0.84 * s, [0, 0.72, 0]);
-  add(g, cyl(0.16 * s, 0.18 * s, 1.0 * s, 20), 'stone', '#9d8a7a', -0.9 * s, 3.4 * s, -0.4 * s);
+  add(g, roundExtrude(ds, 0.12 * s, 0.04 * s, 12), 'wood', ['#9a6440', '#c08654'], 0, 0.05, 1.07 * s);
+  add(g, sph(0.05 * s, 8, 6), 'gold', null, 0.2 * s, 0.55 * s, 1.17 * s);
+  add(g, new THREE.TorusGeometry(0.26 * s, 0.06 * s, 6, 20), 'wood', '#b98352', 0.75 * s, 1.45 * s, 0.85 * s, [0, 0.72, 0]);
+  add(g, new THREE.CircleGeometry(0.24 * s, 20), 'window', null, 0.74 * s, 1.45 * s, 0.84 * s, [0, 0.72, 0]);
+  add(g, cyl(0.16 * s, 0.18 * s, 1.0 * s, 12), 'stone', '#9d8a7a', -0.9 * s, 3.4 * s, -0.4 * s);
   return { g, cols: [{ kind: 'cyl', r: 1.1 * s, hh: 1.3 * s, x: 0, y: 1.3 * s, z: 0 }], foot: 1.2 * s };
 }
 
@@ -326,26 +323,145 @@ function controlTower(): Built {
   return { g, cols: [{ kind: 'cyl', r: 2.3, hh: 13, x: 0, y: 13, z: 0 }], foot: 4 };
 }
 
-function launchTower(): Built {
+// ───────── 반딧불버섯섬 남서 해안: 좌초한 유령선(보이기만 — 바닷속 으스스호·보물은 ocean/seaworld) ─────────
+function ghostShip(rng: () => number): Built {
   const g = new THREE.Group();
-  const H = 44;
-  add(g, rbox(7, 1, 7, 0.3, 3), 'stone', ['#9aa2ac', '#c6ccd4'], 0, 0.5, 0);
-  const posts = [[-2.4, -2.4], [2.4, -2.4], [-2.4, 2.4], [2.4, 2.4]];
-  for (const [x, z] of posts) add(g, rbox(0.55, H, 0.55, 0.15, 3), 'paint', '#ff6f61', x, H / 2, z);
-  for (let y = 3; y < H; y += 4) {
-    const c = Math.floor(y / 4) % 2 ? '#ffffff' : '#ff6f61';
-    for (const [a, b] of [[0, 1], [1, 3], [3, 2], [2, 0]]) {
-      rod(g, V(posts[a][0], y, posts[a][1]), V(posts[b][0], y, posts[b][1]), 0.16, 'paint', c, 8);
-      if (y + 4 < H) rod(g, V(posts[a][0], y, posts[a][1]), V(posts[b][0], y + 4, posts[b][1]), 0.1, 'paint', '#ffffff', 6);
+  const hull = new THREE.Group();
+  const sh = new THREE.Shape();
+  sh.moveTo(-12, 4.5); sh.quadraticCurveTo(-11, 0.5, -6.5, -1.4); sh.lineTo(7.5, -1.4); sh.quadraticCurveTo(12, 0, 13.5, 5.5); sh.lineTo(-12, 4.5);
+  const hg = roundExtrude(sh, 7, 0.8, 32);
+  hg.rotateY(Math.PI / 2);
+  stripesY(hg, ['#6a5a8a', '#7d6c9e', '#5a4c78'], 1.0, -2);
+  add(hull, hg, 'wood', null, 0, 0, 0);
+  add(hull, rbox(6.0, 0.3, 21, 0.15, 3), 'wood', '#9a88b8', 0, 4.0, 0);
+  // 뱃머리 둥근 창(초록 유령불) 3
+  for (let i = 0; i < 3; i++) {
+    for (const sx of [-1, 1]) {
+      add(hull, new THREE.TorusGeometry(0.55, 0.12, 10, 28), 'gold', null, sx * 3.55, 2.2, -5 + i * 4.5, [0, Math.PI / 2, 0]);
+      add(hull, new THREE.CircleGeometry(0.5, 24), 'glow', null, sx * 3.58, 2.2, -5 + i * 4.5, [0, sx * Math.PI / 2, 0]);
     }
   }
-  for (const y of [16, 30]) {
-    add(g, rbox(9, 0.7, 1.4, 0.25, 3), 'paint', '#ffcc45', -6.5, y, 0);
-    add(g, sph(0.4), 'glow', null, -10.8, y + 0.6, 0);
+  // 돛대 2 + 찢어진 보라 돛(구멍 = 흔들린 정점) + 해골 대신 귀여운 유령 깃발
+  for (const [z, h, w] of [[-4, 15, 6.4], [5.5, 11, 5]] as const) {
+    add(hull, cyl(0.42, 0.34, h, 20), 'wood', '#4e4366', 0, 4 + h / 2, z);
+    const sail = new THREE.PlaneGeometry(w, h * 0.45, 14, 10);
+    const sp = sail.attributes.position;
+    for (let i = 0; i < sp.count; i++) {
+      const x = sp.getX(i), y = sp.getY(i);
+      sp.setZ(i, Math.sin(x * 0.6) * 0.5 + Math.cos(y * 0.8) * 0.3);
+      // 아래 가장자리를 들쭉날쭉(찢어진 돛)
+      if (y < -h * 0.2) sp.setY(i, y + (rng() * 0.9 - 0.2) * 0.8);
+    }
+    sail.computeVertexNormals();
+    grad(sail, '#b9a6e8', '#efe6ff');
+    add(hull, sail, 'cloth', null, 0, 4 + h * 0.62, z + 0.45, [0.06, Math.PI / 2, 0]);
+    add(hull, cyl(0.16, 0.16, w + 0.6, 10), 'wood', '#4e4366', 0, 4 + h * 0.62 + h * 0.23, z + 0.45, [Math.PI / 2, 0, 0]);
   }
-  add(g, cyl(0.15, 0.15, 5, 10), 'gloss', '#c6ccd4', 0, H + 2.5, 0);
-  add(g, sph(0.5), 'glow', null, 0, H + 5.2, 0);
-  return { g, cols: [{ kind: 'box', hx: 2.8, hy: H / 2, hz: 2.8, x: 0, y: H / 2, z: 0 }], foot: 4 };
+  const ghost = new THREE.Group();
+  add(ghost, sph(0.9, 24, 16), 'matte', '#ffffff', 0, 0, 0, undefined, [1, 1.1, 0.35]);
+  for (let i = 0; i < 3; i++) add(ghost, sph(0.36, 16, 12), 'matte', '#ffffff', -0.6 + i * 0.6, -0.95, 0, undefined, [1, 1, 0.35]);
+  for (const sx of [-1, 1]) {
+    add(ghost, sph(0.13, 12, 10), 'gloss', '#3d3a4a', sx * 0.3, 0.15, 0.3, undefined, [0.75, 1, 0.5]);
+    add(ghost, sph(0.12, 12, 10), 'matte', '#ff9fb8', sx * 0.55, -0.12, 0.27, undefined, [1, 0.6, 0.4]);
+  }
+  ghost.position.set(0, 4 + 15 + 1.0, -3.2);
+  ghost.rotation.y = Math.PI / 2;
+  hull.add(ghost);
+  // 갑판 위 초록 등 + 나무통·상자
+  for (const z of [-9, 9.5]) { add(hull, cap(0.06, 1.2, 8), 'wood', '#4e4366', 0, 5.0, z); add(hull, sph(0.42, 16, 12), 'glow', null, 0, 5.9, z, undefined, [1, 1.2, 1]); }
+  for (let i = 0; i < 3; i++) add(hull, cyl(0.6, 0.55, 1.1, 20), 'wood', ['#7a5a8a', '#9a7aa8'], -1.6 + i * 1.5, 4.7, 1.5 + (i % 2) * 1.2);
+  hull.rotation.set(0.08, 0, -0.28);
+  g.add(hull);
+  // 모래에 파묻힌 뱃바닥 둔덕 + 흩어진 판자
+  add(g, blob(7, 0.22, 0.12, 13, 4), 'matte', ['#cdb88f', '#e8d6ad'], 0, -0.6, 0, undefined, [0.8, 1, 2.0]);
+  for (let i = 0; i < 4; i++) add(g, rbox(2.4, 0.18, 0.5, 0.08, 2), 'wood', '#6a5a8a', 5 + i * 1.2, 0.1, -6 + i * 3.5, [0, rng() * 2, 0.1]);
+  return { g, cols: [{ kind: 'box', hx: 3.6, hy: 3, hz: 11.5, x: 0, y: 2, z: 0 }], foot: 0 };
+}
+
+// ───────── 모래시계섬: 모래 폭포(절벽 끝에서 흘러내리는 모래 커튼 — 무늬가 아래로 흐른다) ─────────
+/** drop = 높이 차, w = 폭, outAt(d) = 입구에서 d m 내려간 곳의 절벽 면까지 앞(+z) 거리(계단식 절벽을 따라 흘러내리게) */
+function sandFall(drop: number, w: number, outAt: (d: number) => number = () => 0): Built {
+  const g = new THREE.Group();
+  // 위 물길(돌 홈) + 흘러넘치는 모래 둔덕
+  add(g, rbox(w + 2.4, 1.0, 6, 0.4, 3), 'stone', ['#c99a5e', '#e0b67a'], 0, -0.2, -2.2);
+  add(g, blob(w * 0.55, 0.28, 0.12, 21, 4), 'matte', ['#f0cf8a', '#ffe6b0'], 0, 0.25, -2.0, undefined, [1, 1, 0.8]);
+  // 커튼: 아래로 갈수록 살짝 앞으로 휘고 넓어진다
+  const pg = new THREE.PlaneGeometry(w, drop + 1.2, 10, 24);
+  pg.translate(0, -(drop + 1.2) / 2 + 0.6, 0);
+  const p = pg.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i), t = Math.max(0, -y / drop);
+    p.setX(i, p.getX(i) * (1 + t * 0.35));
+    p.setZ(i, 0.9 + outAt(Math.max(0, -y)) + Math.pow(t, 1.6) * 1.2 + Math.sin(p.getX(i) * 1.7) * 0.15);
+  }
+  pg.computeVertexNormals();
+  let map: THREE.Texture | null = null;
+  if (hasDom()) {
+    map = canvasTex(64, 256, (c) => {
+      c.fillStyle = '#f2d494';
+      c.fillRect(0, 0, 64, 256);
+      for (let i = 0; i < 70; i++) {
+        const x = (i * 37) % 64, y = (i * 91) % 256, h = 20 + ((i * 13) % 50);
+        c.fillStyle = i % 3 ? 'rgba(255,240,200,0.55)' : 'rgba(205,160,90,0.45)';
+        c.fillRect(x, y, 2 + (i % 3), h);
+      }
+    });
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(2, 3);
+  }
+  const mat = new THREE.MeshStandardMaterial({ color: map ? '#ffffff' : '#f2d494', map, roughness: 0.95, transparent: true, opacity: 0.93, side: THREE.DoubleSide, emissive: '#5a3a10', emissiveIntensity: 0.12 });
+  mat.name = 'village:sandfall';
+  const curtain = new THREE.Mesh(pg, mat);
+  curtain.name = 'desert-sandfall';
+  curtain.userData.live = true;
+  curtain.castShadow = false;
+  g.add(curtain);
+  // 아래 모래 더미 + 뭉게 먼지
+  const zb = outAt(drop) + 3;
+  add(g, blob(w * 0.9, 0.3, 0.12, 22, 4), 'matte', ['#e9c47e', '#f7dca2'], 0, -drop, zb + 1.5, undefined, [1.2, 1, 1]);
+  for (let i = 0; i < 6; i++) add(g, sph(0.9 + (i % 3) * 0.4, 16, 12), 'matte', '#fff1d0', -w * 0.65 + i * (w * 1.3 / 5), -drop + 0.8 + (i % 2) * 0.6, zb + 1.0 + (i % 3) * 0.7);
+  return {
+    g, cols: [], foot: 0,
+    anim: [{ o: curtain, fn: (_o, _b, t) => { if (map) map.offset.y = (t * 0.45) % 1; } }],
+  };
+}
+
+// ───────── 쿵쿵공룡섬 화산 분화구: 분기공 표지(하트 용암 웅덩이 + 돌 고리 + 팻말). 하트 연기는 atmosphere 담당 ─────────
+function volcanoVent(): Built {
+  const g = new THREE.Group();
+  const heart = new THREE.Shape();
+  heart.moveTo(0, -5.5);
+  heart.bezierCurveTo(-1.5, -3.8, -7, -1.5, -6, 2.2);
+  heart.bezierCurveTo(-5.2, 5.2, -1.2, 5.4, 0, 2.6);
+  heart.bezierCurveTo(1.2, 5.4, 5.2, 5.2, 6, 2.2);
+  heart.bezierCurveTo(7, -1.5, 1.5, -3.8, 0, -5.5);
+  const hg = roundExtrude(heart, 0.5, 0.2, 48);
+  hg.rotateX(-Math.PI / 2);
+  add(g, hg, 'treasure', null, 0, 0.15, 0);
+  // 둘레 돌 고리(통통한 먹돌)
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    add(g, blob(1.1 + (i % 3) * 0.3, 0.7, 0.15, 30 + i, 2), 'stone', ['#5a5260', '#7a7080'], Math.cos(a) * 8.6, 0.3, Math.sin(a) * 8.6);
+  }
+  // 분기공 굴뚝(연기가 나오는 자리 — 꼭대기에 'dino-volcano-vent' 표지 점)
+  const ch = cyl(2.2, 3.0, 2.6, 40);
+  grad(ch, '#4a4250', '#7a6a70');
+  add(g, ch, 'stone', null, 0, 1.3, 0);
+  add(g, new THREE.TorusGeometry(2.2, 0.35, 10, 40), 'treasure', null, 0, 2.6, 0, [Math.PI / 2, 0, 0]);
+  // 팻말 '뜨거워요!'
+  add(g, cap(0.12, 2.2, 10), 'wood', WOOD_DARK, 10.5, 1.2, 2);
+  add(g, rbox(2.6, 1.2, 0.2, 0.3, 3), 'wood', ['#c8955f', '#e0b07a'], 10.5, 2.4, 2.12);
+  if (hasDom()) {
+    const lb = label('뜨거워요!', 2.4, 0.9, { fg: '#e8504f', stroke: '#fff3e0' });
+    lb.position.set(10.5, 2.4, 2.25);
+    g.add(lb);
+  }
+  const mark = new THREE.Object3D();
+  mark.name = 'dino-volcano-vent';
+  mark.position.set(0, 2.8, 0);
+  mark.userData.live = true;
+  g.add(mark);
+  return { g, cols: [{ kind: 'cyl', r: 2.6, hh: 1.3, x: 0, y: 1.3, z: 0 }], foot: 9 };
 }
 
 function hangar(): Built {
@@ -360,9 +476,11 @@ function hangar(): Built {
   add(g, rbox(R * 1.3, R * 0.8, 0.3, 0.3, 3), 'paint', ['#ffb347', '#ffd27a'], 0, R * 0.4, L / 2 - 0.3);
   for (let i = 0; i < 6; i++) add(g, rbox(0.12, R * 0.78, 0.1, 0.04, 2), 'paint', '#e8964a', -R * 0.55 + i * R * 0.22, R * 0.4, L / 2 - 0.12);
   for (let i = 0; i < 4; i++) add(g, new THREE.TorusGeometry(R + 0.05, 0.18, 8, 48, Math.PI), 'paint', '#a9b5c2', 0, 0, -L / 2 + 3 + i * 5.3);
-  const lb = label('격납고', 6, 1.4, { fg: '#ffffff', stroke: '#3a6ea8' });
-  lb.position.set(0, R + 0.4, L / 2 + 0.6);
-  g.add(lb);
+  if (hasDom()) {
+    const lb = label('격납고', 6, 1.4, { fg: '#ffffff', stroke: '#3a6ea8' });
+    lb.position.set(0, R + 0.4, L / 2 + 0.6);
+    g.add(lb);
+  }
   return { g, cols: [{ kind: 'box', hx: R, hy: R / 2, hz: L / 2, x: 0, y: R / 2, z: 0 }], foot: R };
 }
 
@@ -375,7 +493,7 @@ function welcomeArch(name: string, c: string): Built {
   }
   const cc = new THREE.Color(c);
   add(g, roundExtrude(roundRectShape(4.8, 0.95, 0.4), 0.2, 0.07), 'paint', [cc.clone().multiplyScalar(0.85), cc], 0, 3.1, 0);
-  for (const ry of [0, Math.PI]) {
+  for (const ry of hasDom() ? [0, Math.PI] : []) {
     const lb = label(name, 4.4, 0.8, { fg: '#ffffff', stroke: '#00000040' });
     lb.position.set(0, 3.1, ry ? -0.12 : 0.12);
     lb.rotation.y = ry;
@@ -385,10 +503,105 @@ function welcomeArch(name: string, c: string): Built {
 }
 
 // ───────── 배치 ─────────
-export function buildLandmarks(ctx: Ctx, mk: () => Placer, footY: FootY, imps: Imp[] = []): THREE.Group[] {
-  const imp = (kind: ImpKind, o: THREE.Object3D) => { imps.push({ kind, o }); return o; };
+export interface LandmarkControls {
+  /** 등대 7 — lit 는 setLighthouse 가 바꾼다 */
+  lighthouses: Record<string, { x: number; z: number; lit: boolean }>;
+  setLighthouse(id: string, lit: boolean): void;
+  /** 발사탑 단계 0~6(= 모은 로켓 부품 수) */
+  setTowerStage(n: number): void;
+  towerStage(): number;
+  /** 이 파일이 세운 랜드마크(id 'lm:<섬>:<종류>[:n]' — 등대·연구소·부표는 geo 씨앗과 같은 id) */
+  landmarks: Landmark[];
+  /** 부표 우체통 6(calendar 가 상호작용을 붙인다) — y() 는 지금 출렁이는 높이 */
+  buoys: Array<{ id: string; n: number; x: number; z: number; y(): number }>;
+  pengLab: { x: number; z: number; rotY: number };
+  launchTower: { x: number; z: number; top: number };
+  /** 버섯 탑 꼭대기 달 관측대(secrets 'mush-moon-deck') */
+  moonDeck: { x: number; y: number; z: number };
+  /** 화산 분기공 꼭대기(atmosphere 하트 연기 자리) */
+  volcanoVent: { x: number; y: number; z: number };
+}
+/** 정본은 {groups, controls}. 예전 호출(for (const g of buildLandmarks(...)))도 돌도록 groups 를 순회할 수 있게 둔다 */
+export interface LandmarkBuild extends Iterable<THREE.Group> { groups: THREE.Group[]; controls: LandmarkControls }
+
+/** 0(낮)..1(밤): env 시계가 있으면 시각으로, 없으면 시간대 이름으로 — 둘 중 큰 값 */
+export function nightOfHour(h: number): number {
+  const x = ((h % 24) + 24) % 24;
+  if (x >= 20 || x < 5) return 1;
+  if (x >= 18) return (x - 18) / 2;
+  if (x < 6.5) return 1 - (x - 5) / 1.5;
+  return 0;
+}
+const todNight = (name: string) => (name === 'night' ? 1 : name === 'sunset' ? 0.55 : 0);
+
+/** 원 둘레 r 안 높이 차가 가장 작은 마른 땅(씨앗 둘레 나선 탐색) */
+function flattest(I: Ctx['island'], id: string, x0: number, z0: number, r: number, maxR = 60, step = 6): { x: number; z: number } {
+  let best = { x: x0, z: z0 }, bs = Infinity;
+  for (let rr = 0; rr <= maxR; rr += step) {
+    const n = rr === 0 ? 1 : Math.max(6, Math.round((2 * Math.PI * rr) / step));
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2, x = x0 + Math.cos(a) * rr, z = z0 + Math.sin(a) * rr;
+      const s = I.worldSample(x, z);
+      if (s.island?.id !== id || s.coast < r * 0.6) continue;
+      let lo = s.h, hi = s.h;
+      for (let j = 0; j < 8; j++) {
+        const b = (j / 8) * Math.PI * 2, h = I.heightAt(x + Math.cos(b) * r, z + Math.sin(b) * r);
+        lo = Math.min(lo, h); hi = Math.max(hi, h);
+      }
+      const score = hi - lo + rr * 0.02;
+      if (score < bs) { bs = score; best = { x, z }; }
+    }
+    if (bs < 1.2) break;
+  }
+  return best;
+}
+
+/** 모래 폭포 자리: 협곡 둘레에서 가장 높이 떨어지는 절벽 끝(위 = lip, 아래 = foot) */
+export function sandFallSpot(I: Ctx['island']): { x: number; z: number; y: number; ang: number; drop: number } {
+  const F = I.worldFeatures().find((f) => f.kind === 'canyon') ?? { x: I.islandById('desert')!.x, z: I.islandById('desert')!.z - 300, r: 160 };
+  let best = { x: F.x, z: F.z, y: I.heightAt(F.x, F.z), ang: 0, drop: 0 };
+  const R = Math.min(220, F.r * 1.3);
+  for (let z = F.z - R; z <= F.z + R; z += 8) for (let x = F.x - R; x <= F.x + R; x += 8) {
+    const s = I.worldSample(x, z);
+    if (s.island?.id !== 'desert' || s.coast < 25) continue;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a);
+      // 바로 앞이 뚝 떨어지고(7 m 안), 그 아래는 마른 땅
+      const h7 = I.heightAt(x + dx * 7, z + dz * 7);
+      const drop = s.h - h7;
+      if (drop <= best.drop || drop < 8) continue;
+      if (I.waterLevelAt(x + dx * 10, z + dz * 10) > h7) continue;
+      best = { x, z, y: s.h, ang: Math.atan2(dx, dz), drop };
+    }
+  }
+  // 아래 끝: 앞으로 걸어가며 가장 낮은 곳
+  if (best.drop > 0) {
+    const dx = Math.sin(best.ang), dz = Math.cos(best.ang);
+    let lo = best.y;
+    for (let d = 1; d <= 24; d++) lo = Math.min(lo, I.heightAt(best.x + dx * d, best.z + dz * d));
+    best.drop = best.y - lo;
+  }
+  return best;
+}
+
+export function buildLandmarks(ctx: Ctx, mk: () => Placer, footY: FootY, imps: Imp[] = []): LandmarkBuild {
+  const imp = (kind: ImpKind, o: THREE.Object3D, extra: Partial<Imp> = {}) => { imps.push({ kind, o, ...extra }); return o; };
   const I = ctx.island;
   const out: THREE.Group[] = [];
+  const landmarks: Landmark[] = [];
+  const lm = (island: string, kind: string, name: string, p: { x: number; z: number }, r: number, n?: number) => {
+    landmarks.push({ id: `lm:${island}:${kind}${n !== undefined ? `:${n}` : ''}`, kind, name, island, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100, r });
+  };
+  // 섬 이름: geo(worldterrain, order 2 — village 보다 먼저)가 있으면 그것, 없으면 world 표
+  const nameOf = (id: string) => ctx.game?.geo?.islandName?.(id) ?? I.islandName(id);
+  // 밤 세기: 시간대 프리셋 이름 + env 시각(게으르게)
+  let todK = todNight(ctx.tod);
+  ctx.onTod((name) => { todK = todNight(name); });
+  const night = () => {
+    const h = ctx.game?.env?.hour;
+    return Math.max(todK, typeof h === 'number' && Number.isFinite(h) ? nightOfHour(h) : 0);
+  };
+
   /** 섬 중심에서 각도 ang 방향으로 걸어 나가며 해안 거리가 coast 이상인 가장 바깥 땅(world.ts coastSpot 과 같은 식) */
   const spot = (id: string, ang: number, coast: number) => I.coastSpot(id, ang, coast);
   const faceTo = (from: { x: number; z: number }, to: { x: number; z: number }) => Math.atan2(to.x - from.x, to.z - from.z);
@@ -396,9 +609,8 @@ export function buildLandmarks(ctx: Ctx, mk: () => Placer, footY: FootY, imps: I
   const big = (b: Built, k: number) => { b.scale = k; return b; };
 
   const docks = I.PLACES.docks;
-  // 환영 아치 글씨는 GDD 섬 이름(world.ts ISLAND_NAMES), 색만 여기서
+  // 환영 아치 글씨는 GDD 섬 이름(geo.islandName → world.ts ISLAND_NAMES), 색만 여기서
   const ARCH_COLOR: Record<string, string> = { dino: '#6fbf5e', ice: '#5fa8f0', mushroom: '#ff7fa8', coral: '#ff8a6a', desert: '#f0a040', launch: '#7a8cf0' };
-  const names: Record<string, [string, string]> = Object.fromEntries(Object.entries(ARCH_COLOR).map(([id, c]) => [id, [I.islandName(id), c]]));
   /** 도착 부두: 도크 지점에 아치, 섬 바깥(바다) 쪽으로 잔교 */
   const dock = (P: Placer, id: string) => {
     const d = I.islandById(id)!, k = docks[id];
@@ -412,39 +624,75 @@ export function buildLandmarks(ctx: Ctx, mk: () => Placer, footY: FootY, imps: I
     }
     // 아치: 잔교가 시작하는 물가 조금 안쪽
     const ap = s.clone().addScaledVector(dir, -5);
-    put(P, big(welcomeArch(names[id][0], names[id][1]), 1.35), { x: ap.x, z: ap.y }, Math.atan2(dir.x, dir.y), 0.05);
+    put(P, big(welcomeArch(nameOf(id), ARCH_COLOR[id] ?? '#ff8fb1'), 1.35), { x: ap.x, z: ap.y }, Math.atan2(dir.x, dir.y), 0.05);
     const y0 = I.heightAt(s.x, s.y);
     P.place(buildPier(26, 2.6, Math.max(1.1 - y0, 0.25), 6, ctx.rng(`village:dock:${id}`)), s.x, y0, s.y, Math.atan2(dir.x, dir.y));
+    lm(id, 'dock', `${nameOf(id)} 도착 부두`, { x: ap.x, z: ap.y }, 12);
   };
   const angTo = (id: string) => { const d = I.islandById(id)!; return Math.atan2(docks[id].z - d.z, docks[id].x - d.x); };
 
-  // 시작 섬: 등대(해안 곶) + 풍차(언덕)
+  // ── 등대 7: 섬마다 원점 쪽 해안(PLACES.lighthouses). 섬 묶음(Placer)에 같이 넣는다
+  const LH = I.PLACES.lighthouses as Record<string, { x: number; z: number; rotY: number; island: string }>;
+  const lighthouses: Record<string, { x: number; z: number; lit: boolean }> = {};
+  const lhCtl: Record<string, LighthouseCtl> = {};
+  const placeLighthouse = (P: Placer, id: string) => {
+    const p = LH[id];
+    if (!p) return;
+    const c = buildLighthouse(id, night, (Object.keys(lhCtl).length * 1.7) % (Math.PI * 2));
+    lhCtl[id] = c;
+    lighthouses[id] = { x: p.x, z: p.z, lit: false };
+    const o = put(P, big(c.built, 1.5), p, p.rotY, 0.1);
+    imp('lighthouse', o, { variant: LIGHTHOUSE_COLORS[id] ?? LIGHTHOUSE_COLORS.home, light: () => c.glow(), lightY: LAMP_Y });
+    lm(id, 'lighthouse', `${nameOf(id)} 등대`, p, 10);
+  };
+
+  // 시작 섬: 등대(해안 곶) + 무지개 풍차(언덕)
   {
     const P = mk();
-    const lh = spot('home', 0.75, 10);
-    imp('lighthouse', put(P, big(lighthouse(), 1.5), lh, 0.5));
+    placeLighthouse(P, 'home');
     const wm = spot('home', 1.75, 70);
     imp('windmill', put(P, big(windmill(), 1.6), wm, faceTo(wm, { x: 0, z: 0 })));
+    lm('home', 'windmill', '무지개 풍차', wm, 14);
     out.push(P.root);
   }
-  // 공룡 섬
+  // 공룡 섬: 유적 + 화석 발굴장 + 화산 분기공 표지
+  let volcanoVent0 = { x: 0, y: 0, z: 0 };
   {
     const P = mk(), rng = ctx.rng('village:dino');
+    placeLighthouse(P, 'dino');
     const a0 = angTo('dino');
     const ru = spot('dino', a0 + 0.1, 45);
     imp('ruins', put(P, big(ruins(rng), 2.0), ru, faceTo(ru, docks.dino), 0.4));
+    lm('dino', 'ruins', '공룡 유적', ru, 26);
     const fd = spot('dino', a0 - 0.1, 35);
     put(P, big(fossilDig(rng), 1.6), fd, faceTo(fd, docks.dino), 0.3);
+    lm('dino', 'fossildig', '화석 발굴장', fd, 20);
     dock(P, 'dino');
     out.push(P.root);
   }
-  // 얼음 섬: 산 중턱 성 + 해안 이글루 마을
+  {
+    // 분화구는 섬 묶음 LOD 와 따로(산 위 — 해안 묶음과 600 m 떨어져 있다)
+    const P = mk();
+    const v = I.worldFeatures().find((f) => f.kind === 'volcano');
+    if (v) {
+      // 분화구 바닥 가운데(가장 낮은 곳)
+      let c = { x: v.x, z: v.z }, lo = I.heightAt(v.x, v.z);
+      for (let r = 6; r <= 40; r += 6) for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2, x = v.x + Math.cos(a) * r, z = v.z + Math.sin(a) * r, h = I.heightAt(x, z);
+        if (h < lo - 0.3) { lo = h; c = { x, z }; }
+      }
+      const y = footY(c.x, c.z, 6) - 0.05;
+      P.place(volcanoVent(), c.x, y, c.z, faceTo(c, docks.dino));
+      volcanoVent0 = { x: c.x, y: y + 2.8, z: c.z };
+      lm('dino', 'volcanovent', '하트 연기 분기공', c, 14);
+    }
+    out.push(P.root);
+  }
+  // 얼음 섬: 앞바다 빙산 위 얼음 성 + 해안 이글루 마을
   {
     const P = mk();
-    const d = I.islandById('ice')!;
+    placeLighthouse(P, 'ice');
     const a0 = angTo('ice');
-    const top = { x: d.x + Math.cos(a0) * 25, z: d.z + Math.sin(a0) * 25 };
-    imp('iceCastle', P.place(big(iceCastle(), 2.2), top.x, I.heightAt(top.x, top.z) - 1.5, top.z, faceTo(top, docks.ice)));
     const iv = spot('ice', a0 + 0.12, 32);
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
@@ -452,60 +700,130 @@ export function buildLandmarks(ctx: Ctx, mk: () => Placer, footY: FootY, imps: I
       put(P, igloo(2.4 + (i % 3) * 0.5), p, faceTo(p, iv) + Math.PI, 0.15);
     }
     put(P, igloo(3.6), iv, faceTo(iv, docks.ice), 0.15);
+    lm('ice', 'igloo', '이글루 마을', iv, 20);
     dock(P, 'ice');
     out.push(P.root);
   }
-  // 버섯 섬: 큰 버섯 탑 + 버섯 집 마을
+  {
+    const P = mk();
+    const B = I.PLACES.iceberg;
+    const top = { x: B.x, z: B.z };
+    // 성 정면은 솜눈섬 부두(배가 오는 쪽)를 본다
+    imp('iceCastle', put(P, big(iceCastle(), 1.35), top, faceTo(top, docks.ice), 0.6));
+    lm('ice', 'icecastle', '얼음 성', top, 24);
+    out.push(P.root);
+  }
+  // 버섯 섬: 빛나는 버섯 탑(섬 가운데 — 숨은 곳 '달 관측대' 자리) + 부두 쪽 버섯 집 마을 + 남서 해안 좌초 유령선
+  let moonDeck = { x: 0, y: 0, z: 0 };
+  {
+    const P = mk(), rng = ctx.rng('village:mushtower');
+    const hd = (I.PLACES.hidden as Record<string, { x: number; z: number }>)['mush-moon-deck'] ?? { x: I.islandById('mushroom')!.x, z: I.islandById('mushroom')!.z };
+    const t = { x: hd.x, z: hd.z };
+    const y = footY(t.x, t.z, 9) - 0.2;
+    const tw = buildMushTower(rng);
+    imp('mushTower', P.place(tw, t.x, y, t.z, faceTo(t, docks.mushroom)));
+    moonDeck = { x: t.x, y: y + MUSH.deck, z: t.z };
+    lm('mushroom', 'mushtower', '빛나는 버섯 탑', t, 22);
+    out.push(P.root);
+  }
   {
     const P = mk(), rng = ctx.rng('village:mush');
+    placeLighthouse(P, 'mushroom');
     const a0 = angTo('mushroom');
     const c = spot('mushroom', a0, 60);
     const capCols = ['#ff5e6c', '#ff8fb1', '#b48cf0', '#ffb347', '#5ac3b0', '#ff7a5a'];
-    imp('mushroom', put(P, mushroomHouse(8, '#ff5e6c', rng), c, faceTo(c, docks.mushroom), 0.2));
+    put(P, mushroomHouse(3.2, '#ff5e6c', rng), c, faceTo(c, docks.mushroom), 0.2);
     for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * Math.PI * 2 + 0.4, r = 18 + (i % 2) * 7;
+      const a = (i / 7) * Math.PI * 2 + 0.4, r = 16 + (i % 2) * 7;
       const p = { x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r };
       put(P, mushroomHouse(1.6 + (i % 3) * 0.45, capCols[i % capCols.length], rng), p, faceTo(p, docks.mushroom), 0.1);
     }
+    lm('mushroom', 'mushvillage', '버섯 마을', c, 24);
     dock(P, 'mushroom');
     out.push(P.root);
   }
-  // 산호 섬: 티키 오두막 + 해적선 잔해
   {
-    const P = mk();
+    const P = mk(), rng = ctx.rng('village:ghostship');
+    // 남서(−x, +z) 해안 모래사장, 뱃머리는 바다 쪽
+    const m = I.islandById('mushroom')!;
+    const gs = spot('mushroom', Math.atan2(1, -1), 4);
+    const h = Math.max(-0.4, I.heightAt(gs.x, gs.z));
+    imp('ghostShip', P.place(ghostShip(rng), gs.x, h + 0.2, gs.z, faceTo(gs, { x: gs.x + (gs.x - m.x), z: gs.z + (gs.z - m.z) }) + 0.5));
+    lm('mushroom', 'ghostship', '좌초한 유령선', gs, 20);
+    out.push(P.root);
+  }
+  // 산호 섬: 흰 등대 + 티키 오두막 + 코코넛 탑 + 해적선 잔해
+  {
+    const P = mk(), rng = ctx.rng('village:coral');
+    placeLighthouse(P, 'coral');
     const a0 = angTo('coral');
     const t = spot('coral', a0 + 0.07, 30);
     for (let i = 0; i < 4; i++) {
       const p = { x: t.x + Math.cos(a0 + Math.PI / 2) * (i - 1.5) * 9, z: t.z + Math.sin(a0 + Math.PI / 2) * (i - 1.5) * 9 };
       put(P, tikiHut(1 + (i % 2) * 0.25), p, faceTo(p, docks.coral), 0.1);
     }
+    lm('coral', 'tiki', '티키 오두막', t, 20);
+    const ct0 = spot('coral', a0 + 0.3, 45);
+    const ct = flattest(I, 'coral', ct0.x, ct0.z, 4, 30, 5);
+    imp('coconutTower', put(P, big(buildCoconutTower(rng), 1.2), ct, faceTo(ct, docks.coral), 0.2));
+    lm('coral', 'coconut', '코코넛 탑', ct, 16);
     const sw = spot('coral', a0 - 0.16, 2);
     imp('shipwreck', P.place(shipwreck(), sw.x, Math.max(-0.8, I.heightAt(sw.x, sw.z)) + 0.6, sw.z, a0 + 0.9));
+    lm('coral', 'shipwreck', '해적선 잔해', sw, 18);
     dock(P, 'coral');
     out.push(P.root);
   }
-  // 사막 섬: 계단 피라미드 + 오아시스 천막
+  // 사막 섬: 계단 피라미드 + 오아시스 천막 + 모래 폭포
   {
     const P = mk();
+    placeLighthouse(P, 'desert');
     const a0 = angTo('desert');
     const py = spot('desert', a0 + 0.22, 95);
     imp('pyramid', put(P, pyramid(), py, faceTo(py, docks.desert), 0.8));
+    lm('desert', 'pyramid', '모래 피라미드', py, 30);
     const oa = spot('desert', a0 - 0.12, 55);
     put(P, oasis(), oa, 0, 0.05);
+    lm('desert', 'oasis', '오아시스', oa, 20);
     dock(P, 'desert');
     out.push(P.root);
   }
-  // 발사대 섬: 발사탑(로켓 옆) + 관제탑 + 격납고
   {
     const P = mk();
-    const L = I.PLACES.launchPad;
-    put(P, launchTower(), { x: L.x + 13, z: L.z }, 0, 0.3);
+    const sf = sandFallSpot(I);
+    if (sf.drop > 4) {
+      // 절벽 단면: 입구에서 앞으로 걸으며 높이가 lip-d 아래로 처음 떨어지는 거리
+      const dx = Math.sin(sf.ang), dz = Math.cos(sf.ang);
+      const prof: number[] = [];
+      for (let k = 0; k <= 60; k++) prof.push(sf.y - I.heightAt(sf.x + dx * k * 0.5, sf.z + dz * k * 0.5));
+      const outAt = (d: number) => { for (let k = 0; k < prof.length; k++) if (prof[k] >= d - 0.3) return k * 0.5; return 30; };
+      P.place(sandFall(sf.drop, 9, outAt), sf.x, sf.y, sf.z, sf.ang);
+      lm('desert', 'sandfall', '모래 폭포', sf, 14);
+    }
+    out.push(P.root);
+  }
+  // 발사대 섬: 발사탑 80 m(단계형, 로켓 옆) + 펭박사 연구소 + 관제탑 + 격납고 + 기념 로켓
+  let tower: ReturnType<typeof buildLaunchTower> | null = null;
+  const L = I.PLACES.launchPad;
+  const towerAt = { x: L.x + 24, z: L.z };
+  const lab = I.PLACES.pengLab;
+  {
+    const P = mk();
+    placeLighthouse(P, 'launch');
+    tower = buildLaunchTower();
+    const tw = tower;
+    imp('launchTower', put(P, tw.built, towerAt, 0, 0.3), { stage: () => tw.stage });
+    lm('launch', 'launchtower', '도파민 1호 발사탑', towerAt, 24);
+    imp('pengLab', put(P, buildPengLab(), lab, lab.rotY, 0.3));
+    lm('launch', 'penglab', '펭박사 연구소', lab, 12);
     const ct = { x: L.x + 55, z: L.z + 48 }, hg = { x: L.x - 50, z: L.z + 40 };
     imp('controlTower', put(P, big(controlTower(), 1.4), ct, faceTo(ct, L), 0.3));
+    lm('launch', 'controltower', '관제탑', ct, 12);
     put(P, hangar(), hg, faceTo(hg, L), 0.3);
+    lm('launch', 'hangar', '격납고', hg, 16);
     // 거대 기념 로켓: 섬 스폰 지점의 기본 카메라 정면(-z) 축, 고원 안쪽 — 도착하자마자 보이고 수평선 너머에서도 읽힌다
     const R = rocketSpot(I);
     imp('rocket', put(P, giantRocket(), R, 0, 0.4));
+    lm('launch', 'rocketmonument', '기념 로켓', R, 20);
     const gp = { x: R.x + 15, z: R.z };
     put(P, gantry(52, 7.5), gp, 0, 0.3);
     const right = { x: 1, z: 0 }, fwd = { x: 0, z: 1 };
@@ -523,8 +841,40 @@ export function buildLandmarks(ctx: Ctx, mk: () => Placer, footY: FootY, imps: I
     dock(P, 'launch');
     out.push(P.root);
   }
-  return out;
+  // ── 부표 우체통 6: 부표마다 묶음 하나(바다 한가운데라 섬 묶음과 따로 LOD)
+  const buoys: BuoyCtl[] = [];
+  I.PLACES.buoyMail.forEach((b, i) => {
+    const P = mk();
+    const c = buildBuoy(b.id, i + 1, b.x, b.z, () => ctx.game?.ocean ?? null, i * 1.3);
+    // 얼굴은 원점(말랑섬) 쪽을 본다
+    P.place(c.built, b.x, 0, b.z, faceTo(b, { x: 0, z: 0 }));
+    buoys.push(c);
+    lm('sea', 'buoy', `부표 우체통 ${'①②③④⑤⑥⑦⑧⑨'[i] ?? i + 1}`, b, 6, i + 1);
+    out.push(P.root);
+  });
+
+  const controls: LandmarkControls = {
+    lighthouses,
+    setLighthouse(id, lit) {
+      const c = lhCtl[id];
+      if (!c) return;
+      c.setLit(lit);
+      lighthouses[id].lit = c.lit;
+    },
+    setTowerStage(n) { tower?.setStage(n); },
+    towerStage: () => tower?.stage ?? 0,
+    landmarks,
+    buoys: buoys.map((b) => ({ id: b.id, n: b.n, x: b.x, z: b.z, y: b.y })),
+    pengLab: { x: lab.x, z: lab.z, rotY: lab.rotY },
+    launchTower: { x: towerAt.x, z: towerAt.z, top: TOWER_H },
+    moonDeck,
+    volcanoVent: volcanoVent0,
+  };
+  return { groups: out, controls, [Symbol.iterator]: () => out[Symbol.iterator]() };
 }
+
+/** 등대 임포스터 색 변형('줄1,줄2,지붕') */
+const LIGHTHOUSE_COLORS: Record<string, string> = Object.fromEntries(Object.entries(LIGHTHOUSE_LOOK).map(([k, v]) => [k, `${v.stripes[0]},${v.stripes[1]},${v.roof[0]}`]));
 
 /** 발사대 섬 스폰(main.ts 가 쓰는 islandSpawnPoints('launch',1,0.08)) 앞 -z 쪽으로 걸어가며 해안에서 충분히 먼 마지막 고원 자리 */
 export function rocketSpot(I: Ctx['island']): { x: number; z: number; len: number } {

@@ -159,6 +159,8 @@ export function setupWorldFlora(ctx: Ctx, game: Game): THREE.Group {
     ...P.caves.map((c) => ({ x: c.x, z: c.z, r: 6 })),
     // 얼음 성 빙산은 맨 얼음으로 둔다
     { x: P.iceberg.x, z: P.iceberg.z, r: P.iceberg.r + 6 },
+    // 티노 언덕 꼭대기(낮잠 자리·금 상자)
+    { x: P.tinoHill.x, z: P.tinoHill.z, r: 14 },
   ];
   const blocked = (x: number, z: number) => keepOut.some((k) => (x - k.x) ** 2 + (z - k.z) ** 2 < k.r * k.r);
 

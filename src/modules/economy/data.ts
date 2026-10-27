@@ -141,16 +141,36 @@ export const ZONE_MULT = { home: 1, island: 1.15, farsea: 1.3, space: 1.8 } as c
 /** 판매 크기 보정(shadow) */
 export const SIZE_MULT: Record<string, number> = { XS: 0.7, S: 0.85, M: 1.0, L: 1.3, XL: 1.7, XXL: 2.2 };
 
-/** 보물상자 등급 */
-export type ChestTier = 'common' | 'rare' | 'epic' | 'legend';
-export const TIERS: Record<ChestTier, { name: string; color: string; glow: string; weight: number; coins: [number, number]; mats: number; stars: number }> = {
-  common: { name: '일반', color: '#9be7a6', glow: '#d9ffe0', weight: 70, coins: [60, 180], mats: 1, stars: 0 },
-  rare: { name: '희귀', color: '#7cc8ff', glow: '#d6efff', weight: 22, coins: [300, 700], mats: 2, stars: 1 },
-  epic: { name: '영웅', color: '#c48bff', glow: '#f0dcff', weight: 6.5, coins: [1200, 2600], mats: 3, stars: 3 },
-  legend: { name: '전설', color: '#ffc94a', glow: '#fff3c4', weight: 1.5, coins: [6000, 12000], mats: 4, stars: 10 },
+/** 보물상자 등급(GDD 5.4, 계약 v2) — 나무·은·금·무지개·우주. 규칙·내용물 표는 loot.ts */
+export type ChestTier = 'wood' | 'silver' | 'gold' | 'rainbow' | 'space';
+/** 예전 등급 이름(저장 호환) — common→wood · rare→silver · epic→gold · legend→rainbow */
+export type LegacyChestTier = 'common' | 'rare' | 'epic' | 'legend';
+export interface ChestTierDef {
+  name: string;
+  icon: string;
+  /** 상자 몸통 색(아래·위) */
+  body: [string, string];
+  /** 테두리·자물쇠 색 */
+  trim: string;
+  /** 보석 색 */
+  gem: string;
+  /** 빛기둥·반짝이 색 */
+  color: string;
+  glow: string;
+  /** 여는 데 드는 열쇠(없으면 무료 E) */
+  key: 'silver' | 'gold' | 'rainbow' | null;
+  /** 흔들림 힌트 횟수(1 나무 / 2 은 / 3 금 이상) */
+  shakes: 1 | 2 | 3;
+  /** 흔들 때 빛기둥(금 이상) */
+  pillar: boolean;
+}
+export const TIERS: Readonly<Record<ChestTier, ChestTierDef>> = {
+  wood: { name: '나무', icon: '📦', body: ['#a8693d', '#e0a46c'], trim: '#ffcf4a', gem: '#ff7aa8', color: '#ffc88a', glow: '#fff0d8', key: null, shakes: 1, pillar: false },
+  silver: { name: '은', icon: '🗝️', body: ['#9fb2cc', '#e4ecf6'], trim: '#f6f9ff', gem: '#6fc3ff', color: '#bfe0ff', glow: '#ffffff', key: 'silver', shakes: 2, pillar: false },
+  gold: { name: '금', icon: '🔑', body: ['#f0b23a', '#ffe58a'], trim: '#fff6d0', gem: '#ff6fa0', color: '#ffcf4a', glow: '#fff3c4', key: 'gold', shakes: 3, pillar: true },
+  rainbow: { name: '무지개', icon: '🌈', body: ['#ffb3c8', '#c9f3ff'], trim: '#ffffff', gem: '#b98cff', color: '#ff9fb8', glow: '#e9fbff', key: 'rainbow', shakes: 3, pillar: true },
+  space: { name: '우주', icon: '🪐', body: ['#5d5aa8', '#b9a8ff'], trim: '#fff2a8', gem: '#8ff0ff', color: '#a99bff', glow: '#e5e2ff', key: null, shakes: 3, pillar: true },
 };
-/** 천장: 영웅 이상 30회, 전설 90회 */
-export const PITY = { epic: 30, legend: 90 };
 
 /** 도감 탭(GDD 5.5) — 7개. 탈것은 category 'item' + tags 'vehicle'(vehicles 담당), 나머지는 category 로 거른다. 재료는 탭 없음 */
 export interface DexTab { id: string; name: string; icon: string; cats: string[]; tag?: string; slots: number; match(s: { category: string; tags?: string[] }): boolean }
@@ -160,7 +180,8 @@ export const DEX_TABS: DexTab[] = [
   catTab('sea', '바다', '🐙', ['sea'], 27),
   catTab('bug', '곤충', '🦋', ['bug', 'insect'], 71),
   catTab('dino', '공룡', '🦕', ['dino'], 25),
-  catTab('fossil', '화석', '🦴', ['fossil'], 20),
+  // 화석 탭은 골격 20칸 — 부위 조각(fos:<공룡>:<부위>)은 칸이 아니다(5.5). 골격 태그 fos:<공룡> 은 남긴다
+  { id: 'fossil', name: '화석', icon: '🦴', cats: ['fossil'], slots: 20, match: (s) => s.category === 'fossil' && !s.tags?.some((t) => /^fos:[^:]+:[^:]+$/.test(t)) },
   catTab('space', '우주', '🪐', ['space'], 18),
   { id: 'vehicle', name: '탈것', icon: '🚲', cats: [], tag: 'vehicle', slots: 18, match: (s) => !!s.tags?.includes('vehicle') },
 ];

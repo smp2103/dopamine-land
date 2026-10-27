@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Ctx } from '../../core/types';
 import type { TodPreset } from '../../core/presets';
+import { CURVE_GLSL_HEAD, curveUniforms } from '../../core/curve';
 
 const VERT = /* glsl */ `
 attribute float aH;
@@ -142,18 +143,21 @@ function buildLayer(ctx: Ctx, o: LayerOpts) {
   return geo;
 }
 
+/** 구름 빛(먼 고리·세계 구름이 같이 쓴다) — buildClouds 의 onTod 가 채운다 */
+const TONE = {
+  uLit: { value: new THREE.Color('#ffffff') },
+  uShade: { value: new THREE.Color('#b9d6f2') },
+  uHaze: { value: new THREE.Color('#cfeeff') },
+  uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+  uSunColor: { value: new THREE.Color('#ffffff') },
+  uOpacity: { value: 1 },
+};
+
 export function buildClouds(ctx: Ctx) {
   const group = new THREE.Group();
   group.name = 'clouds';
   group.userData.noCurve = true;
-  const uniforms = {
-    uLit: { value: new THREE.Color('#ffffff') },
-    uShade: { value: new THREE.Color('#b9d6f2') },
-    uHaze: { value: new THREE.Color('#cfeeff') },
-    uSunDir: { value: new THREE.Vector3(0, 1, 0) },
-    uSunColor: { value: new THREE.Color('#ffffff') },
-    uOpacity: { value: 1 },
-  };
+  const uniforms = TONE;
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, fog: false, transparent: false });
   mat.userData.noCurve = true;
 
@@ -190,8 +194,158 @@ export function buildClouds(ctx: Ctx) {
     uniforms.uOpacity.value = p.cloudOpacity;
     group.visible = p.cloudOpacity > 0.01;
     mat.transparent = p.cloudOpacity < 1;
+    worldMat.transparent = p.cloudOpacity < 1;
+    worldMat.depthWrite = p.cloudOpacity >= 1;
+    worldMat.visible = p.cloudOpacity > 0.01;
     const az = THREE.MathUtils.degToRad(p.sunAzimuth), el = THREE.MathUtils.degToRad(p.sunElevation);
     uniforms.uSunDir.value.set(Math.cos(el) * Math.cos(az), Math.sin(el), -Math.cos(el) * Math.sin(az));
   });
   return group;
+}
+
+// ───────── 세계 구름: 바다 위 120~200 m 에 둥실 뜬 몽실 뭉게구름(청크 스트리밍) ─────────
+// 청크 하나 = InstancedMesh 하나(공유 덩이 지오메트리 3벌 중 하나 + 인스턴스마다 크기·방향). 장식 레이어(detail:true).
+
+const WORLD_VERT = /* glsl */ `
+${CURVE_GLSL_HEAD}
+attribute float aH;
+uniform vec3 uCamPos;
+varying vec3 vWN;
+varying float vH;
+varying float vDist;
+varying vec3 vViewDir;
+void main() {
+  mat4 m = modelMatrix;
+  #ifdef USE_INSTANCING
+    m = modelMatrix * instanceMatrix;
+  #endif
+  vWN = normalize( mat3( m ) * normal );
+  vH = aH;
+  vec4 wp = m * vec4( position, 1.0 );
+  vDist = length( wp.xz - uCamPos.xz );
+  vViewDir = normalize( cameraPosition - wp.xyz );
+  gl_Position = projectionMatrix * viewMatrix * dlCurve( wp );
+}`;
+
+const WORLD_FRAG = /* glsl */ `
+uniform vec3 uLit;
+uniform vec3 uShade;
+uniform vec3 uHaze;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform float uOpacity;
+uniform vec3 uFogColor;
+uniform vec2 uFogRange;
+varying vec3 vWN;
+varying float vH;
+varying float vDist;
+varying vec3 vViewDir;
+void main() {
+  vec3 n = normalize( vWN );
+  vec3 sd = normalize( uSunDir );
+  float up = n.y * 0.7 + dot( n, sd ) * 0.4;
+  vec3 c = mix( uShade, uLit, smoothstep( -0.6, 0.5, up ) );
+  vec3 v = normalize( vViewDir );
+  float fr = pow( 1.0 - max( dot( n, v ), 0.0 ), 2.5 );
+  float back = pow( max( dot( -v, sd ), 0.0 ), 3.0 );
+  c = mix( c, uLit, fr * 0.4 );
+  c += uSunColor * fr * back * 0.5;
+  // 납작한 바닥은 조금 더 그늘
+  c = mix( c, uShade * 0.94, ( 1.0 - smoothstep( 0.0, 0.25, vH ) ) * 0.3 );
+  // 멀수록 하늘 공기에 녹는다(땅 안개보다 느슨하게 — 구름은 하늘에 있으니까)
+  float f = smoothstep( uFogRange.x, uFogRange.y, vDist );
+  c = mix( c, mix( uHaze, uFogColor, 0.5 ), f * 0.92 );
+  float a = uOpacity * ( 1.0 - smoothstep( 0.85, 1.0, f ) );
+  gl_FragColor = vec4( c, a );
+  #include <colorspace_fragment>
+}`;
+
+const worldUniforms = {
+  ...TONE,
+  uCamPos: { value: new THREE.Vector3() },
+  uFogColor: { value: new THREE.Color('#cfeeff') },
+  uFogRange: { value: new THREE.Vector2(600, 2400) },
+  uCurveK: curveUniforms.uCurveK, uCurveOrigin: curveUniforms.uCurveOrigin,
+};
+const worldMat = new THREE.ShaderMaterial({ uniforms: worldUniforms, vertexShader: WORLD_VERT, fragmentShader: WORLD_FRAG, fog: false });
+worldMat.userData.noCurve = true; // 곡률은 셰이더에 직접
+
+/** 세계 구름 청크 한 변(크게 잡아 청크 수 = 드로우콜 수를 줄인다)·반경 / 높이 / 덩이 폭(m) */
+export const WORLD_CLOUD = { size: 960, radius: 1500, minY: 120, maxY: 200, width: [55, 110] as [number, number] };
+
+/** 청크 안 구름 자리(결정적) — 바다 위는 넉넉히, 땅 위는 높은 산을 피해 듬성듬성 */
+export function worldCloudSpots(rng: (k: string) => () => number, heightAt: (x: number, z: number) => number, cx: number, cz: number) {
+  const S = WORLD_CLOUD.size;
+  const rnd = rng(`atmosphere-clouds:${cx},${cz}`);
+  const out: Array<{ x: number; y: number; z: number; w: number; yaw: number; sy: number; v: number }> = [];
+  const variant = Math.floor(rnd() * 3);
+  // 청크가 크니(960 m) 덩이를 몇 개씩 — 드로우콜은 청크당 1
+  const n = Math.floor(rnd() * 6.5);
+  for (let i = 0; i < n; i++) {
+    const x = (cx + 0.1 + rnd() * 0.8) * S, z = (cz + 0.1 + rnd() * 0.8) * S;
+    const y = WORLD_CLOUD.minY + rnd() * (WORLD_CLOUD.maxY - WORLD_CLOUD.minY);
+    const w = WORLD_CLOUD.width[0] + rnd() * (WORLD_CLOUD.width[1] - WORLD_CLOUD.width[0]);
+    const yaw = rnd() * Math.PI * 2, sy = 0.8 + rnd() * 0.35, keep = rnd();
+    const h = heightAt(x, z);
+    // 땅 위: 40% 만 남기고, 산꼭대기와는 60 m 이상 띄운다
+    if (h > 0 && (keep > 0.4 || y - h < 60)) continue;
+    out.push({ x, y, z, w, yaw, sy, v: variant });
+  }
+  return out;
+}
+
+let worldGeos: THREE.BufferGeometry[] | null = null;
+function worldCloudGeos(ctx: Ctx) {
+  if (worldGeos) return worldGeos;
+  const rnd = ctx.rng('atmo:clouds:world');
+  worldGeos = [0.45, 0.7, 0.95].map((tall) => {
+    const g = cumulus(rnd, tall);
+    // 폭 ~2 → 1 로(인스턴스 크기 = 폭 m)
+    g.scale(0.5, 0.5, 0.62);
+    g.userData.shared = true;
+    return g;
+  });
+  return worldGeos;
+}
+
+export function buildWorldClouds(ctx: Ctx) {
+  const game = ctx.game;
+  if (!game) return null;
+  const geos = worldCloudGeos(ctx);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+  game.chunks.add({
+    key: 'atmosphere-clouds', size: WORLD_CLOUD.size, radius: WORLD_CLOUD.radius, world: 'earth', detail: true,
+    build: ({ cx, cz }) => {
+      const spots = worldCloudSpots(ctx.rng, ctx.island.heightAt, cx, cz);
+      if (!spots.length) return null;
+      const mesh = new THREE.InstancedMesh(geos[spots[0].v], worldMat, spots.length);
+      mesh.name = 'atmo-world-clouds';
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.userData.noCurve = true;
+      spots.forEach((s, i) => {
+        e.set(0, s.yaw, 0);
+        q.setFromEuler(e);
+        v.set(s.x, s.y, s.z);
+        sc.set(s.w, s.w * s.sy, s.w);
+        m4.compose(v, q, sc);
+        mesh.setMatrixAt(i, m4);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      return mesh;
+    },
+    dispose: (obj) => { (obj as THREE.InstancedMesh).dispose?.(); },
+  });
+  const fog = () => ctx.scene.fog as THREE.Fog | null;
+  ctx.onUpdate(() => {
+    worldUniforms.uCamPos.value.copy(ctx.camera.position);
+    const f = fog();
+    if (f) {
+      worldUniforms.uFogColor.value.copy(f.color);
+      // 땅 안개 거리의 0.6 ~ 2.1 배(안개 날씨면 구름도 금방 숨는다)
+      worldUniforms.uFogRange.value.set(f.far * 0.6, Math.max(f.far * 2.1, f.far * 0.6 + 50));
+    }
+  });
+  return worldMat;
 }

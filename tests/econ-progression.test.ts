@@ -111,8 +111,11 @@ describe('P0 소비 루프 한 판(GDD 4.9)', () => {
     expect(econ.donate('t_zod3')).toBe(true);
     expect(econ.isUnlocked('rocket:part:chip')).toBe(true);
     expect(econ.isDonated('t_zod1') && !econ.canDonate('t_zod1')).toBe(true);
-    expect(econ.stars).toBe(12); // 기증 ★2 × 3
-    expect(ev.of('donate').at(-1)).toMatchObject({ id: 't_zod3', coins: 400, stars: 2 });
+    // 오늘의 손님(★2~4 물고기)이 별자리 물고기 중 하나로 뽑히면 기증 ★+5 가 더 붙는다
+    const guestBonus = zod.some((z) => (econ as unknown as { guest?: () => { id: string } | null }).guest?.()?.id === z.id) ? 5 : 0;
+    expect(econ.stars).toBe(12 + guestBonus); // 기증 ★2 × 3 (+ 손님 보너스)
+    const g3 = (econ as unknown as { guest?: () => { id: string } | null }).guest?.()?.id === 't_zod3' ? 5 : 0;
+    expect(ev.of('donate').at(-1)).toMatchObject({ id: 't_zod3', coins: 400, stars: 2 + g3 });
     expect(econ.rocket().count).toBe(6);
 
     // 발사대 전엔 발사 못 함

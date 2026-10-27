@@ -238,6 +238,58 @@ export function bake(root: THREE.Object3D, mats: Record<MatKey, THREE.Material>)
   return out;
 }
 
+/**
+ * group 아래 재질 키 메시들을 group 기준 좌표로 재질별 지오메트리 하나씩으로 합친다(움직이는 조각·인스턴스용).
+ * userData.live 인 하위 트리는 건너뛴다.
+ */
+export function mergeParts(group: THREE.Object3D): Map<MatKey, THREE.BufferGeometry> {
+  group.updateMatrixWorld(true);
+  const inv = group.matrixWorld.clone().invert();
+  const buckets = new Map<MatKey, THREE.BufferGeometry[]>();
+  const visit = (o: THREE.Object3D) => {
+    if (o !== group && o.userData.live) return;
+    const m = o as THREE.Mesh;
+    if (m.isMesh && m.userData.mk) {
+      const g = prep(m.geometry.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld)));
+      const list = buckets.get(m.userData.mk) ?? [];
+      list.push(g);
+      buckets.set(m.userData.mk, list);
+    }
+    for (const c of o.children) visit(c);
+  };
+  visit(group);
+  const out = new Map<MatKey, THREE.BufferGeometry>();
+  for (const [k, list] of buckets) {
+    const merged = mergeGeometries(list, false);
+    if (!merged) throw new Error('merge failed: ' + k);
+    out.set(k, merged);
+  }
+  return out;
+}
+
+/**
+ * 살아 있는(bake 안 되는) 조각의 메시들을 재질별 하나로 줄인다 — draw call 절약. group 의 변환은 그대로.
+ * 재질 키 메시만 합치고, 자기 재질을 가진 메시(비눗방울 등)·빈 그룹이 아닌 자식은 남긴다.
+ */
+export function compactLive<T extends THREE.Object3D>(group: T): T {
+  const geos = mergeParts(group);
+  const drop: THREE.Object3D[] = [];
+  group.traverse((o) => { if (o !== group && (o as THREE.Mesh).isMesh && o.userData.mk) drop.push(o); });
+  for (const o of drop) o.removeFromParent();
+  // 메시가 빠져 비어 버린 하위 그룹 정리
+  const empty: THREE.Object3D[] = [];
+  group.traverse((o) => { if (o !== group && !(o as THREE.Mesh).isMesh && o.children.length === 0) empty.push(o); });
+  for (const o of empty) o.removeFromParent();
+  for (const [k, g] of geos) {
+    const m = new THREE.Mesh(g);
+    m.userData.mk = k;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+  }
+  return group;
+}
+
 /** 땅 위 놓기: 발자국 네 귀퉁이 중 가장 낮은 높이(떠 보이지 않게) */
 export function groundY(heightAt: (x: number, z: number) => number, x: number, z: number, rx = 0.3, rz = 0.3): number {
   return Math.min(heightAt(x, z), heightAt(x - rx, z - rz), heightAt(x + rx, z - rz), heightAt(x - rx, z + rz), heightAt(x + rx, z + rz));

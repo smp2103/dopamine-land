@@ -12,6 +12,7 @@ import {
   comboText, comboVisible, type HudTab, type PromptChip, type BannerItem, type CardItem,
 } from './logic';
 import type { Look } from './panels/common';
+import { PLANET_NAME } from './logic';
 
 const h = (html: string) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild as HTMLElement; };
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -29,8 +30,9 @@ const CHEST_LOOK: Record<string, { name: string; color: string; glow: string; n:
   wood: { name: '나무', color: '#c98f55', glow: '#ffe2b8', n: 24 }, silver: { name: '은', color: '#b8c4d6', glow: '#ffffff', n: 34 },
   gold: { name: '금', color: '#ffcf4a', glow: '#fff3c4', n: 56 }, rainbow: { name: '무지개', color: '#ff9fb8', glow: '#c9f3ff', n: 80 },
   space: { name: '우주', color: '#a99bff', glow: '#e5e2ff', n: 48 },
-  ...Object.fromEntries(Object.entries(TIERS).map(([k, t]) => [k, { name: t.name, color: t.color, glow: t.glow, n: k === 'legend' ? 80 : k === 'epic' ? 56 : 30 }])),
 };
+// 경제 표의 등급 색·이름을 덮되, 꽃가루 수(n)는 위 기본값(없으면 예전 등급 규칙)을 지킨다
+for (const [k, t] of Object.entries(TIERS)) CHEST_LOOK[k] = { name: t.name, color: t.color, glow: t.glow, n: CHEST_LOOK[k]?.n ?? (k === 'legend' ? 80 : k === 'epic' ? 56 : 30) };
 
 export class HudView implements HudRenderer {
   readonly root: HTMLElement;
@@ -366,7 +368,7 @@ export class HudView implements HudRenderer {
     const look = d ? ISLAND_LOOK[d.theme] ?? ISLAND_LOOK.islet : { sub: '파도가 반짝반짝', color: '#6cc3ef' };
     return {
       id: space ? 'space' : d?.id ?? null,
-      name: space ? '우주' : d ? this.islandName(d.id, d.name) : '먼바다',
+      name: space ? PLANET_NAME[game.space?.planet ?? ''] ?? '우주' : d ? this.islandName(d.id, d.name) : '먼바다',
       sub: space ? '둥실둥실 별의 바다' : look.sub,
       color: space ? '#4a4fa8' : look.color,
       space,
@@ -377,7 +379,8 @@ export class HudView implements HudRenderer {
     if (this.mapLbl.textContent !== pl.name) this.mapLbl.textContent = pl.name;
     // 섬을 옮기면 젤다식 지역 이름
     if (pl.id !== this.curIsland) {
-      this.showRegion(pl.name, pl.sub, pl.space ? '#8f86ff' : pl.color, pl.space ? '#1d2257' : '#5a3f22');
+      // 행성 도착 배너는 space 모듈이 직접 띄운다(산소·캡슐 안내) — 겹치지 않게 건너뛴다
+      if (!(pl.space && this.game.space?.planet && PLANET_NAME[this.game.space.planet])) this.showRegion(pl.name, pl.sub, pl.space ? '#8f86ff' : pl.color, pl.space ? '#1d2257' : '#5a3f22');
       this.curIsland = pl.id;
     }
   }
@@ -539,8 +542,18 @@ export class HudView implements HudRenderer {
   }
 
   /** 상자 결과: 등급 이름 + 아이템이 하나씩 튀어나온다 */
-  showLoot(tier: string, loot: Array<{ id: string; n: number; name?: string }>) {
+  showLoot(tier: string, loot: Array<{ id: string; n: number; name?: string }>, mimic = false) {
     const T = CHEST_LOOK[tier] ?? CHEST_LOOK.wood;
+    if (mimic) {
+      // 미믹 상자 — 빈 카드 대신 깜짝 문구
+      this.lootEl.style.setProperty('--rc', '#ff8fb1');
+      this.lootEl.innerHTML = `<div class="tier">미믹 상자게다! 🦀</div><div class="row"><div class="it dl-card" style="animation-delay:0.25s">상자가 꿈틀꿈틀 도망쳤어요!</div></div>`;
+      this.lootEl.classList.remove('on'); void this.lootEl.offsetWidth; this.lootEl.classList.add('on');
+      this.confetti(this.lootEl, ['#ff8fb1', '#ffffff', '#ffe58a'], 20);
+      clearTimeout(this.lootTimer);
+      if (!hold()) this.lootTimer = window.setTimeout(() => this.lootEl.classList.remove('on'), 2600);
+      return;
+    }
     const ico = (id: string) => (id === 'coins' ? '🪙' : id === 'stars' ? '⭐' : MAT.get(id)?.icon ?? this.look.ico(id));
     this.lootEl.style.setProperty('--rc', T.color);
     this.lootEl.innerHTML = `<div class="tier">${esc(T.name)} 상자!</div><div class="row">${loot.map((l, i) =>

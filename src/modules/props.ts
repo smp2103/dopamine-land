@@ -1,10 +1,11 @@
-// 소품: 보물상자·풍선 선물·낚시 물고기 그림자·마을 소품(집·우체통·표지판·울타리·벤치·가로등·바위)·해변 조개.
+// 소품: 보물상자·풍선 선물·낚시 물고기 그림자·마을 소품(집·표지판·울타리·벤치·가로등·바위)·해변 조개.
+// 우체통은 하나만: 내 집 앞(PLACES.mailbox, village 가 짓는다).
 // 정적인 것은 재질별로 합쳐 draw call 을 줄이고, 움직이는 것(뚜껑·풍선·물고기)만 따로 둔다.
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import { makeMaterials, bake, groundY } from './props/kit';
 import { buildChest } from './props/chest';
-import { buildHouse, buildMailbox, buildSign, buildFence, buildBench, buildLamp, buildRocks } from './props/village';
+import { buildHouse, buildSign, buildFence, buildBench, buildLamp, buildRocks } from './props/village';
 import { buildScallop, buildConch, buildStarfish, buildDriftwood } from './props/beach';
 import { buildBalloonGift } from './props/balloon';
 import { buildFishSpot } from './props/fishing';
@@ -42,9 +43,8 @@ export default function build(ctx: Ctx) {
   const chest = put(buildChest({ rng: ctx.rng('props:chest'), onUpdate: ctx.onUpdate, camera: ctx.camera, renderer: ctx.renderer }), c.x, c.z, -0.22, 0.35, 0.9, 0.01);
   chest.scale.setScalar(1.1);
 
-  // ── 마을: 화면 위쪽(북)에 집, 그 앞에 우체통·가로등, 오른쪽에 벤치·울타리
+  // ── 마을: 화면 위쪽(북)에 집, 그 앞에 가로등, 오른쪽에 벤치·울타리
   put(buildHouse('#f07264'), -0.7, -7.3, 0, 1.4, 2.4, 0.05);
-  put(buildMailbox('#5aaef0'), 1.45, -5.55, -0.25, 0.15, 0.5);
   const lamps = [buildLamp(), buildLamp()];
   put(lamps[0].group, -2.75, -5.2, 0, 0.2, 0.5);
   put(lamps[1].group, 4.3, 2.3, 0, 0.2, 0.5);

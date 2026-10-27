@@ -207,3 +207,156 @@ export function buildLife(ctx: Ctx) {
   });
   return group;
 }
+
+// ── 하트 연기: 쿵쿵공룡섬 화산 분화구에서 하트 모양 연기가 몽글몽글 피어오른다 ─────────
+// 하트 하나하나의 나이·자리·크기는 셰이더가 시간으로 굴린다(CPU 갱신 없음, 드로우콜 1).
+
+const HEART_VERT = /* glsl */ `
+${CURVE_GLSL_HEAD}
+attribute vec4 aSeed;
+uniform float uTime;
+uniform vec3 uVent;
+uniform vec3 uWind;
+uniform float uLife;
+varying vec3 vN;
+varying float vA;
+varying float vAge;
+varying float vDist;
+void main() {
+  float age = fract( ( uTime + aSeed.x * uLife ) / uLife );
+  float grow = sqrt( age );
+  // 위로 70 m 쯤 오르며 바람에 밀리고, 살랑살랑 흔들린다
+  vec3 c = uVent + vec3( 0.0, age * 95.0, 0.0 ) + uWind * age * age * 55.0;
+  c.x += sin( uTime * 0.4 + aSeed.y * 30.0 ) * ( 2.0 + grow * 6.0 ) + ( aSeed.z - 0.5 ) * 10.0;
+  c.z += cos( uTime * 0.35 + aSeed.w * 30.0 ) * ( 2.0 + grow * 6.0 ) + ( aSeed.w - 0.5 ) * 10.0;
+  float size = mix( 9.0, 26.0, grow ) * ( 0.85 + 0.3 * aSeed.y );
+  // 카메라 쪽으로 돌기(세로 축) + 살짝 기우뚱
+  vec3 toCam = cameraPosition - c;
+  float yaw = atan( toCam.x, toCam.z );
+  float tilt = sin( uTime * 0.8 + aSeed.z * 20.0 ) * 0.18;
+  vec3 p = position;
+  p = vec3( p.x * cos( tilt ) - p.y * sin( tilt ), p.x * sin( tilt ) + p.y * cos( tilt ), p.z );
+  vec3 n = vec3( normal.x * cos( tilt ) - normal.y * sin( tilt ), normal.x * sin( tilt ) + normal.y * cos( tilt ), normal.z );
+  float cy = cos( yaw ), sy = sin( yaw );
+  p = vec3( p.x * cy + p.z * sy, p.y, -p.x * sy + p.z * cy );
+  n = vec3( n.x * cy + n.z * sy, n.y, -n.x * sy + n.z * cy );
+  // 위로 오를수록 하트가 '퐁' 부풀었다 사르르
+  float puff = 1.0 + 0.06 * sin( uTime * 2.0 + aSeed.x * 40.0 );
+  vec4 wp = vec4( c + p * size * puff, 1.0 );
+  vN = n;
+  vAge = age;
+  vA = smoothstep( 0.0, 0.08, age ) * ( 1.0 - smoothstep( 0.55, 1.0, age ) );
+  vDist = length( wp.xz - cameraPosition.xz );
+  gl_Position = projectionMatrix * viewMatrix * dlCurve( wp );
+}`;
+
+const HEART_FRAG = /* glsl */ `
+uniform vec3 uLit;
+uniform vec3 uShade;
+uniform vec3 uSunDir;
+uniform vec3 uFogColor;
+uniform vec2 uFogRange;
+uniform float uAmount;
+varying vec3 vN;
+varying float vA;
+varying float vAge;
+varying float vDist;
+void main() {
+  vec3 n = normalize( vN );
+  float up = n.y * 0.6 + dot( n, normalize( uSunDir ) ) * 0.4 + n.z * 0.2;
+  vec3 c = mix( uShade, uLit, smoothstep( -0.5, 0.6, up ) );
+  // 갓 나온 하트는 분홍이 진하고, 오르면서 하얗게 바랜다
+  c = mix( c, uLit, smoothstep( 0.2, 0.9, vAge ) * 0.5 );
+  c = mix( c, uFogColor, smoothstep( uFogRange.x, uFogRange.y, vDist ) * 0.8 );
+  float a = vA * uAmount * 0.85;
+  if ( a < 0.004 ) discard;
+  gl_FragColor = vec4( c, a );
+  #include <colorspace_fragment>
+}`;
+
+/** 통통한 하트(폭 1, 가운데 원점, 앞 = +z) */
+function puffyHeart(): THREE.BufferGeometry {
+  const s = new THREE.Shape();
+  s.moveTo(0, -0.42);
+  s.bezierCurveTo(0.12, -0.3, 0.5, -0.08, 0.5, 0.16);
+  s.bezierCurveTo(0.5, 0.4, 0.28, 0.5, 0.15, 0.46);
+  s.bezierCurveTo(0.06, 0.43, 0.02, 0.36, 0, 0.3);
+  s.bezierCurveTo(-0.02, 0.36, -0.06, 0.43, -0.15, 0.46);
+  s.bezierCurveTo(-0.28, 0.5, -0.5, 0.4, -0.5, 0.16);
+  s.bezierCurveTo(-0.5, -0.08, -0.12, -0.3, 0, -0.42);
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.12, bevelEnabled: true, bevelThickness: 0.16, bevelSize: 0.12, bevelSegments: 5, curveSegments: 14 });
+  g.center();
+  g.computeVertexNormals();
+  return g;
+}
+
+/** 화산 분화구 자리(지형 특징 'feat:dino:volcano') + 연기가 나오는 높이 */
+export function volcanoVent(island: Ctx['island']): THREE.Vector3 | null {
+  const f = island.worldFeatures().find((x) => x.id === 'feat:dino:volcano');
+  if (!f) return null;
+  // 분화구 둘레(테두리) 중 가장 높은 곳 — 연기는 테두리 높이에서 시작
+  let rim = island.heightAt(f.x, f.z);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    rim = Math.max(rim, island.heightAt(f.x + Math.cos(a) * 40, f.z + Math.sin(a) * 40));
+  }
+  return new THREE.Vector3(f.x, rim - 6, f.z);
+}
+
+export function buildHeartSmoke(ctx: Ctx, count = 14) {
+  const geo = new THREE.InstancedBufferGeometry();
+  const base = puffyHeart();
+  geo.index = base.index;
+  geo.setAttribute('position', base.attributes.position);
+  geo.setAttribute('normal', base.attributes.normal);
+  const rnd = ctx.rng('atmo:heartsmoke');
+  const seed = new Float32Array(count * 4);
+  // 나이 차례를 엇갈리게(앞 절반만 그려도 고르게 피어오르게 — 낮음 품질)
+  for (let i = 0; i < count; i++) {
+    const slot = (i * 2) % count + (i * 2 >= count ? 1 : 0);
+    seed.set([slot / count + rnd() * 0.03, rnd(), rnd(), rnd()], i * 4);
+  }
+  geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seed, 4));
+  geo.instanceCount = count;
+  const vent = volcanoVent(ctx.island) ?? new THREE.Vector3();
+  const uniforms = {
+    uTime: { value: 0 }, uVent: { value: vent.clone() }, uWind: { value: new THREE.Vector3(0.8, 0, 0.35) }, uLife: { value: 14 },
+    uLit: { value: new THREE.Color('#fff4f8') }, uShade: { value: new THREE.Color('#ffb3cc') },
+    uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uFogColor: { value: new THREE.Color('#dfcbb8') },
+    uFogRange: { value: new THREE.Vector2(900, 3200) }, uAmount: { value: 0 },
+    uCurveK: curveUniforms.uCurveK, uCurveOrigin: curveUniforms.uCurveOrigin,
+  };
+  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: HEART_VERT, fragmentShader: HEART_FRAG, transparent: true, depthWrite: false, fog: false });
+  mat.userData.noCurve = true;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'atmo-heart-smoke';
+  mesh.frustumCulled = false;
+  mesh.userData.noCurve = true;
+  mesh.visible = false;
+  const lit = new THREE.Color(), shade = new THREE.Color();
+  /** 카메라가 화산에서 이 거리 안이면 보인다 */
+  const SHOW = 3200;
+  const update = (t: number, cam: THREE.Vector3, amount: number, p: TodPreset, sunDir: THREE.Vector3, half: boolean) => {
+    const d = Math.hypot(cam.x - vent.x, cam.z - vent.z);
+    const a = amount * (1 - smoothstep01(SHOW * 0.8, SHOW, d));
+    mesh.visible = a > 0.01;
+    if (!mesh.visible) return;
+    uniforms.uTime.value = t;
+    uniforms.uAmount.value = a;
+    // 장면 빛을 따라(밤엔 은은한 라벤더 분홍, 낮엔 솜사탕 분홍)
+    lit.set('#fff4f8').lerp(shade.set(p.cloudLit), 0.35);
+    uniforms.uLit.value.copy(lit);
+    uniforms.uShade.value.set('#ffb3cc').lerp(shade.set(p.cloudShade), 0.4);
+    uniforms.uSunDir.value.copy(sunDir);
+    uniforms.uFogColor.value.set(p.fogColor);
+    const far = p.worldFog?.far ?? 1100;
+    uniforms.uFogRange.value.set(far * 0.8, far * 2.8);
+    geo.instanceCount = half ? Math.ceil(count / 2) : count;
+  };
+  return { mesh, update, vent };
+}
+
+const smoothstep01 = (e0: number, e1: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};

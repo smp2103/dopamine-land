@@ -69,7 +69,15 @@ void main() {
     a = ( 1.0 - smoothstep( 0.0, 0.16, abs( across ) ) ) * ( 1.0 - smoothstep( 0.55, 1.0, abs( along ) ) );
   #else
     float r = length( q );
-    #ifdef STAR
+    #ifdef PETAL
+      // 꽃잎: 빙글 도는 통통한 물방울 타원(끝이 살짝 패인 벚꽃잎)
+      float ang = uTime * ( 1.2 + vSeed * 2.0 ) + vSeed * 30.0;
+      vec2 pq = mat2( cos( ang ), -sin( ang ), sin( ang ), cos( ang ) ) * q;
+      pq.x *= 1.0 + 0.6 * abs( sin( uTime * 2.3 + vSeed * 9.0 ) ); // 팔랑(옆으로 뒤집힘)
+      float body = length( vec2( pq.x * 1.7, pq.y + 0.12 * pq.y * pq.y ) );
+      float notch = 1.0 - smoothstep( 0.0, 0.16, length( pq - vec2( 0.0, 0.62 ) ) );
+      a = ( 1.0 - smoothstep( 0.55, 0.75, body ) ) * ( 1.0 - notch );
+    #elif defined( STAR )
       // 반짝: 네 갈래 별빛 + 가운데 점
       float arms = ( 1.0 - smoothstep( 0.0, 0.07, abs( q.x ) ) ) * ( 1.0 - smoothstep( 0.1, 1.0, abs( q.y ) ) )
                  + ( 1.0 - smoothstep( 0.0, 0.07, abs( q.y ) ) ) * ( 1.0 - smoothstep( 0.1, 1.0, abs( q.x ) ) );
@@ -103,6 +111,8 @@ export interface WeatherKind {
   glow?: boolean;
   twinkle?: number;
   star?: boolean;
+  /** 빙글 도는 꽃잎 모양 */
+  petal?: boolean;
   /** 높이 범위(플레이어 발 + 4 m 기준, m). 없으면 상자 높이 전체 */
   yRange?: [number, number];
   opacity: number;
@@ -114,7 +124,13 @@ export interface WeatherKind {
 /** 날씨 상자 높이 기준(플레이어 발 높이). NaN 이면 카메라 높이 */
 export const weatherCenter = { y: NaN };
 
-export interface WeatherLayer { pts: THREE.Points; set: (amount: number) => void; kind: WeatherKind }
+export interface WeatherLayer {
+  pts: THREE.Points;
+  set: (amount: number) => void;
+  kind: WeatherKind;
+  /** 낮음 품질: 알갱이 절반만 그린다 */
+  half: (on: boolean) => void;
+}
 
 export function makeLayer(ctx: Ctx, k: WeatherKind): WeatherLayer {
   const rnd = ctx.rng('atmo:weather:' + k.key);
@@ -140,6 +156,7 @@ export function makeLayer(ctx: Ctx, k: WeatherKind): WeatherLayer {
   if (k.streak) defines.STREAK = '';
   if (k.glow) defines.GLOW = '';
   if (k.star) defines.STAR = '';
+  if (k.petal) defines.PETAL = '';
   const mat = new THREE.ShaderMaterial({
     uniforms, defines, vertexShader: VERT, fragmentShader: FRAG,
     transparent: true, depthWrite: false, fog: false,
@@ -165,6 +182,7 @@ export function makeLayer(ctx: Ctx, k: WeatherKind): WeatherLayer {
       uniforms.uAmount.value = amount * k.opacity;
       pts.visible = amount > 0.01;
     },
+    half: (on: boolean) => { geo.setDrawRange(0, on ? Math.floor(k.count / 2) : k.count); },
   };
 }
 
@@ -177,6 +195,12 @@ export const KINDS: Record<string, WeatherKind> = {
   ash: { key: 'ash', count: 1800, box: 52, vel: [0.8, -0.8, 0.3], sway: 0.9, size: 0.14, color: '#b3a7a2', color2: '#d2c6bd', yRange: [-4, 24], opacity: 0.8 },
   embers: { key: 'embers', count: 300, box: 46, vel: [0.3, 1.4, 0.2], sway: 0.6, size: 0.12, color: '#ff9a4a', color2: '#ffd36a', additive: true, glow: true, twinkle: 0.9, yRange: [-3, 16], opacity: 1 },
   sparkle: { key: 'sparkle', count: 800, box: 40, vel: [0.2, 0.15, 0.1], sway: 0.5, size: 0.24, color: '#ffffff', color2: '#a6fff2', additive: true, star: true, twinkle: 1, yRange: [-3, 8], opacity: 1, maxPx: 9 },
+  // 눈보라: 옆으로 휙휙 날리는 눈 줄(둥근 끝)
+  blizzard: { key: 'blizzard', count: 2600, box: 44, vel: [16, -3.2, 6], sway: 0.6, size: 0.4, color: '#ffffff', color2: '#e6f0ff', streak: true, yRange: [-4, 14], opacity: 0.55, maxPx: 22, near: 3 },
+  // 봄 꽃잎: 연분홍 꽃잎이 빙글빙글 천천히
+  petals: { key: 'petals', count: 420, box: 46, vel: [0.9, -0.7, 0.35], sway: 1.1, size: 0.16, color: '#ffc4dc', color2: '#fff0f6', petal: true, yRange: [-3, 12], opacity: 0.95, maxPx: 10 },
+  // 겨울 서리: 땅 가까이 반짝이는 얼음 가루
+  frost: { key: 'frost', count: 360, box: 36, vel: [0.08, -0.05, 0.05], sway: 0.4, size: 0.12, color: '#ffffff', color2: '#d6ecff', additive: true, star: true, twinkle: 1, yRange: [-3.6, 1.2], opacity: 0.7, maxPx: 6, near: 3 },
   // 밤 반딧불·등불 같은 따뜻한 빛 점(모든 섬) — 풀숲 높이에 듬성듬성
   glow: { key: 'glow', count: 520, box: 60, vel: [0.05, 0.08, 0.04], sway: 1.2, size: 0.22, color: '#ffe48a', color2: '#d8ff8a', additive: true, glow: true, twinkle: 1, yRange: [-3.4, 1.5], opacity: 1.8, maxPx: 10, near: 5 },
 };
@@ -253,59 +277,189 @@ export function makeBirds(ctx: Ctx) {
   return { mesh, update };
 }
 
-// ───────── 무지개(비 갠 뒤): 해 반대편 하늘에 큰 활 ─────────
+// ───────── 무지개(비 갠 뒤): 해 반대편 하늘에 큰 활 + 바깥에 옅은 쌍무지개 ─────────
+const BOW_FRAG = /* glsl */ `
+  uniform float uIn; uniform float uOut; uniform float uAmount; uniform float uFlip;
+  varying vec2 vP;
+  vec3 hue( float h ) { return clamp( abs( mod( h * 6.0 + vec3( 0.0, 4.0, 2.0 ), 6.0 ) - 3.0 ) - 1.0, 0.0, 1.0 ); }
+  void main() {
+    float r = ( length( vP ) - uIn ) / ( uOut - uIn );
+    // 첫 무지개: 바깥 빨강 → 안쪽 보라 / 쌍무지개: 거꾸로
+    vec3 c = hue( mix( 1.0 - r, r, uFlip ) * 0.78 );
+    float edge = smoothstep( 0.0, 0.18, r ) * ( 1.0 - smoothstep( 0.82, 1.0, r ) );
+    // 활 양끝(지평선 쪽)은 옅게
+    float ang = atan( vP.y, vP.x );
+    float ends = smoothstep( 0.0, 0.5, sin( ang ) );
+    gl_FragColor = vec4( c * edge * ends * uAmount * 0.55, 1.0 );
+    #include <colorspace_fragment>
+  }`;
+
 export function makeRainbow() {
   const D = 1900;
-  const R = D * Math.tan(THREE.MathUtils.degToRad(42));
-  const W = D * Math.tan(THREE.MathUtils.degToRad(3.2));
-  const geo = new THREE.RingGeometry(R - W, R + W, 160, 1, 0, Math.PI);
-  const uniforms = { uIn: { value: R - W }, uOut: { value: R + W }, uAmount: { value: 0 } };
-  const mat = new THREE.ShaderMaterial({
-    uniforms, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    vertexShader: /* glsl */ `
-      varying vec2 vP;
-      void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`,
-    fragmentShader: /* glsl */ `
-      uniform float uIn; uniform float uOut; uniform float uAmount;
-      varying vec2 vP;
-      vec3 hue( float h ) { return clamp( abs( mod( h * 6.0 + vec3( 0.0, 4.0, 2.0 ), 6.0 ) - 3.0 ) - 1.0, 0.0, 1.0 ); }
-      void main() {
-        float r = ( length( vP ) - uIn ) / ( uOut - uIn );
-        // 바깥 빨강 → 안쪽 보라
-        vec3 c = hue( ( 1.0 - r ) * 0.78 );
-        float edge = smoothstep( 0.0, 0.18, r ) * ( 1.0 - smoothstep( 0.82, 1.0, r ) );
-        // 활 양끝(지평선 쪽)은 옅게
-        float ang = atan( vP.y, vP.x );
-        float ends = smoothstep( 0.0, 0.5, sin( ang ) );
-        gl_FragColor = vec4( c * edge * ends * uAmount * 0.55, 1.0 );
-        #include <colorspace_fragment>
-      }`,
-  });
-  mat.userData.noCurve = true;
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.frustumCulled = false;
-  mesh.userData.noCurve = true;
-  mesh.renderOrder = -0.4;
+  const arc = (deg: number, wDeg: number, flip: number) => {
+    const R = D * Math.tan(THREE.MathUtils.degToRad(deg));
+    const W = D * Math.tan(THREE.MathUtils.degToRad(wDeg));
+    const uniforms = { uIn: { value: R - W }, uOut: { value: R + W }, uAmount: { value: 0 }, uFlip: { value: flip } };
+    const mat = new THREE.ShaderMaterial({
+      uniforms, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      vertexShader: /* glsl */ `
+        varying vec2 vP;
+        void main() { vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`,
+      fragmentShader: BOW_FRAG,
+    });
+    mat.userData.noCurve = true;
+    const mesh = new THREE.Mesh(new THREE.RingGeometry(R - W, R + W, 160, 1, 0, Math.PI), mat);
+    mesh.frustumCulled = false;
+    mesh.userData.noCurve = true;
+    mesh.renderOrder = -0.4;
+    return { mesh, uniforms };
+  };
+  const main = arc(42, 3.2, 0);
+  // 쌍무지개(51°, 색 순서 거꾸로, 아주 옅게) — 비 갠 뒤 첫 시간에만 또렷
+  const second = arc(51, 2.4, 1);
+  const bow = new THREE.Group();
+  bow.add(main.mesh, second.mesh);
+  bow.userData.noCurve = true;
   const holder = new THREE.Group();
   holder.name = 'rainbow';
   holder.userData.noCurve = true;
-  holder.add(mesh);
+  holder.add(bow);
   holder.visible = false;
-  const tmp = new THREE.Vector3();
-  /** sunDir: 해 방향(정규화), horizonY: 겉보기 지평선 기울기(sin) */
-  const update = (cam: THREE.Vector3, sunDir: THREE.Vector3, amount: number) => {
-    uniforms.uAmount.value = amount;
+  const tmp = new THREE.Vector3(), flat = new THREE.Vector3();
+  /** sunDir: 해 방향(정규화), amount 0..1, fresh 0..1 = 비 그친 직후일수록 1(쌍무지개) */
+  const update = (cam: THREE.Vector3, sunDir: THREE.Vector3, amount: number, fresh = 1) => {
+    main.uniforms.uAmount.value = amount;
+    second.uniforms.uAmount.value = amount * 0.32 * fresh;
+    second.mesh.visible = amount * fresh > 0.05;
     holder.visible = amount > 0.01;
     if (!holder.visible) return;
     holder.position.copy(cam);
     // 해 반대 방향(반태양점) — 해가 낮을수록 무지개가 높이 선다
     tmp.copy(sunDir).multiplyScalar(-1);
-    const flat = new THREE.Vector3(tmp.x, 0, tmp.z).normalize();
-    mesh.position.copy(flat).multiplyScalar(D);
-    mesh.position.y = Math.max(tmp.y, -0.26) * D; // 해가 높아도 활 윗부분은 보이게(귀여움 우선)
-    mesh.lookAt(0, mesh.position.y, 0);
+    flat.set(tmp.x, 0, tmp.z).normalize();
+    bow.position.copy(flat).multiplyScalar(D);
+    bow.position.y = Math.max(tmp.y, -0.26) * D; // 해가 높아도 활 윗부분은 보이게(귀여움 우선)
+    holder.updateMatrixWorld();
+    bow.lookAt(holder.position.x, holder.position.y + bow.position.y, holder.position.z);
   };
   return { holder, update };
+}
+
+// ───────── 큰 안개 덩이(안개·모래폭풍·눈보라): 카메라 둘레를 감싸 도는 부드러운 판(드로우콜 1) ─────────
+export interface PuffKind {
+  key: string;
+  count: number;
+  box: number;
+  vel: [number, number, number];
+  /** 판 크기(m) 최소·최대 */
+  size: [number, number];
+  /** 높이 범위(플레이어 발 + 4 m 기준) */
+  yRange: [number, number];
+  color: string;
+  opacity: number;
+  /** 이 거리 안은 옅게(얼굴에 붙지 않게) */
+  near: number;
+}
+
+export const PUFFS: Record<string, PuffKind> = {
+  // 안개: 땅을 기는 하얀 솜 안개
+  mist: { key: 'mist', count: 70, box: 110, vel: [0.35, 0, 0.15], size: [9, 18], yRange: [-5, 4], color: '#f4f7fb', opacity: 0.34, near: 7 },
+  // 모래폭풍: 바람에 밀려가는 살구빛 모래 안개
+  dust: { key: 'dust', count: 64, box: 100, vel: [9, 0.2, 3.2], size: [11, 22], yRange: [-5, 8], color: '#e9c992', opacity: 0.42, near: 6 },
+  // 눈보라: 하얀 시야(옆으로 빠르게)
+  whiteout: { key: 'whiteout', count: 56, box: 96, vel: [11, -1, 4], size: [9, 17], yRange: [-5, 8], color: '#f6faff', opacity: 0.3, near: 6 },
+};
+
+const PUFF_VERT = /* glsl */ `
+attribute vec2 aCorner;
+attribute vec4 aSeed;
+uniform float uTime; uniform float uBox; uniform vec3 uCam; uniform vec3 uVel;
+uniform vec2 uYRange; uniform vec2 uSize; uniform float uNear;
+varying vec2 vQ; varying float vFade; varying float vSeed;
+void main() {
+  vec3 p = position + uVel * ( 0.75 + 0.5 * aSeed.y ) * uTime;
+  p.x += sin( uTime * 0.13 + aSeed.x * 40.0 ) * 3.0;
+  p.z += cos( uTime * 0.11 + aSeed.w * 30.0 ) * 3.0;
+  vec3 rel;
+  rel.xz = mod( p.xz - uCam.xz + uBox * 0.5, uBox ) - uBox * 0.5;
+  float hh = uYRange.y - uYRange.x;
+  rel.y = mod( p.y - uCam.y - uYRange.x, hh ) + uYRange.x;
+  vec4 mv = viewMatrix * vec4( uCam + rel, 1.0 );
+  float size = mix( uSize.x, uSize.y, aSeed.z );
+  float a = aSeed.w * 6.2831 + uTime * 0.04 * ( aSeed.x - 0.5 );
+  mv.xy += mat2( cos( a ), sin( a ), -sin( a ), cos( a ) ) * aCorner * size;
+  gl_Position = projectionMatrix * mv;
+  vQ = aCorner; vSeed = aSeed.x;
+  vFade = ( 1.0 - smoothstep( uBox * 0.3, uBox * 0.5, length( rel.xz ) ) )
+        * smoothstep( uYRange.x, uYRange.x + 2.0, rel.y ) * ( 1.0 - smoothstep( uYRange.y - 2.0, uYRange.y, rel.y ) )
+        * smoothstep( uNear * 0.4, uNear, -mv.z );
+}`;
+
+const PUFF_FRAG = /* glsl */ `
+uniform vec3 uColor; uniform float uAmount;
+varying vec2 vQ; varying float vFade; varying float vSeed;
+void main() {
+  float r = length( vQ );
+  // 몽글몽글: 둘레를 조금 울퉁불퉁하게
+  float ang = atan( vQ.y, vQ.x );
+  float lump = 0.82 + 0.1 * sin( ang * 3.0 + vSeed * 20.0 ) + 0.06 * sin( ang * 7.0 + vSeed * 11.0 );
+  float a = pow( max( 1.0 - r / lump, 0.0 ), 1.7 );
+  a *= vFade * uAmount;
+  if ( a < 0.003 ) discard;
+  gl_FragColor = vec4( uColor, a );
+  #include <colorspace_fragment>
+}`;
+
+export interface PuffLayer { mesh: THREE.Mesh; set: (amount: number) => void; half: (on: boolean) => void; color: THREE.Color; kind: PuffKind }
+
+export function makePuffLayer(ctx: Ctx, k: PuffKind): PuffLayer {
+  const rnd = ctx.rng('atmo:puff:' + k.key);
+  const n = k.count;
+  const pos = new Float32Array(n * 4 * 3), corner = new Float32Array(n * 4 * 2), seed = new Float32Array(n * 4 * 4);
+  const idx: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const c = [(rnd() - 0.5) * k.box, k.yRange[0] + rnd() * (k.yRange[1] - k.yRange[0]), (rnd() - 0.5) * k.box];
+    const s = [rnd(), rnd(), rnd(), rnd()];
+    const cs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    for (let j = 0; j < 4; j++) {
+      const v = i * 4 + j;
+      pos.set(c, v * 3);
+      corner.set(cs[j], v * 2);
+      seed.set(s, v * 4);
+    }
+    const o = i * 4;
+    idx.push(o, o + 1, o + 2, o + 2, o + 1, o + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aCorner', new THREE.BufferAttribute(corner, 2));
+  geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+  geo.setIndex(idx);
+  const color = new THREE.Color(k.color);
+  const uniforms = {
+    uTime: { value: 0 }, uBox: { value: k.box }, uCam: { value: new THREE.Vector3() }, uVel: { value: new THREE.Vector3(...k.vel) },
+    uYRange: { value: new THREE.Vector2(...k.yRange) }, uSize: { value: new THREE.Vector2(...k.size) }, uNear: { value: k.near },
+    uColor: { value: color }, uAmount: { value: 0 },
+  };
+  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: PUFF_VERT, fragmentShader: PUFF_FRAG, transparent: true, depthWrite: false, fog: false });
+  mat.userData.noCurve = true;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'weather-' + k.key;
+  mesh.frustumCulled = false;
+  mesh.userData.noCurve = true;
+  mesh.renderOrder = 4;
+  mesh.visible = false;
+  ctx.onUpdate((t) => {
+    if (!mesh.visible) return;
+    uniforms.uTime.value = t;
+    uniforms.uCam.value.copy(ctx.camera.position);
+    if (Number.isFinite(weatherCenter.y)) uniforms.uCam.value.y = weatherCenter.y + 4;
+  });
+  return {
+    mesh, kind: k, color,
+    set: (amount: number) => { uniforms.uAmount.value = amount * k.opacity; mesh.visible = amount > 0.01; },
+    half: (on: boolean) => { geo.setDrawRange(0, (on ? Math.floor(n / 2) : n) * 6); },
+  };
 }
 
 // ───────── 물속 빛줄기: 수면에서 비스듬히 내려오는 부드러운 빛 기둥 ─────────

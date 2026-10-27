@@ -36,7 +36,10 @@ export function canMount(kind: string, econ: EconLike | null | undefined): boole
   if (econ.isUnlocked(`v:${k}`) || econ.isUnlocked(`licence:${k}`)) return true;
   if (k === 'moon_rover') return econ.isUnlocked('v:rover');
   const dino = /^dino_(.+)$/.exec(k);
-  if (dino) return econ.isUnlocked(`dino:${dino[1]}`);
+  // 공룡은 v:dino_<짧은 id> 가 정본 — 친구 키 dino:<짧은 id> · dino:dino-<짧은 id>(dinos 의 spec.id) 도 받는다
+  if (dino) return econ.isUnlocked(`dino:${dino[1]}`) || econ.isUnlocked(`dino:dino-${dino[1]}`);
+  // 스쿠터: 계약 2 의 v:scooter 키(없으면 위에서 v:scooter 로 이미 봤다) — 자전거 키로도 탄다
+  if (k === 'scooter') return econ.isUnlocked('v:bike');
   return false;
 }
 

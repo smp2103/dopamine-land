@@ -225,6 +225,38 @@ export const GOODS_TABLE: Record<string, { name: string; icon: string }> = {
   f_shellclock: { name: '조개 시계', icon: '🕰️' },
   f_rainbowlamp: { name: '무지개 램프', icon: '🌈' },
   f_starthrone: { name: '별빛 왕좌', icon: '👑' },
+  // 부탁 감사 선물·상자 덤(4.6.1·5.4)
+  f_thanks_letter: { name: '감사 편지 액자', icon: '💌' },
+  skin_helmet_1: { name: '토끼귀 우주 헬멧', icon: '🪖' },
+  // 박물관 동 마일스톤 가구(5.6) — 동마다 10/25/50/75/100%
+  f_aq_bubblelamp: { name: '물방울 램프', icon: '🫧' },
+  f_aq_fishmobile: { name: '물고기 모빌', icon: '🎐' },
+  f_aq_kelpcurtain: { name: '다시마 커튼', icon: '🌿' },
+  f_aq_whalesofa: { name: '고래 소파', icon: '🐳' },
+  f_aq_grandtank: { name: '대왕 수조', icon: '🐠' },
+  f_sea_shellchair: { name: '가리비 의자', icon: '🐚' },
+  f_sea_starrug: { name: '불가사리 러그', icon: '⭐' },
+  f_sea_anchorclock: { name: '닻 시계', icon: '⚓' },
+  f_sea_jellylamp: { name: '해파리 조명', icon: '🪼' },
+  f_sea_shipwheel: { name: '황금 키 장식', icon: '☸️' },
+  f_bug_leafstool: { name: '나뭇잎 의자', icon: '🍃' },
+  f_bug_ladybuglamp: { name: '무당벌레 램프', icon: '🐞' },
+  f_bug_honeyshelf: { name: '벌집 선반', icon: '🍯' },
+  f_bug_butterflyscreen: { name: '나비 병풍', icon: '🦋' },
+  f_bug_beetlethrone: { name: '장수풍뎅이 왕좌', icon: '🪲' },
+  f_fos_bonestool: { name: '뼈다귀 의자', icon: '🦴' },
+  f_fos_ammonitelamp: { name: '암모나이트 램프', icon: '🐚' },
+  f_fos_eggchair: { name: '공룡알 의자', icon: '🥚' },
+  f_fos_footrug: { name: '발자국 러그', icon: '🐾' },
+  f_fos_trexmodel: { name: '꼬마 티라노 모형', icon: '🦖' },
+  f_astro_starlamp: { name: '별 램프', icon: '🌟' },
+  f_astro_moonrug: { name: '달님 러그', icon: '🌙' },
+  f_astro_planetmobile: { name: '행성 모빌', icon: '🪐' },
+  f_astro_telescope: { name: '반짝 망원경', icon: '🔭' },
+  f_astro_rocketbed: { name: '로켓 침대', icon: '🚀' },
+  // 공룡 친구 선물(dinos 가 category 'item' 종으로 등록)
+  f_stego_plate: { name: '꽃 등판 장식', icon: '🌸' },
+  f_dino_musicbox: { name: '뿌우 음악 상자', icon: '🎵' },
 };
 
 // ── 레시피 재료 칸의 '아무거나' 표기 ─────────────────────────────

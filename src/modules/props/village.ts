@@ -1,4 +1,4 @@
-// 동숲 마을 소품: 집·우체통·표지판·울타리·벤치·가로등·바위. 모두 원점(땅) 기준, 앞 = +z.
+// 동숲 마을 소품: 집·표지판·울타리·벤치·가로등·바위(우체통은 내 집 앞 — village/house.ts). 모두 원점(땅) 기준, 앞 = +z.
 import * as THREE from 'three';
 import { rbox, grad, paint, part, roundExtrude, roundRectShape, blob, canvasTex, smoothNormals } from './kit';
 
@@ -148,40 +148,6 @@ export function buildHouse(roofColor = '#ee6f62'): THREE.Group {
   const attG = part(new THREE.CylinderGeometry(0.16, 0.16, 0.05, 32).rotateX(Math.PI / 2), 'window');
   attG.position.set(0, y0 + 0.42, WD / 2 + 0.03);
   g.add(attG);
-  return g;
-}
-
-// ───────── 우체통 ─────────
-export function buildMailbox(color = '#ee6f62'): THREE.Group {
-  const g = new THREE.Group();
-  const post = part(rbox(0.12, 0.85, 0.12, 0.05, 3), 'wood');
-  grad(post.geometry, WOOD_DARK, WOOD);
-  post.position.y = 0.42;
-  g.add(post);
-  // 몸통: 둥근 지붕 상자(옆에서 본 아치를 앞뒤로 민다)
-  const arch = new THREE.Shape();
-  arch.moveTo(-0.17, 0);
-  arch.lineTo(0.17, 0);
-  arch.lineTo(0.17, 0.16);
-  arch.absarc(0, 0.16, 0.17, 0, Math.PI, false);
-  arch.lineTo(-0.17, 0);
-  const body = part(roundExtrude(arch, 0.5, 0.05, 28), 'gloss');
-  const col = new THREE.Color(color);
-  grad(body.geometry, col.clone().multiplyScalar(0.85), col);
-  body.position.y = 0.82;
-  g.add(body);
-  // 앞 뚜껑(흰 테)
-  const lid = part(roundExtrude(arch, 0.04, 0.015, 28), 'matte', '#fff6ea');
-  lid.scale.set(0.86, 0.86, 1);
-  lid.position.set(0, 0.84, 0.25);
-  g.add(lid);
-  // 깃발(노랑) — 옆면
-  const flagPole = part(rbox(0.035, 0.3, 0.035, 0.015, 2), 'paint', '#f2c94c');
-  flagPole.position.set(0.21, 1.02, -0.05);
-  g.add(flagPole);
-  const flag = part(rbox(0.03, 0.12, 0.17, 0.03, 3), 'paint', '#ffcf4a');
-  flag.position.set(0.21, 1.12, 0.03);
-  g.add(flag);
   return g;
 }
 

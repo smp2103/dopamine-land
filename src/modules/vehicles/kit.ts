@@ -22,7 +22,7 @@ export function mats(): Record<MK, THREE.Material> {
     glass: new THREE.MeshPhysicalMaterial({ color: '#bfeaff', roughness: 0.08, metalness: 0, clearcoat: 1, transparent: true, opacity: 0.55, emissive: '#5fb8e8', emissiveIntensity: 0.12 }),
     wood: phys({ roughness: 0.8 }),
     glow: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, emissive: '#fff1c4', emissiveIntensity: 0.9 }),
-    eye: new THREE.MeshPhysicalMaterial({ color: '#2a2440', roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05 }),
+    eye: new THREE.MeshPhysicalMaterial({ color: '#3d3a4a', roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05 }),
     shine: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.2, emissive: '#ffffff', emissiveIntensity: 0.85 }),
     flame: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, emissive: '#ffffff', emissiveIntensity: 1.6, transparent: true, opacity: 0.92, depthWrite: false }),
   };

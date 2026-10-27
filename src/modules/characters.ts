@@ -83,6 +83,15 @@ export default function build(ctx: Ctx) {
   }
 
   dbg.homes = res.homes.map((h) => ({ id: h.def.id, island: h.def.island, x: +h.x.toFixed(1), z: +h.z.toFixed(1) }));
+  // 주민 집 자리 — village 가 주민 오두막을 짓는다(game.ext.npc.homes). 다른 모듈이 붙여 둔 ext.npc 는 덮지 않는다
+  if (ctx.game) {
+    const homes = dbg.homes as Array<{ id: string; island: string; x: number; z: number }>;
+    const ext = ctx.game.ext as Record<string, unknown>;
+    const npc = (ext.npc ?? {}) as Record<string, unknown>;
+    if (!('homes' in npc)) npc.homes = homes;
+    if (typeof npc.list !== 'function') npc.list = () => homes.map((h) => ({ id: h.id, island: h.island }));
+    ext.npc = npc;
+  }
   dbg.speak = (id: string) => {
     const L = id === 'bori' ? bori : res.lives.get(id);
     if (L) speak(ctx, L, ctx.game?.time ?? 1.5);

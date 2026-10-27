@@ -177,7 +177,7 @@ export default function build(ctx: Ctx) {
         if (c) game.hud.card(c);
         break;
       }
-      case 'chest-open': view.showLoot(String(e.tier ?? 'wood'), (e.loot as Array<{ id: string; n: number; name?: string }>) ?? []); break;
+      case 'chest-open': view.showLoot(String(e.tier ?? 'wood'), (e.loot as Array<{ id: string; n: number; name?: string }>) ?? [], e.mimic === true || e.source === 'mimic'); break;
       case 'catch': case 'catch-fail': feedGauges(); break;
     }
     if (REDRAW.has(e.type)) rerender();

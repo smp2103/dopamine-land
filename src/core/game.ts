@@ -655,7 +655,8 @@ export class Game {
     const inp = this.input;
     const cur = this.current, alt = this.currentAlt;
     if (cur && inp.hit(cur.key || DEFAULT_KEY)) this.safeUse(cur);
-    else if (this.player.mounted && inp.hit(DEFAULT_KEY)) this.player.dismount();
+    // 잠금 중(갑판 낚시·연출 등)엔 E 가 '내리기'로 새지 않는다 — 그 E 는 잠근 모듈 몫
+    else if (this.player.mounted && !this.player.locked && inp.hit(DEFAULT_KEY)) this.player.dismount();
     if (alt && inp.hit(alt.key || DEFAULT_KEY)) this.safeUse(alt);
   }
   private safeUse(it: Interaction) {
@@ -691,7 +692,7 @@ export class Game {
     this.current = pick.current;
     this.currentAlt = pick.alt;
     this.consumedKeys = pick.consumed;
-    const primary = pick.current ? promptText(pick.current) : this.player.mounted ? 'E 내리기' : null;
+    const primary = pick.current ? promptText(pick.current) : this.player.mounted && !this.player.locked ? 'E 내리기' : null;
     this.ui.setPrompt(primary, promptText(pick.alt));
   }
 

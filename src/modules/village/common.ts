@@ -1,14 +1,14 @@
 // village 공용: 조각 도우미·충돌체 목록·글씨 판·줄무늬 정점색.
 import * as THREE from 'three';
-import { rbox, grad, paint, part, roundExtrude, roundRectShape, blob, canvasTex, smoothNormals } from '../props/kit';
+import { rbox, grad, paint, part, roundExtrude, roundRectShape, blob, canvasTex, smoothNormals, compactLive, mergeParts } from '../props/kit';
 import type { MatKey } from '../props/kit';
 
-export { rbox, grad, paint, part, roundExtrude, roundRectShape, blob, canvasTex, smoothNormals };
+export { rbox, grad, paint, part, roundExtrude, roundRectShape, blob, canvasTex, smoothNormals, compactLive, mergeParts };
 export type { MatKey };
 
 /** 정적 충돌체(로컬 좌표, 건물 원점 기준) */
 export type Col =
-  | { kind: 'box'; hx: number; hy: number; hz: number; x: number; y: number; z: number; ry?: number }
+  | { kind: 'box'; hx: number; hy: number; hz: number; x: number; y: number; z: number; ry?: number; /** 로컬 x 축 기울기(ry 다음에 건다 — 다리 경사판) */ rx?: number }
   | { kind: 'cyl'; r: number; hh: number; x: number; y: number; z: number };
 
 export interface Built {
@@ -20,6 +20,8 @@ export interface Built {
   foot?: number;
   /** 전체 배율(충돌체도 함께) */
   scale?: number;
+  /** 원점에서 앞(+z) 계산대·문까지 거리 — 시설 자리(상호작용 점)에 앞을 맞춰 놓을 때 */
+  front?: number;
 }
 
 export const WOOD = '#c89766';

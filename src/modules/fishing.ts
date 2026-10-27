@@ -359,8 +359,23 @@ export default function build(ctx: Ctx) {
   };
 
   // ── 상호작용 ──
+  /** 통통배가 멈춰 있으면(속도 < 1) 갑판에서 낚시(GDD 3.8) */
+  const onDeck = (pl: Game['player']) => {
+    if (!pl.mounted) return false;
+    const v = game.vehicles?.current?.();
+    return !!v && v.kind === 'tugboat' && Math.abs(v.speed) < 1;
+  };
   game.addProvider('fishing', (pl) => {
-    if (S.phase !== 'idle' || pl.mounted || pl.mode !== 'ground' || pl.action) return null;
+    // 우주(달 밑에도 지구 바다 높이가 잡힌다) — 달 연못 물고기 표가 생길 때까지 낚시는 쉰다
+    if (game.world === 'space') return null;
+    const deck = onDeck(pl);
+    // 갑판 낚시 중엔 player.locked 라 코어가 E 를 '내리기'로 쓰지 않는다(E 는 낚시가 직접 읽는다)
+    if (S.phase !== 'idle' || pl.action) return null;
+    if (deck) {
+      const cp = castPointFor(pl);
+      return cp ? { id: 'fishing:deck', label: '갑판에서 낚시하기 🎣', dist: 0.5, whileMounted: true, use: () => { start(cp); } } : null;
+    }
+    if (pl.mounted || pl.mode !== 'ground') return null;
     // 발밑이 물이면 안 됨
     if (Number.isFinite(island.waterLevelAt(pl.pos.x, pl.pos.z)) && island.waterLevelAt(pl.pos.x, pl.pos.z) > pl.pos.y + 0.2) return null;
     const cp = castPointFor(pl);

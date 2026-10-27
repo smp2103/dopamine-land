@@ -6,14 +6,25 @@
 // 시간: 게임 1시간 = 75초(하루 30분, atmosphere/clock.ts 하나가 정본). 날씨는 게임 4시간마다 지역별로 굴린다(atmosphere/weatherRoll.ts).
 // game.env(EnvApi)를 채우고 env·day·tod·weather 이벤트를 쏜다. 저장: flags.env.sec(게임 1시간마다·pagehide).
 // 디버그: window.__env = { advance(sec), setHour(h), force(w, region?, hours?), forecast(region, h), state(), env }
+//        window.__atmo = { amounts(), visible(name), shown(), wishes(), wish(), flash(), quality() }
+// 날씨 연출(wave 3): 폭풍 = 빗줄기 ×1.6 + 비구름 지붕 + 파스텔 번개(천둥은 audio 가 'weather' 이벤트로) · 안개 = 하얀 솜 안개
+//   · 유성우(밤만) = 별똥별 줄 + 별똥별섬 소원 반짝이(E → 별가루, 일요일 ×2) · 눈/눈보라(솜눈섬) · 모래폭풍(모래시계섬)
+//   · 무지개(+쌍무지개) · 오로라(솜눈섬 밤, atmosphere/aurora.ts) · 하트 연기(공룡섬 화산) · 세계 구름(바다 위 120~200 m, 청크)
+//   · 보름달(달 위상 → 크기·밝기) · 계절 색 · 밤눈 특전(ext.meta.perk('nightvision')). 날씨·섬 분위기는 5초에 걸쳐 섞인다.
+//   품질 '낮음': 알갱이 절반, 오로라·빛줄기 끔.
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import { TOD, lerpPreset, lerpHex, type TodPreset } from '../core/presets';
 import type { Engine } from '../core/engine';
-import { WEATHERS, type Weather, type RegionId } from '../core/api';
-import { buildClouds } from './atmosphere/clouds';
-import { buildLife } from './atmosphere/life';
-import { KINDS, makeLayer, makeBirds, makeRainbow, makeGodRays, weatherCenter, type WeatherLayer } from './atmosphere/weather';
+import { WEATHERS, HOUR_SEC, type Weather, type RegionId } from '../core/api';
+import { buildClouds, buildWorldClouds } from './atmosphere/clouds';
+import { buildLife, buildHeartSmoke } from './atmosphere/life';
+import { KINDS, PUFFS, makeLayer, makePuffLayer, makeBirds, makeRainbow, makeGodRays, weatherCenter, type WeatherLayer, type PuffLayer } from './atmosphere/weather';
+import {
+  THEMES, SEASON_TINT, LAYER_OBJECT, blendToward, smooth, nightGate, layerAmounts, moonLook, nightVisionBoost,
+  buildMoon, buildMeteors, buildStormDeck, buildBolt, buildWishes, type LayerName,
+} from './atmosphere/sky';
+import { buildAurora } from './atmosphere/aurora';
 import { createEnv, parseEnvQuery, type EnvService } from './atmosphere/clock';
 import { REGIONS } from './atmosphere/weatherRoll';
 
@@ -53,20 +64,6 @@ function makeRegionAt(islands: ReadonlyArray<{ id: string; x: number; z: number;
   };
 }
 
-/** 섬 분위기: 안개·지평선 색, 파티클 */
-const THEMES: Record<string, { fog: string; kinds: Array<{ k: string; day: number; night: number }>; birds?: boolean }> = {
-  ice: { fog: '#e6f3ff', kinds: [{ k: 'snow', day: 1, night: 0.8 }] },
-  mushroom: { fog: '#e6caf2', kinds: [{ k: 'spores', day: 0.6, night: 1 }] },
-  desert: { fog: '#f4dbab', kinds: [{ k: 'sand', day: 1, night: 0 }] },
-  dino: { fog: '#dfcbb8', kinds: [{ k: 'ash', day: 0.8, night: 0.6 }, { k: 'embers', day: 0.5, night: 1 }], birds: true },
-  coral: { fog: '#bff4ee', kinds: [{ k: 'sparkle', day: 1, night: 0.7 }] },
-};
-
-const smooth = (e0: number, e1: number, x: number) => {
-  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
-};
-
 function blendDay(hour: number, out: TodPreset): string {
   let i = 0;
   while (i < DAY_KEYS.length - 2 && hour >= DAY_KEYS[i + 1][0]) i++;
@@ -76,7 +73,11 @@ function blendDay(hour: number, out: TodPreset): string {
   return s < 0.5 ? a : b;
 }
 
+/** 프리셋마다 있을 수도 없을 수도 있는 값 — 복사 전에 지워야 앞 프리셋 값(낮 해 원반 등)이 밤에 남지 않는다 */
+const OPTIONAL_KEYS = ['milky', 'starDensity', 'sunDisc', 'moon', 'hazeBand', 'worldFog'] as const;
+
 function copyPreset(src: TodPreset, out: TodPreset) {
+  for (const k of OPTIONAL_KEYS) delete out[k];
   Object.assign(out, src);
   if (src.worldFog) out.worldFog = { ...src.worldFog };
   return out;
@@ -137,12 +138,18 @@ export default function build(ctx: Ctx) {
   const clockEnv: EnvService = env ?? createEnv({ startHour: eq.startHour, weather: eq.weather });
   if (!env) ctx.onUpdate((_t, dt) => clockEnv.tick(dt));
 
-  // 날씨 층
+  // 날씨 층(알갱이 Points · 큰 안개 덩이) — 이름은 sky.ts LAYER_OBJECT
   const layers: Record<string, WeatherLayer> = {};
   for (const k of Object.values(KINDS)) {
     const l = makeLayer(ctx, k);
     layers[k.key] = l;
     g.add(l.pts);
+  }
+  const puffs: Record<string, PuffLayer> = {};
+  for (const k of Object.values(PUFFS)) {
+    const l = makePuffLayer(ctx, k);
+    puffs[k.key] = l;
+    g.add(l.mesh);
   }
   const birds = makeBirds(ctx);
   birds.mesh.visible = false;
@@ -151,17 +158,29 @@ export default function build(ctx: Ctx) {
   g.add(bow.holder);
   const rays = makeGodRays(ctx);
   g.add(rays.group);
+  // 하늘 물건: 달 · 별똥별 줄 · 비구름 지붕 · 번개 · 오로라 · 하트 연기 · 소원 반짝이 · 세계 구름(청크)
+  const moon = buildMoon();
+  const meteors = buildMeteors(ctx);
+  const deck = buildStormDeck();
+  const bolt = buildBolt(ctx);
+  const aurora = buildAurora(ctx);
+  const hearts = buildHeartSmoke(ctx);
+  const wishes = buildWishes(ctx);
+  g.add(moon.mesh, meteors.mesh, deck.mesh, bolt.mesh, aurora.mesh, hearts.mesh, wishes.group);
+  buildWorldClouds(ctx);
 
   let lastFull = '';
   const base = { ...TOD.day } as TodPreset;
   const work = { ...TOD.day } as TodPreset;
-  // mix: 날씨별 부드러운 가중치(바뀔 때 몇 초에 걸쳐 섞인다) · kinds: wave 3 날씨 연출 훅
+  // mix: 날씨별 부드러운 가중치(바뀌면 5초에 걸쳐 섞인다) · kinds: wave 3 날씨 연출 훅
   const mix = {} as Record<Weather, number>;
   for (const w of WEATHERS) mix[w] = 0;
-  const st = { rain: 0, bow: 0, dive: 0, theme: {} as Record<string, number>, mix, kinds: KIND_HOOKS };
+  const st = { rain: 0, bow: 0, dive: 0, theme: {} as Record<string, number>, mix, kinds: KIND_HOOKS, amounts: {} as Record<LayerName, number>, flash: 0, low: false };
   // 번개: 폭풍 동안 몇 초에 한 번 부드럽게 번쩍(결정적)
-  let flashSlot = -1, flashAt = 0;
+  let flashSlot = -1, flashAt = 0, forceFlash = false;
+  let lowApplied: boolean | null = null;
   const fwd = new THREE.Vector3(), flock = new THREE.Vector3();
+  const skyU = engine.skyMat.uniforms;
   let lastSig = '';
   let lastEnv = -1e9;
   let fixedName = TOD[todParam ?? ''] && todParam !== 'auto' ? todParam! : 'day';
@@ -176,6 +195,14 @@ export default function build(ctx: Ctx) {
     if (started) pendingTod = n;
   });
 
+  /** 품질 '낮음': 알갱이 절반(바뀔 때만 drawRange 를 고친다) */
+  const applyLow = (low: boolean) => {
+    if (lowApplied === low) return;
+    lowApplied = low;
+    for (const l of Object.values(layers)) l.half(low);
+    for (const l of Object.values(puffs)) l.half(low);
+  };
+
   ctx.onUpdate((t, dt) => {
     // 첫 프레임은 날씨를 바로(불러오자마자 비가 서서히 '시작'되지 않게)
     const first = !started;
@@ -183,6 +210,9 @@ export default function build(ctx: Ctx) {
     const now = performance.now();
     const p = game?.player;
     const space = game?.world === 'space';
+    const low = engine.quality === 'low';
+    st.low = low;
+    applyLow(low);
     if ((game?.world ?? 'earth') !== lastWorld) { lastWorld = game?.world ?? 'earth'; worldAt = now; }
     if (pendingTod !== null) {
       const n = pendingTod;
@@ -201,8 +231,8 @@ export default function build(ctx: Ctx) {
     const night = Math.min(1, base.stars);
 
     weatherCenter.y = p ? p.pos.y : NaN;
-    // 2) 섬 분위기 가중치(플레이어 위치 기준)
-    const k = dt > 0 ? Math.min(1, dt * 0.8) : 1;
+    // 2) 섬 분위기 가중치(플레이어 위치 기준) — 5초에 걸쳐 섞는다
+    const bdt = first ? 0 : dt;
     const at = p?.pos ?? ctx.camera.position;
     const tw: Record<string, number> = {};
     if (!space) {
@@ -212,32 +242,55 @@ export default function build(ctx: Ctx) {
         tw[d.theme] = Math.max(tw[d.theme] ?? 0, 1 - smooth(d.r * 0.8, d.r * 1.3, dist));
       }
     }
-    for (const th of Object.keys(THEMES)) st.theme[th] = (st.theme[th] ?? 0) + ((tw[th] ?? 0) - (st.theme[th] ?? 0)) * k;
+    for (const th of Object.keys(THEMES)) st.theme[th] = Math.round(blendToward(st.theme[th] ?? 0, tw[th] ?? 0, bdt) * 1000) / 1000;
 
-    // 3) 날씨: 플레이어 자리의 env.weather(지역 변환은 weatherRoll 이 이미 했다) → 날씨별 가중치를 부드럽게
+    // 3) 날씨: 플레이어 자리의 env.weather(지역 변환은 weatherRoll 이 이미 했다) → 날씨별 가중치를 5초에 걸쳐
     const cur: Weather = space ? 'clear' : clockEnv.weather;
-    const km = dt > 0 && !first ? Math.min(1, dt * 0.5) : 1;
     // 잘게 흔들리는 값이 프리셋 비교를 매 프레임 깨지 않게 잘라 둔다(가중치 1/1000, 쓰는 값 1/100)
-    for (const w of WEATHERS) mix[w] = Math.round((mix[w] + ((w === cur ? 1 : 0) - mix[w]) * km) * 1000) / 1000;
+    for (const w of WEATHERS) mix[w] = Math.round(blendToward(mix[w], w === cur ? 1 : 0, bdt) * 1000) / 1000;
     const qz = (x: number) => Math.round(x * 100) / 100;
     const stormK = qz(mix.storm);
     const rainT = Math.min(1, mix.rain + mix.storm);
     st.rain = qz(rainT);
     st.bow = qz(mix.rainbow);
-    const snowK = qz(mix.snow + mix.blizzard * 2);
     const blizK = qz(mix.blizzard);
     const sandK = qz(mix.sandstorm);
     const fogK = qz(mix.fog);
     const diveT = p && p.mode === 'dive' ? 1 : 0;
     st.dive += (diveT - st.dive) * (dt > 0 ? Math.min(1, dt * 3) : 1);
+    const d = st.dive;
+    const under = 1 - d;
+    // 켜질 층과 세기(순수 — tests/atmosphere-weather.test.ts)
+    const A = layerAmounts({ mix, night, theme: st.theme, season: clockEnv.season, under, space });
+    st.amounts = A;
 
     // 4) 분위기 적용
     const dayK = 1 - night * 0.7;
     for (const [th, def] of Object.entries(THEMES)) {
       const w = st.theme[th] ?? 0;
       if (w < 0.01) continue;
-      work.fogColor = lerpHex(work.fogColor, def.fog, 0.5 * w * dayK);
-      work.skyHorizon = lerpHex(work.skyHorizon, def.fog, 0.3 * w * dayK);
+      // 밤하늘이 따로 있는 섬(별똥별섬)은 밤엔 낮 안개색을 섞지 않는다
+      const fk = (def.fogK ?? 1) * (def.night ? 1 - night : 1);
+      if (fk > 0) {
+        work.fogColor = lerpHex(work.fogColor, def.fog, 0.5 * w * dayK * fk);
+        work.skyHorizon = lerpHex(work.skyHorizon, def.fog, 0.3 * w * dayK * fk);
+      }
+      // 별똥별섬 밤: 맑은 남색 하늘 + 별 촘촘함 ×2
+      if (def.night && night > 0.01) {
+        const k = w * night;
+        work.skyTop = lerpHex(work.skyTop, def.night.skyTop, 0.6 * k);
+        work.skyHorizon = lerpHex(work.skyHorizon, def.night.skyHorizon, 0.45 * k);
+        work.starDensity = (work.starDensity ?? 1) * (1 + (def.night.stars - 1) * k);
+        work.stars *= 1 + 0.25 * k;
+        work.milky = (work.milky ?? 0) * (1 + def.night.milky * k);
+      }
+    }
+    // 계절 색(은은하게): 봄 분홍빛 · 여름 맑음 · 가을 따뜻 · 겨울 서리빛
+    const tint = SEASON_TINT[clockEnv.season];
+    if (!space && tint) {
+      work.gradeGain = lerpHex(work.gradeGain, tint.gain, tint.amount * under);
+      work.fogColor = lerpHex(work.fogColor, tint.fog, tint.fogAmount * dayK * under);
+      work.saturation += tint.sat * under;
     }
     const r = st.rain;
     if (r > 0.001) {
@@ -256,8 +309,11 @@ export default function build(ctx: Ctx) {
       work.pollen *= 1 - r;
       work.butterflies *= 1 - r;
       work.exposure -= 0.04 * r;
+      work.stars *= 1 - 0.85 * r;
+      work.milky = (work.milky ?? 0) * (1 - r);
       if (work.worldFog) { work.worldFog.far *= 1 - 0.45 * r; work.worldFog.near *= 1 - 0.8 * r; }
     }
+    st.flash = 0;
     if (stormK > 0.001) {
       work.sunIntensity *= 1 - 0.25 * stormK;
       work.exposure -= 0.05 * stormK;
@@ -266,22 +322,29 @@ export default function build(ctx: Ctx) {
       // 번개: 6~10초마다 한 번, 0.35초 동안 하늘이 연보라로 번쩍
       const slot = Math.floor(t / 8);
       if (slot !== flashSlot) { flashSlot = slot; flashAt = slot * 8 + ctx.rng(`atmosphere:flash:${slot}`)() * 6; }
+      if (forceFlash) { forceFlash = false; flashAt = t; }
       const ft = t - flashAt;
       const flash = ft > 0 && ft < 0.35 ? qz(Math.sin((ft / 0.35) * Math.PI) * stormK) : 0;
+      st.flash = flash * under;
       if (flash > 0) {
         work.exposure += 0.35 * flash;
         work.skyTop = lerpHex(work.skyTop, '#d9d2ff', 0.5 * flash);
         work.skyHorizon = lerpHex(work.skyHorizon, '#e8e2ff', 0.4 * flash);
+        work.hemiSky = lerpHex(work.hemiSky, '#e4dcff', 0.4 * flash);
       }
     }
-    // 안개: 가까운 안개 + 부드러운 빛
+    // 안개: 가까운 하얀 안개 + 부드러운 빛
     if (fogK > 0.001) {
-      const mist = night > 0.5 ? '#46506e' : '#e4e8ee';
-      work.fogColor = lerpHex(work.fogColor, mist, 0.75 * fogK);
-      work.skyHorizon = lerpHex(work.skyHorizon, mist, 0.55 * fogK);
+      const mist = night > 0.5 ? '#46506e' : '#eef1f5';
+      work.fogColor = lerpHex(work.fogColor, mist, 0.78 * fogK);
+      work.skyHorizon = lerpHex(work.skyHorizon, mist, 0.6 * fogK);
+      work.skyTop = lerpHex(work.skyTop, night > 0.5 ? '#2a3150' : '#c9d9ea', 0.3 * fogK);
       work.sunIntensity *= 1 - 0.3 * fogK;
+      work.hemiIntensity *= 1 + 0.12 * fogK;
       work.saturation -= 0.04 * fogK;
       work.butterflies *= 1 - 0.5 * fogK;
+      work.sunDisc = (work.sunDisc ?? 0) * (1 - 0.6 * fogK);
+      work.stars *= 1 - 0.8 * fogK;
       work.fogNear *= 1 - 0.9 * fogK;
       work.fogFar *= 1 - 0.7 * fogK;
       if (work.worldFog) { work.worldFog.far *= 1 - 0.88 * fogK; work.worldFog.near *= 1 - 0.95 * fogK; }
@@ -291,6 +354,7 @@ export default function build(ctx: Ctx) {
       work.fogColor = lerpHex(work.fogColor, night > 0.5 ? '#7d8cab' : '#f2f7ff', 0.6 * blizK);
       work.skyHorizon = lerpHex(work.skyHorizon, '#eef4ff', 0.5 * blizK);
       work.sunIntensity *= 1 - 0.35 * blizK;
+      work.stars *= 1 - 0.8 * blizK;
       if (work.worldFog) { work.worldFog.far *= 1 - 0.55 * blizK; work.worldFog.near *= 1 - 0.8 * blizK; }
     }
     if (sandK > 0.001) {
@@ -299,8 +363,10 @@ export default function build(ctx: Ctx) {
       work.skyHorizon = lerpHex(work.skyHorizon, dust, 0.55 * sandK);
       work.skyTop = lerpHex(work.skyTop, '#d8c3a0', 0.3 * sandK);
       work.sunIntensity *= 1 - 0.3 * sandK;
+      work.sunColor = lerpHex(work.sunColor, '#ffd9a0', 0.4 * sandK);
       work.butterflies *= 1 - sandK;
       work.pollen *= 1 - sandK;
+      work.stars *= 1 - 0.7 * sandK;
       if (work.worldFog) { work.worldFog.far *= 1 - 0.55 * sandK; work.worldFog.near *= 1 - 0.85 * sandK; }
     }
     if (st.bow > 0.01) {
@@ -308,7 +374,28 @@ export default function build(ctx: Ctx) {
       work.saturation += 0.04 * st.bow;
       work.exposure += 0.02 * st.bow;
     }
-    const d = st.dive;
+    // 유성우 밤: 별이 더 촘촘하고 은하수가 진하게
+    const meteorK = A.meteor;
+    if (meteorK > 0.001) {
+      work.starDensity = (work.starDensity ?? 1) * (1 + 0.6 * meteorK);
+      work.milky = (work.milky ?? 0) * (1 + 0.3 * meteorK);
+    }
+    // 오로라: 하늘·땅이 민트빛으로 은은하게
+    const auroraK = low ? 0 : A.aurora;
+    if (auroraK > 0.001) {
+      work.skyTop = lerpHex(work.skyTop, '#0c3a4a', 0.3 * auroraK);
+      work.skyHorizon = lerpHex(work.skyHorizon, '#3a6a8c', 0.2 * auroraK);
+      work.hemiSky = lerpHex(work.hemiSky, '#9ff0d6', 0.25 * auroraK);
+    }
+    // 달: 위상에 따라 크기·밝기(보름 = 크고 환하게) — 엔진 달 대신 atmo-moon 이 그린다
+    const look = moonLook(clockEnv.moonPhase);
+    if (night > 0.01 && !space) {
+      work.sunIntensity *= 1 - 0.25 * night * (1 - look.bright);
+      work.hemiIntensity *= 1 + 0.08 * night * look.full;
+    }
+    // 밤눈 특전: 밤 노출을 살짝 올린다
+    const perk = !!game?.ext.meta?.perk?.('nightvision');
+    work.exposure += nightVisionBoost(perk, night) * under;
     if (d > 0.001) {
       work.fogColor = lerpHex(work.fogColor, night > 0.5 ? '#0c3358' : '#1d82b2', d);
       work.skyTop = lerpHex(work.skyTop, '#0e5a8c', d);
@@ -331,6 +418,9 @@ export default function build(ctx: Ctx) {
       if (d > 0.5) work.worldFog = { near: 1, far: 58 };
       work.fogNear = 1; work.fogFar = 58;
     }
+    // 달은 비구름·안개·모래·눈보라 뒤로 숨는다
+    const moonAmt = qz((work.moon ?? 0) * (1 - 0.9 * Math.min(1, A['storm-deck'] * 1.3)) * (1 - 0.9 * fogK) * (1 - 0.8 * sandK) * (1 - 0.9 * blizK));
+    work.moon = 0;
 
     // 5) 엔진에 적용(환경광 굽기는 하늘색이 바뀌었을 때만 — 시간 흐름 중엔 2.5초에 한 번)
     const sig = work.skyTop + work.skyHorizon + work.skyBottom + work.sunColor + Math.round(work.sunElevation) + Math.round(work.sunAzimuth / 4);
@@ -340,26 +430,19 @@ export default function build(ctx: Ctx) {
     const full = name + JSON.stringify(work);
     if (full !== lastFull || wantEnv) { lastFull = full; engine.applyPreset(name, work, wantEnv); }
 
-    // 6) 파티클·새·무지개·빛줄기
-    const under = 1 - d;
-    for (const [th, def] of Object.entries(THEMES)) {
-      const w = st.theme[th] ?? 0;
-      for (const kd of def.kinds) layers[kd.k].set(w * (kd.day + (kd.night - kd.day) * night) * under);
-    }
-    // 얼음 섬: 눈 날씨면 펑펑, 눈보라면 더 세게(지역 변환으로 비는 이미 눈이 됐다)
-    if ((st.theme.ice ?? 0) > 0.01 || snowK > 0.01) layers.snow.set(Math.min(1.8, Math.max(st.theme.ice ?? 0, snowK * 0.8) * (1 + 0.6 * snowK)) * under);
-    // 모래시계섬 모래폭풍: 모래 알갱이 몇 배
-    if (sandK > 0.01) layers.sand.set(Math.min(4, Math.max(st.theme.desert ?? 0, sandK) * (1 + 3 * sandK)) * under);
-    // 폭풍 = 빗줄기 ×1.6
-    layers.rain.set(r * (1 + 0.6 * stormK) * under);
-    // 밤: 모든 섬 풀숲에 따뜻한 빛 점(반딧불·등불 느낌) — 장면에 광원 포인트가 있어야 밤이 포근하다
-    layers.glow.set(Math.max(0, night - 0.35) / 0.65 * (1 - r) * under * (space ? 0 : 1) * (1 - 0.6 * (st.theme.ice ?? 0)));
+    // 6) 파티클·새·무지개·빛줄기·하늘 물건
+    for (const [k, l] of Object.entries(layers)) l.set(A[k as LayerName] ?? 0);
+    for (const [k, l] of Object.entries(puffs)) l.set(A[k as LayerName] ?? 0);
     // 모래바람은 장면 빛을 받은 모래색으로(비조명 주황이 밤·노을에 튀지 않게)
     if (layers.sand.pts.visible) {
       const u = (layers.sand.pts.material as THREE.ShaderMaterial).uniforms;
       u.uColor.value.set(lerpHex('#dcc290', work.fogColor, 0.45));
       u.uColor2.value.set(lerpHex('#efdcb4', work.fogColor, 0.35));
     }
+    // 큰 안개 덩이도 장면 빛을 받은 색으로(안개 = 보송한 하양, 모래 = 살구, 눈보라 = 푸른 하양)
+    if (puffs.mist.mesh.visible) puffs.mist.color.set(lerpHex(night > 0.5 ? '#8a93b4' : '#f6f8fb', work.fogColor, 0.35));
+    if (puffs.dust.mesh.visible) puffs.dust.color.set(lerpHex('#ecc994', work.fogColor, 0.4));
+    if (puffs.whiteout.mesh.visible) puffs.whiteout.color.set(lerpHex(night > 0.5 ? '#9aa8c8' : '#f8fbff', work.fogColor, 0.3));
     const bw = (st.theme.dino ?? 0) * (1 - night) * under * (1 - r);
     birds.mesh.visible = bw > 0.3 && !space;
     if (birds.mesh.visible) {
@@ -369,14 +452,53 @@ export default function build(ctx: Ctx) {
       flock.set(at.x + fwd.x * 75, at.y + 17, at.z + fwd.z * 75);
       birds.update(t, flock);
     }
-    bow.update(ctx.camera.position, engine.sunDir, st.bow * (1 - night) * under);
-    // wave 3 날씨 연출 훅(유성우·오로라 …)
+    // 무지개: 비 그친 직후(블록 앞 2시간)일수록 쌍무지개가 또렷
+    const fresh = Math.min(1, Math.max(0.3, 1 - (clockEnv.hour % 4) / 2));
+    bow.update(ctx.camera.position, engine.sunDir, A.rainbow, fresh);
+    const horizon = skyU.uHorizon?.value ?? 0;
+    moon.update(ctx.camera, engine.sunDir, space ? 0 : moonAmt, clockEnv.moonPhase, lerpHex(work.skyTop, work.skyHorizon, 0.35));
+    meteors.update(t, meteorK, horizon, low);
+    deck.update(t, ctx.camera.position, A['storm-deck'], st.flash, horizon,
+      lerpHex(work.cloudLit, '#cbc4ec', 0.5 * stormK), lerpHex(work.cloudShade, '#7b74a6', 0.5 * stormK));
+    bolt.update(flashSlot, st.flash * A.bolt, ctx.camera.position);
+    aurora.update(t, ctx.camera.position, auroraK);
+    hearts.update(t, ctx.camera.position, space ? 0 : under * (1 - 0.4 * r), work, engine.sunDir, low);
+    // 소원 반짝이: 별똥별섬이 유성우 밤일 때(플레이어 자리 날씨와 따로 — 멀리서 날아와도 떨어져 있다)
+    const wishOn = !!game && !space && under > 0.5 && nightGate(night) > 0.5 && clockEnv.weatherOf('launch') === 'meteor';
+    wishes.update(t, wishOn, ctx.camera.position, clockEnv.gameSec, clockEnv.day, low);
+    // wave 3 날씨 연출 훅(다른 모듈이 끼운 것)
     for (const w of WEATHERS) {
       const hook = st.kinds[w];
       if (hook) hook(mix[w] * (space ? 0 : 1), { t, dt, night, under, work, at });
     }
-    // 물속 빛줄기·거품은 ocean 모듈이 그린다(겹치지 않게 여기선 안개·색만). 필요하면 rays 를 켠다.
+    // 물속 빛줄기·거품은 ocean 모듈이 그린다(겹치지 않게 여기선 안개·색만 — 빛줄기는 꺼 둔다, 낮음 품질에선 켤 일도 없다)
     rays.update(t, ctx.camera.position, p && Number.isFinite(p.waterY) ? p.waterY : 0, 0);
   });
+
+  // 디버그: 층 세기·보임 확인, 소원 줍기, 번개 한 번
+  (window as unknown as { __atmo?: unknown }).__atmo = {
+    amounts: () => ({ ...st.amounts }),
+    mix: () => ({ ...mix }),
+    theme: () => ({ ...st.theme }),
+    /** 장면 오브젝트(이름)가 보이나 — 부모까지 모두 visible 이어야 true */
+    visible: (objName: string) => {
+      const o = ctx.scene.getObjectByName(objName);
+      if (!o) return false;
+      for (let x: THREE.Object3D | null = o; x; x = x.parent) if (!x.visible) return false;
+      return true;
+    },
+    /** 지금 보이는 날씨 층 오브젝트 이름 */
+    shown: () => Object.values(LAYER_OBJECT).concat(['atmo-moon', 'atmo-heart-smoke']).filter((n) => {
+      const o = ctx.scene.getObjectByName(n);
+      if (!o) return false;
+      for (let x: THREE.Object3D | null = o; x; x = x.parent) if (!x.visible) return false;
+      return true;
+    }),
+    wishes: () => wishes.landed(),
+    wish: () => wishes.pickAny(),
+    flash: () => { forceFlash = true; },
+    quality: () => ({ low: st.low }),
+    hourSec: HOUR_SEC,
+  };
   return g;
 }

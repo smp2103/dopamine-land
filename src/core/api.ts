@@ -102,6 +102,8 @@ export interface EnvApi {
   forceWeather(region: RegionId | '*', w: Weather | null, hours?: number): void;
   advance(sec: number): void;
   setHour(h: number): void;
+  /** flags.env 에 지금 시계(sec)를 쓰고 저장(있으면) */
+  persist?(): void;
 }
 
 export type SeaZone = 'shore' | 'shallow' | 'reef' | 'offshore' | 'deep' | 'trench';
@@ -531,7 +533,7 @@ export interface EconApi {
 
   // ── wave 3A (econ-chests) — 호출하는 쪽은 `?.`
   chestTiers?: ChestTier[];
-  addChestArea?(a: { id: string; island: string; x: number; z: number; r: number; n: number; tier?: ChestTier }): void;
+  addChestArea?(a: { id: string; island: string; x: number; z: number; r: number; n: number; tier?: ChestTier }): number | void;
   chestPity?(): { wood: number; gauge: number };
   museum?(): { wings: MuseumWing[] };
   skeletonsDone?(): string[];

@@ -9,7 +9,10 @@ import { rbox, grad, paint } from './common';
 import { stripesRing } from './town';
 import type { MatKey } from '../props/kit';
 
-type Kind = 'soccer' | 'beachball' | 'crate' | 'barrel' | 'buoy' | 'tube';
+export type PhysKind = 'soccer' | 'beachball' | 'crate' | 'barrel' | 'buoy' | 'tube';
+type Kind = PhysKind;
+/** 마을이 더 놓아 달라는 무리(조선소 상자·부표 등) */
+export interface PhysCluster { x: number; z: number; r: number; kinds: PhysKind[]; water: boolean; /** 이 점들은 피한다(건물 발자국) */ avoid?: Array<{ x: number; z: number; r: number }> }
 interface Spot { x: number; z: number; kind: Kind; rot: number }
 
 const CHUNK = 32;
@@ -112,19 +115,20 @@ const FLOAT: Record<Kind, number> = { soccer: 2.2, beachball: 4, crate: 1.6, bar
 const DENS: Record<Kind, number> = { soccer: 0.35, beachball: 0.06, crate: 0.6, barrel: 0.7, buoy: 0.5, tube: 0.15 };
 const BASE_Y: Record<Kind, number> = { soccer: 0.34, beachball: 0.45, crate: 0.44, barrel: 0.5, buoy: 0, tube: 0.05 };
 
-export function setupPhysProps(ctx: Ctx, game: Game, mats: Record<MatKey, THREE.Material>) {
+export function setupPhysProps(ctx: Ctx, game: Game, mats: Record<MatKey, THREE.Material>, extra: PhysCluster[] = []) {
   const I = ctx.island;
   const spots: Spot[] = [];
   const rng = ctx.rng('village:phys');
   const land = (x: number, z: number) => !Number.isFinite(I.waterLevelAt(x, z)) && I.surfaceAt(x, z).kind !== 'cliff' && I.coastDistAt(x, z) > 1.5;
   const sea = (x: number, z: number) => I.surfaceAt(x, z).coastDist < -4 && I.heightAt(x, z) < -1.2;
   /** 중심 주변 반경 r 안에 kinds 를 흩뿌린다(땅 또는 바다) */
-  const cluster = (cx: number, cz: number, r: number, kinds: Kind[], water: boolean) => {
+  const cluster = (cx: number, cz: number, r: number, kinds: Kind[], water: boolean, avoid: PhysCluster['avoid'] = []) => {
     for (const kind of kinds) {
       for (let t = 0; t < 40; t++) {
         const a = rng() * Math.PI * 2, d = Math.sqrt(rng()) * r;
         const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
         if (water ? !sea(x, z) : !land(x, z)) continue;
+        if (avoid.some((q) => Math.hypot(q.x - x, q.z - z) < q.r)) continue;
         if (spots.some((s) => Math.hypot(s.x - x, s.z - z) < 1.6)) continue;
         spots.push({ x, z, kind, rot: rng() * Math.PI * 2 });
         break;
@@ -150,6 +154,8 @@ export function setupPhysProps(ctx: Ctx, game: Game, mats: Record<MatKey, THREE.
     s.addScaledVector(dir, 22);
     cluster(s.x, s.y, 12, ['buoy', 'buoy', 'tube', 'barrel'], true);
   }
+  // 마을이 따로 부탁한 무리(조선소)
+  for (const c of extra) cluster(c.x, c.z, c.r, c.kinds, c.water, c.avoid);
   // 청크별 목록
   const byChunk = new Map<string, Spot[]>();
   for (const s of spots) {

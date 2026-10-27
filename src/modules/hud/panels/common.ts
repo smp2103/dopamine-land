@@ -5,7 +5,7 @@ import type { Species } from '../../../core/state';
 import type { EconApi, PanelCtx } from '../../../core/api';
 import { splitVariant } from '../../../core/api';
 import { MAT, GOODS, SHOP_ITEMS, RECIPES, CAT_ICON, RARITY_COLOR, ANY_NEEDS, itemDef } from '../../economy/data';
-import { variantName } from '../logic';
+import { PLANET_NAME, variantName } from '../logic';
 
 /** 패널이 받는 것 */
 export interface PanelEnv {
@@ -57,6 +57,8 @@ export function makeLook(game: Game): Look {
       if (key.startsWith('recipe:')) return RECIPES.find((r) => r.id === key.slice(7))?.name;
       if (key.startsWith('dino:')) return st.species.get(key.slice(5))?.name;
       if (key.startsWith('v:')) return st.species.get(`v_${key.slice(2)}`)?.name;
+      if (key.startsWith('space:planet:')) return PLANET_NAME[key.slice(13)];
+      if (key.startsWith('space:')) return PLANET_NAME[key.slice(6)];
       return undefined;
     },
   };

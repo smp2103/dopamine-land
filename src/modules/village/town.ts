@@ -1,4 +1,4 @@
-// 시작 마을 건물: 상점·박물관·작업대 오두막·게시판·부두·자전거 거치대. 원점 = 땅, 앞 = +z.
+// 시작 마을 건물: 상점·박물관·작업대 오두막·게시판·부두·자전거 거치대·캡슐머신. 원점 = 땅, 앞 = +z.
 import * as THREE from 'three';
 import { add, rod, cap, cyl, sph, dome, rbox, grad, paint, roundExtrude, roundRectShape, label, stripesY, V, WOOD, WOOD_DARK, type Built } from './common';
 
@@ -153,13 +153,13 @@ export function buildMuseum(): Built {
     add(g, rbox(0.42, 0.65, 0.1, 0.1, 3), 'window', null, Math.sin(a) * 3.28, B + H + 0.78, -0.4 + Math.cos(a) * 3.28, [0, a, 0]);
   }
   const dm = dome(3.6, 48, 24);
-  grad(dm, '#58b8a6', '#9ee3d0', 0.8);
+  grad(dm, '#6fb4e8', '#b8e4ff', 0.8);
   add(g, dm, 'gloss', null, 0, B + H + 1.3, -0.4, undefined, [1, 0.92, 1]);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     const rib = new THREE.TorusGeometry(3.62, 0.07, 8, 48, Math.PI / 2);
     rib.rotateY(Math.PI / 2);
-    add(g, rib, 'gloss', '#3e9787', 0, B + H + 1.3, -0.4, [0, a, 0], [1, 0.92, 1]);
+    add(g, rib, 'gloss', '#4f94cf', 0, B + H + 1.3, -0.4, [0, a, 0], [1, 0.92, 1]);
   }
   add(g, cyl(0.35, 0.5, 0.5, 24), 'gold', null, 0, B + H + 4.65, -0.4);
   add(g, sph(0.38), 'gold', null, 0, B + H + 5.1, -0.4);
@@ -173,6 +173,25 @@ export function buildMuseum(): Built {
     const ws = new THREE.Shape();
     ws.moveTo(-0.38, 0); ws.lineTo(0.38, 0); ws.lineTo(0.38, 1.0); ws.absarc(0, 1.0, 0.38, 0, Math.PI, false); ws.lineTo(-0.38, 0);
     add(g, roundExtrude(ws, 0.08, 0.03, 24), 'window', null, x, B + 1.2, D / 2 + 0.03);
+  }
+  // 부조 메달 셋(물고기·나비·공룡 뼈 실루엣) — 박공 아래 띠
+  {
+    const my = B + H - 0.75, mz = D / 2 + 0.06;
+    const fish = new THREE.Shape();
+    fish.moveTo(-0.32, 0); fish.quadraticCurveTo(-0.05, 0.24, 0.22, 0.04); fish.lineTo(0.36, 0.16); fish.lineTo(0.33, -0.16); fish.lineTo(0.22, -0.04); fish.quadraticCurveTo(-0.05, -0.24, -0.32, 0);
+    const fly = new THREE.Shape();
+    fly.moveTo(0, 0); fly.bezierCurveTo(0.12, 0.3, 0.38, 0.28, 0.32, 0.05); fly.bezierCurveTo(0.36, -0.14, 0.14, -0.26, 0, 0);
+    fly.bezierCurveTo(-0.14, -0.26, -0.36, -0.14, -0.32, 0.05); fly.bezierCurveTo(-0.38, 0.28, -0.12, 0.3, 0, 0);
+    // 뼈다귀 = 둥근 막대 + 양 끝 동그라미 넷
+    const bone: THREE.Shape[] = [roundRectShape(0.5, 0.1, 0.05)];
+    for (const [cx, cy] of [[-0.26, -0.06], [-0.26, 0.06], [0.26, -0.06], [0.26, 0.06]]) { const c = new THREE.Shape(); c.absarc(cx, cy, 0.075, 0, Math.PI * 2, false); bone.push(c); }
+    const shapes: THREE.Shape[][] = [[fish], [fly], bone];
+    for (let i = 0; i < 3; i++) {
+      const x = (i - 1) * 1.55;
+      add(g, cyl(0.5, 0.5, 0.1, 36).rotateX(Math.PI / 2), 'matte', '#efe2c8', x, my, mz);
+      add(g, new THREE.TorusGeometry(0.5, 0.06, 10, 36), 'matte', '#e4cfa9', x, my, mz + 0.05);
+      for (const sh of shapes[i]) add(g, roundExtrude(sh, 0.06, 0.02, 16), 'matte', ['#6cc7b6', '#8fd8ca'], x, my, mz + 0.08, undefined, [1.15, 1.15, 1]);
+    }
   }
   // 간판 + 깃발 두 개(바람에 흔들림)
   const lb = label('박물관', 3.2, 0.8, { fg: '#2f6f66' });
@@ -201,12 +220,17 @@ export function buildMuseum(): Built {
       add(g, sph(0.08, 14, 10), 'matte', ['#ff8fb1', '#ffd34f', '#ffffff'][k % 3], sx * 4.6 - 0.95 + k * 0.38, 0.68, D / 2 + 2.72);
     }
   }
+  // 충돌체: 문 앞은 1 m 들어간 현관(입구 E 가 건물 가운데 4.2 m 안에 닿게) + 계단 경사판(기단 위로 걸어 오른다)
+  const sideW = W / 2 - 1.1, stA = Math.atan2(0.7, 1.9);
   return {
     g, anim, foot: 8.5,
     cols: [
-      { kind: 'box', hx: W / 2, hy: (B + H) / 2, hz: D / 2, x: 0, y: (B + H) / 2, z: 0 },
+      { kind: 'box', hx: sideW / 2, hy: (B + H) / 2, hz: D / 2, x: -(1.1 + sideW / 2), y: (B + H) / 2, z: 0 },
+      { kind: 'box', hx: sideW / 2, hy: (B + H) / 2, hz: D / 2, x: 1.1 + sideW / 2, y: (B + H) / 2, z: 0 },
+      { kind: 'box', hx: 1.1, hy: (B + H) / 2, hz: (D - 1.0) / 2, x: 0, y: (B + H) / 2, z: -0.5 },
       { kind: 'cyl', r: 3.5, hh: 2.5, x: 0, y: B + H + 2.2, z: -0.4 },
       { kind: 'box', hx: (W + 1.2) / 2, hy: 0.35, hz: (D + 1.2) / 2, x: 0, y: 0.35, z: 0 },
+      { kind: 'box', hx: 2.1, hy: 0.08, hz: Math.hypot(0.7, 1.9) / 2, x: 0, y: 0.35 - 0.08 * Math.cos(stA), z: (D + 1.2) / 2 + 0.95 - 0.08 * Math.sin(stA), rx: stA },
     ],
   };
 }
@@ -327,7 +351,7 @@ export function buildPier(len: number, w: number, deckY: number, endW: number, r
     const z = 0.3 + i * (boardW + 0.04);
     const tone = 0.92 + rng() * 0.12;
     const c = new THREE.Color('#c8955f').multiplyScalar(tone);
-    add(g, rbox(w + (rng() - 0.5) * 0.12, 0.12, boardW, 0.05, 3), 'wood', [c.clone().multiplyScalar(0.85), c], (rng() - 0.5) * 0.06, deckY, z, [0, (rng() - 0.5) * 0.03, 0]);
+    add(g, rbox(w + (rng() - 0.5) * 0.12, 0.12, boardW, 0.05, 1), 'wood', [c.clone().multiplyScalar(0.85), c], (rng() - 0.5) * 0.06, deckY, z, [0, (rng() - 0.5) * 0.03, 0]);
   }
   // 받침 들보
   for (const sx of [-1, 1]) add(g, rbox(0.18, 0.2, len, 0.06, 3), 'wood', WOOD_DARK, sx * (w / 2 - 0.25), deckY - 0.15, len / 2);
@@ -335,8 +359,8 @@ export function buildPier(len: number, w: number, deckY: number, endW: number, r
   const postH = deckY + 4.5;
   for (let z = 0.4; z < len + 0.1; z += 2.4) {
     for (const sx of [-1, 1]) {
-      add(g, cyl(0.17, 0.15, postH, 20), 'wood', ['#7d5236', '#a8754b'], sx * (w / 2 + 0.05), deckY + 0.35 - postH / 2, z);
-      add(g, sph(0.16, 20, 12), 'wood', '#b8855a', sx * (w / 2 + 0.05), deckY + 0.38, z, undefined, [1, 0.6, 1]);
+      add(g, cyl(0.17, 0.15, postH, 14), 'wood', ['#7d5236', '#a8754b'], sx * (w / 2 + 0.05), deckY + 0.35 - postH / 2, z);
+      add(g, sph(0.16, 12, 8), 'wood', '#b8855a', sx * (w / 2 + 0.05), deckY + 0.38, z, undefined, [1, 0.6, 1]);
     }
   }
   // 밧줄 난간(기둥 사이, 처짐)
@@ -356,7 +380,7 @@ export function buildPier(len: number, w: number, deckY: number, endW: number, r
     const ez = len + endW / 2 - 0.2;
     for (let i = 0; i < Math.floor(endW / (boardW + 0.04)); i++) {
       const c = new THREE.Color('#c8955f').multiplyScalar(0.92 + rng() * 0.12);
-      add(g, rbox(endW, 0.12, boardW, 0.05, 3), 'wood', [c.clone().multiplyScalar(0.85), c], 0, deckY, len + i * (boardW + 0.04));
+      add(g, rbox(endW, 0.12, boardW, 0.05, 1), 'wood', [c.clone().multiplyScalar(0.85), c], 0, deckY, len + i * (boardW + 0.04));
     }
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       add(g, cyl(0.2, 0.18, postH, 20), 'wood', ['#7d5236', '#a8754b'], sx * (endW / 2 - 0.1), deckY + 0.35 - postH / 2, ez + sz * (endW / 2 - 0.3));
@@ -398,6 +422,38 @@ export function stripesRing(geo: THREE.BufferGeometry) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(a, 3));
   return geo;
+}
+
+// ───────── 두근두근 캡슐머신(상점 옆) ─────────
+export function buildCapsuleMachine(rng: () => number): Built {
+  const g = new THREE.Group();
+  add(g, rbox(0.95, 0.12, 0.85, 0.05, 3), 'stone', ['#c6bcae', '#e6dfd2'], 0, 0.06, 0);
+  // 몸통(분홍 둥근 상자) + 동전 넣는 곳 + 손잡이 + 배출구
+  add(g, rbox(0.8, 0.85, 0.7, 0.18, 5), 'gloss', ['#ff7fa8', '#ffb3cc'], 0, 0.12 + 0.425, 0);
+  add(g, rbox(0.82, 0.12, 0.72, 0.06, 4), 'gloss', '#ffffff', 0, 0.99, 0);
+  add(g, cyl(0.16, 0.16, 0.06, 24).rotateX(Math.PI / 2), 'gold', null, 0, 0.68, 0.36);
+  add(g, cap(0.03, 0.22).rotateZ(Math.PI / 2), 'gold', null, 0, 0.68, 0.4);
+  add(g, sph(0.06, 12, 10), 'gloss', '#ff5e6c', 0.13, 0.68, 0.42);
+  add(g, rbox(0.3, 0.2, 0.1, 0.08, 3), 'matte', '#5a4a5a', 0, 0.3, 0.33);
+  add(g, rbox(0.14, 0.05, 0.04, 0.02, 2), 'matte', '#3a3040', 0.22, 0.85, 0.36);
+  // 투명 돔 + 알록달록 캡슐(반반 색 공)
+  add(g, cyl(0.34, 0.36, 0.06, 28), 'gloss', '#ffffff', 0, 1.06, 0);
+  const caps = ['#ff8f8f', '#ffd34f', '#7cc8f5', '#9be08a', '#d6a0f0', '#ffb36b'];
+  for (let i = 0; i < 11; i++) {
+    const a = rng() * Math.PI * 2, r = Math.sqrt(rng()) * 0.22, y = 1.15 + rng() * 0.28 * (1 - r * 2);
+    const top = new THREE.SphereGeometry(0.075, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    const bot = new THREE.SphereGeometry(0.075, 14, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+    const rot: [number, number, number] = [rng() * 3, rng() * 3, rng() * 3];
+    add(g, top, 'gloss', caps[i % caps.length], Math.cos(a) * r, y, Math.sin(a) * r, rot);
+    add(g, bot, 'gloss', '#ffffff', Math.cos(a) * r, y, Math.sin(a) * r, rot);
+  }
+  add(g, dome(0.36, 28, 14), 'ice', '#f0fbff', 0, 1.08, 0, undefined, [1, 1.15, 1]);
+  add(g, sph(0.08, 14, 10), 'gold', null, 0, 1.52, 0);
+  // 별 간판
+  const star = new THREE.Shape();
+  for (let i = 0; i < 10; i++) { const a = Math.PI / 2 + (i / 10) * Math.PI * 2, r = i % 2 ? 0.08 : 0.19; if (i) star.lineTo(Math.cos(a) * r, Math.sin(a) * r); else star.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+  add(g, roundExtrude(star, 0.05, 0.015, 8), 'gloss', '#ffd34f', 0, 1.72, 0.02);
+  return { g, foot: 0.6, front: 0.6, cols: [{ kind: 'box', hx: 0.42, hy: 0.75, hz: 0.38, x: 0, y: 0.75, z: 0 }] };
 }
 
 export { stripesY, paint, rod };

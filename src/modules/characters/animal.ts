@@ -38,6 +38,8 @@ export interface AnimalSpec {
   acc2?: Accessory;
   /** 종 무늬 색(거북 등딱지·판다 얼룩·너구리 가면·고슴도치 가시·비버 꼬리) */
   mark?: string;
+  /** 귀 크기 배율(사막여우 소금별처럼 큰 귀) */
+  earScale?: number;
 }
 
 export interface AnimalPose {
@@ -655,7 +657,7 @@ export function buildAnimal(spec: AnimalSpec): AnimalRig {
         break;
       }
       case 'cat': case 'fox': case 'squirrel': case 'raccoon': {
-        const big = K === 'fox' ? 1.35 : K === 'raccoon' ? 0.85 : 1;
+        const big = (K === 'fox' ? 1.35 : K === 'raccoon' ? 0.85 : 1) * (spec.earScale ?? 1);
         ear.position.copy(earAt(m * 0.62, 0.78));
         ear.rotation.set(-0.12, 0, -m * 0.38);
         ear.add(mesh(pointyEar(0.095 * big, 0.2 * big, 0.05), furM));

@@ -169,6 +169,10 @@ export function floraKeepOut(I: Island, extra: Circle[] = []): Circle[] {
     ...Object.values(P.facilities).map((f) => ({ x: f.x, z: f.z, r: 12 })),
     ...Object.values(P.lighthouses).map((f) => ({ x: f.x, z: f.z, r: 9 })),
     ...P.caves.map((c) => ({ x: c.x, z: c.z, r: 6 })),
+    // 숨은 곳(땅 위) — 입구·요정 고리가 나무·덤불에 가리지 않게(요정 고리·용암 정원은 넓게)
+    ...Object.entries((P as { hidden?: Record<string, { x: number; z: number; water?: boolean }> }).hidden ?? {})
+      .filter(([, h]) => !h.water)
+      .map(([id, h]) => ({ x: h.x, z: h.z, r: id === 'home-fairy-ring' || id === 'dino-lava-garden' ? 10 : 8 })),
     { x: P.iceberg.x, z: P.iceberg.z, r: P.iceberg.r + 6 },
     { x: P.tinoHill.x, z: P.tinoHill.z, r: 14 },
     ...extra,

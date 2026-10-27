@@ -17,6 +17,11 @@
 //   parse(id) → {dino, part} | null           partsOf(dino) → 조각 id 3개    skeletonOf(id) → 골격 id
 // }
 // 화석 X 파기는 treasure 담당(예전 flags['dinos.dug'] 는 건드리지 않고 남겨 둔다 — 아무도 안 읽는다).
+//
+// P1(dinos/p1.ts — installP1): 알 부화(게임 3일) · 성장 3단계 · 공룡 목장(칸 4, 'ranch' 특전 +4) · 나팔이 리듬 놀이 · 알도둑 추격 ·
+//   목길어 목 엘리베이터 · 미끄럼틀 꼬리 미끄럼 · 화요일 대이동 · 화석 복원기. 티노는 물고기 30번이면 전설의 친구 + 탈것(F, 'v:dino_tino').
+// 디버그: window.__dinos.p1 = { egg, putEgg, ripen, hatch, ranch, grow, cap, site, goLab, migration, goMigration, steal, catchThief,
+//   elevator, slide, rhythm, rhythmState, autoplay, restore, … } · __dinos.tinoFish(n) · __dinos.rideTino()
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
 import type { Game, Mountable, Input } from '../core/game';
@@ -33,47 +38,15 @@ import {
   dropsLeft, useDrop, requestOfDay, favText, PET_GAIN, REQUEST_GAIN, HEART_MAX, type DinoFlags, type GainKind, type DinoRequest,
 } from './dinos/logic';
 import { newTino, tinoStep, forceTino, chestCheck, isNap, type TinoState, type TinoMachine } from './dinos/tino';
+import type { Agent } from './dinos/types';
+import { installP1, landDrive, type LandRide } from './dinos/p1';
+import { tinoLegend, tinoLeft, TINO_LEGEND, TINO_RIDE } from './dinos/p1logic';
 import {
   makeDino, makePtera, eggGeometry, nestGeometry, fossilModel, heartTexture, sparkleTexture, dinoSkin, flipperGeometry,
   setEyesOpen, poseWings, snotBubble, glyphTexture, goldChest, type DinoRig, type PteraRig,
 } from './dinos/build';
 
 export const order = 30;
-
-type AState = 'idle' | 'walk' | 'graze' | 'yawn' | 'flee' | 'approach' | 'follow' | 'ride' | 'look' | 'sleep';
-
-interface Agent {
-  id: string;
-  spec: DinoSpec;
-  rig: DinoRig;
-  /** 사는 섬(땅 판정) */
-  isl: string;
-  x: number; z: number; y: number; yaw: number;
-  home: { x: number; z: number };
-  state: AState;
-  timer: number;
-  tx: number; tz: number;
-  speed: number;
-  phase: number;
-  blink: number;
-  /** 숨쉬기 위상 0..1(개체마다) */
-  bph: number;
-  headPitch: number; headYaw: number; lean: number;
-  hop: number;
-  wag: number;
-  /** 청크를 떠나 모듈 그룹에 붙었다(탑승·펫) */
-  adopted: boolean;
-  /** 같이 다니는 펫 */
-  pet: boolean;
-  chunk: string | null;
-  lastPet: number;
-  /** 포즈(엄지척·짜잔) 남은 시간 */
-  pose: number;
-  /** 부탁 '!' 표시 */
-  mark?: THREE.Sprite;
-  /** 높은 곳(화산 정상) 허용 */
-  high: boolean;
-}
 
 interface Nest { key: string; x: number; z: number; y: number; eggs: THREE.Mesh[]; obj: THREE.Object3D }
 interface Plesio { rig: DinoRig; flippers: THREE.Object3D[]; cx: number; cz: number; r: number; w: number; ph: number; base: number; x: number; z: number; yaw: number; ride: boolean; lastPet: number; hop: number }
@@ -117,11 +90,16 @@ export default function build(ctx: Ctx) {
   const lookup = (id: string) => { const s = game.state.species.get(id); return s ? { category: s.category, rarity: s.rarity } : undefined; };
   const hearts = (id: string) => F().hearts[id] ?? 0;
   const unlocked = (key: string) => { try { return !!game.econ?.isUnlocked?.(key); } catch { return false; } };
-  const isFriend = (s: DinoSpec) => unlocked(dinoKey(s.id)) || unlocked(dinoKey(s.gdd)) || !!F().unlocked[s.id] || hearts(s.id) >= threshold(p0());
+  const isFriend = (s: DinoSpec) => (s.id === 'z_tino' ? tinoIsLegend()
+    : unlocked(dinoKey(s.id)) || unlocked(dinoKey(s.gdd)) || !!F().unlocked[s.id] || hearts(s.id) >= threshold(p0()));
+  /** 티노: 물고기 선물 30번(또는 해금 키) */
+  const tinoIsLegend = () => F().tinoLegend || tinoLegend(F().tinoFish) || unlocked(mountKey('z_tino'));
   const registered = (id: string) => !!game.state.dex[id];
 
   const agents = new Set<Agent>();
   const nests = new Map<string, Nest>();
+  /** P1(알·목장·대이동·놀이) — 아래에서 installP1 로 붙는다 */
+  let p1: ReturnType<typeof installP1> | null = null;
 
   // ── 공용 리소스 ──
   const heartMat = new THREE.SpriteMaterial({ map: heartTexture(), transparent: true, depthWrite: false });
@@ -326,7 +304,9 @@ export default function build(ctx: Ctx) {
     const f = F();
     const res = applyGain(f, spec.id, amount, day(), p0());
     if (res.added > 0) emit('befriend', { id: spec.id, hearts: res.hearts, kind: 'dino', why: kind });
-    if (res.crossed || (res.hearts >= threshold(p0()) && !unlocked(dinoKey(spec.id)) && !f.unlocked[spec.id])) befriendNow(spec);
+    // 티노는 하트가 아니라 물고기 선물 30번으로 친구가 된다(P1 전설)
+    const tinoGate = spec.id === 'z_tino' && !tinoIsLegend();
+    if (!tinoGate && (res.crossed || (res.hearts >= threshold(p0()) && !unlocked(dinoKey(spec.id)) && !f.unlocked[spec.id]))) befriendNow(spec);
     save();
     return res;
   }
@@ -402,7 +382,7 @@ export default function build(ctx: Ctx) {
   const faceTo = (x: number, z: number) => { const p = game!.player; p.yaw = Math.atan2(-(x - p.pos.x), -(z - p.pos.z)); };
 
   /** 이 공룡에게 지금 E 로 할 일 */
-  function actionFor(a: Agent, d: number): { label: string; use: () => void } {
+  function actionFor(a: Agent, d: number, opts?: { noP1?: boolean }): { label: string; use: () => void } {
     const s = a.spec;
     const reg = registered(s.id);
     const sleeping = a.state === 'sleep';
@@ -412,6 +392,9 @@ export default function build(ctx: Ctx) {
       const items = reqItems(r);
       if (items) return { label: `${s.name} 부탁 들어주기 (${reqText(r)})`, use: () => fulfillReq(a, r, items, headWorld(a.rig, s)) };
     }
+    // P1: 목장 아기 밥 · 친구 목길어 엘리베이터 · 미끄럼틀 · 나팔이 합창(먹이는 F 로 옮긴다)
+    const p1a = opts?.noP1 ? null : p1?.actionE(a, d);
+    if (p1a) return p1a;
     const room = remainingToday(F(), s.id, day());
     const food = s.fav ? pickFood(s, game!.state.bag, lookup, Math.max(room, 0.5)) : null;
     if (food && (room > 0 || !reg)) return { label: `${s.name}에게 ${nm(food.id)} 주기${food.fav ? ' 💕' : ''}`, use: () => feed(a, food.id) };
@@ -569,13 +552,13 @@ export default function build(ctx: Ctx) {
     }
   }
 
-  function mount(a: Agent) {
+  function mount(a: Agent, ride?: LandRide) {
     const R = a.spec.reward;
-    if (R.kind !== 'mount') return;
-    const cfg = R.ride;
+    if (!ride && R.kind !== 'mount') return;
+    const cfg = ride ?? (R as Extract<Reward, { kind: 'mount' }>).ride;
     // 청크가 사라져도 남게: 모듈 그룹으로 옮긴다(예전에 데려온 다른 탈것 공룡은 보낸다)
     if (!a.adopted) {
-      for (const o of [...agents]) if (o.adopted && !o.pet && o !== a && o.state !== 'ride') dropAgent(o);
+      for (const o of [...agents]) if (o.adopted && !o.pet && !o.keep && o !== a && o.state !== 'ride') dropAgent(o);
       group.add(a.rig.root);
       a.adopted = true;
       a.chunk = null;
@@ -647,6 +630,7 @@ export default function build(ctx: Ctx) {
         if (a.rig.wings.length) poseWings(a.rig.wings, 0);
         a.y = Math.max(island.heightAt(a.x, a.z), a.y);
         emit('dismount', { vehicle: `dino_${shortId(a.spec.id)}` });
+        if (a.ranch) a.state = 'idle';
         const side = new THREE.Vector3(Math.cos(a.yaw), 0, -Math.sin(a.yaw)).multiplyScalar(a.rig.tpl.radius * a.spec.scale + 1.2);
         return new THREE.Vector3(a.x + side.x, island.heightAt(a.x + side.x, a.z + side.z), a.z + side.z);
       },
@@ -696,7 +680,7 @@ export default function build(ctx: Ctx) {
   /** 탄 뒤 내려 둔 공룡: 멀어지면(150 m) 보낸다 — 청크가 다시 생기면 무리 속에 돌아와 있다 */
   function tickStrays(px: number, pz: number) {
     for (const a of [...agents]) {
-      if (!a.adopted || a.pet || a.state === 'ride' || a === mammoth || a.id.startsWith('show:')) continue;
+      if (!a.adopted || a.pet || a.keep || a.ranch || a.state === 'ride' || a === mammoth || a.id.startsWith('show:')) continue;
       if (Math.hypot(a.x - px, a.z - pz) > 150) dropAgent(a);
     }
   }
@@ -734,6 +718,13 @@ export default function build(ctx: Ctx) {
     let best: { d: number; label: string; use: () => void } | null = null;
     for (const a of agents) {
       if (a.state === 'ride' || a.state === 'sleep' || !a.rig.root.visible) continue;
+      // P1: 다 자란 목장 공룡 타기 · E 를 놀이에 쓴 친구의 먹이
+      const alt = p1?.altF(a, 0, () => actionFor(a, Math.hypot(a.x - p.pos.x, a.z - p.pos.z), { noP1: true }));
+      if (alt) {
+        const d = Math.hypot(a.x - p.pos.x, a.z - p.pos.z);
+        if (d <= reachOf(a) + 0.6 && (!best || d < best.d)) best = { d, ...alt };
+        continue;
+      }
       const R = a.spec.reward;
       if (R.kind !== 'mount' && R.kind !== 'pet') continue;
       if (!isFriend(a.spec)) continue;
@@ -743,6 +734,14 @@ export default function build(ctx: Ctx) {
       if (R.kind === 'mount') best = { d, label: `${a.spec.name} 타기`, use: () => mount(a) };
       else if (F().pet === a.spec.id && a.pet) best = { d, label: `${a.spec.name}, 집에 가서 쉬어`, use: () => { setPet(null); toast(`${a.spec.name}: 또 놀자! (꾸벅)`); } };
       else best = { d, label: `${a.spec.name}랑 같이 다니기`, use: () => { setPet(a.spec.id); toast(`${jo(`${a.spec.name}${a.spec.reward.kind === 'pet' && a.spec.reward.flock ? ' 떼' : ''}`, '이', '가')} 졸졸 따라와요!`); } };
+    }
+    // 전설 티노(물고기 30번)
+    if (tinoIsLegend() && !tinoRide && !p1?.busy() && tinoRig.root.visible && tino.m.state !== 'chase' && tino.m.state !== 'wake') {
+      const d = Math.hypot(tino.x - p.pos.x, tino.z - p.pos.z);
+      if (d <= tinoRig.tpl.radius * tinoSpec.scale + 2.2 && (!best || d < best.d)) {
+        const nap = tino.m.state === 'sleep' || tino.m.state === 'stir';
+        best = { d, label: nap ? '쿨쿨 티노 살살 깨워서 타기 👑' : '대장렉스 티노 타기 👑', use: () => rideTino() };
+      }
     }
     for (const pl of plesios) {
       if (pl.ride || !isFriend(plesioSpec) || !pl.rig.root.visible) continue;
@@ -910,6 +909,8 @@ export default function build(ctx: Ctx) {
     lastPet: -99, prev: '' as TinoState | '', hintShown: false, gaugeShown: -1, wakeT: 0,
   };
   tino.prev = tino.m.state;
+  // game.ext.tino — 낮잠 기계(상태·소음 게이지)와 자리. netplay-play 가 친구 소음을 더한다
+  game.ext.tino = tino;
   tinoRig.root.position.set(tino.x, tino.y, tino.z);
   group.add(tinoRig.root);
   const bubble = snotBubble();
@@ -938,12 +939,63 @@ export default function build(ctx: Ctx) {
     game!.player.act('pet', 1);
     const res = gain(tinoSpec, v.gain, 'feed');
     burstHearts(headWorld(tinoRig, tinoSpec), 4 + Math.round(res.added * 2));
-    const line = `${heartLine(res.hearts)} · 물고기 선물 ${f.tinoFish}/30`;
-    if (!register(tinoSpec, `꺄오~ 냠! ${line}`)) toast(`티노: 꺄오~ 냠냠! ${line}`);
+    const legend = tinoIsLegend();
+    const line = `${heartLine(res.hearts)} · 물고기 선물 ${legend ? `${f.tinoFish}번 💕` : `${f.tinoFish}/${TINO_LEGEND}`}`;
+    if (!register(tinoSpec, `꺄오~ 냠! ${line}`)) toast(`티노: 꺄오~ 냠냠! ${line}${!legend && tinoLeft(f.tinoFish) <= 5 ? ` (친구까지 ${tinoLeft(f.tinoFish)}번!)` : ''}`);
+    if (!f.tinoLegend && tinoLegend(f.tinoFish)) tinoBecomeLegend();
+    save();
+  }
+
+  /** 물고기 30번: 티노가 전설의 친구 + 탈것이 된다 */
+  function tinoBecomeLegend() {
+    const f = F();
+    if (f.tinoLegend) return;
+    f.tinoLegend = true;
+    f.unlocked[tinoSpec.id] = true;
+    const econ = game!.econ;
+    if (econ?.unlock) { econ.unlock(dinoKey(tinoSpec.id), 'befriend'); econ.unlock(mountKey(tinoSpec.id), 'befriend'); }
+    save();
+    burstHearts(headWorld(tinoRig, tinoSpec), 10);
+    burstSparkles(new THREE.Vector3(tino.x, tino.y + 3, tino.z), 18);
+    game!.audio?.sfx('achievement');
+    game!.hud.banner({ text: '👑 전설의 친구!', sub: '티노가 물고기 선물 30번에 마음을 열었어요', icon: '🦖', color: '#ffa24c', ms: 2600 });
+    game!.hud.card({ title: '티노와 친구가 됐어요! 👑', body: '이제 F 로 대장렉스 티노를 탈 수 있어요 — 쿵쿵 14 m/s, Space 로 "꺄오!"', icon: '🦖', color: '#ffa24c', ms: 5200 });
+    emit('befriend', { id: tinoSpec.id, hearts: hearts(tinoSpec.id), kind: 'dino', why: 'legend' });
+  }
+
+  /** 전설 티노 타기(낮잠 중이면 살살 깨운다) */
+  let tinoRide = false;
+  function rideTino() {
+    if (tinoRide || game!.player.mounted || p1?.busy()) return;
+    for (const e of forceTino(tino.m, 'awake')) emit('tino', { state: e });
+    tino.prev = tino.m.state;
+    tinoRide = true;
+    tino.hop = 1.4;
+    const drive = landDrive(game!, tino, TINO_RIDE, (x, z) => okGround(x, z, 'dino', true) || (island.worldSample(x, z).island?.id === 'dino' && island.waterLevelAt(x, z) < island.heightAt(x, z) + 0.3), () => {
+      tino.hop = 1.2;
+      game!.audio?.sfx('dino-roar-cute', { x: tino.x, z: tino.z, pitch: 0.62 });
+      toast('티노: 꺄오~!! 🦖');
+    });
+    const m: Mountable = {
+      name: '대장렉스 티노', seat: tinoRig.seat, object: tinoRig.root, camDistance: TINO_RIDE.cam,
+      drive,
+      onExit: () => {
+        tinoRide = false;
+        tino.speed = 0;
+        // 낮잠 시간이면 집에 가서 다시 잔다
+        if (isNap(hour())) for (const e of forceTino(tino.m, 'return')) emit('tino', { state: e });
+        tino.prev = tino.m.state;
+        emit('dismount', { vehicle: 'dino_tino' });
+        const side = new THREE.Vector3(Math.cos(tino.yaw), 0, -Math.sin(tino.yaw)).multiplyScalar(tinoRig.tpl.radius * TINO_SC + 1.4);
+        return new THREE.Vector3(tino.x + side.x, island.heightAt(tino.x + side.x, tino.z + side.z), tino.z + side.z);
+      },
+    };
+    game!.player.mount(m);
+    emit('mount', { vehicle: 'dino_tino' });
   }
 
   game.addProvider('dinos-tino', (p) => {
-    if (p.mounted || game.world !== 'earth') return null;
+    if (p.mounted || game.world !== 'earth' || tinoRide) return null;
     const d = Math.hypot(tino.x - p.pos.x, tino.z - p.pos.z);
     const reach = tinoRig.tpl.radius * tinoSpec.scale + 1.8;
     if (d > reach) return null;
@@ -957,7 +1009,7 @@ export default function build(ctx: Ctx) {
     }
     if (st !== 'awake') return null;
     const food = pickFood(tinoSpec, game.state.bag, lookup, 2);
-    if (food) return { id: 'dinos-tino', label: `티노에게 ${nm(food.id)} 주기 (${F().tinoFish}/30)`, dist: d - reach + 2, use: () => tinoFeed(food.id) };
+    if (food) return { id: 'dinos-tino', label: `티노에게 ${nm(food.id)} 주기 ${tinoIsLegend() ? '💕' : `(${F().tinoFish}/${TINO_LEGEND})`}`, dist: d - reach + 2, use: () => tinoFeed(food.id) };
     return {
       id: 'dinos-tino', label: registered(tinoSpec.id) ? '티노 쓰다듬기' : '티노에게 인사하기', dist: d - reach + 2,
       use: () => {
@@ -1022,6 +1074,20 @@ export default function build(ctx: Ctx) {
     partsOf: (dino: string) => PIECE_IDS.filter((id) => parseFossil(id)?.dino === dino),
     skeletonOf: (id: string) => { const p = parseFossil(id); return p ? `fos_${p.dino}` : null; },
   };
+
+  // ── P1: 알 부화 · 목장 · 대이동 · 알도둑 · 엘리베이터 · 미끄럼틀 · 리듬 · 복원기(dinos/p1.ts) ──
+  p1 = installP1({
+    ctx, game, group, agents,
+    F, save, day, hour, toast, give, nm, emit,
+    register, gain, isFriend,
+    spawn: (spec, x, z, yaw, key, parent, chunk, islandId) => spawn(spec, x, z, yaw, key, parent, chunk, islandId),
+    dropAgent, burstHearts, burstSparkles, headWorld, faceTo,
+    mountAgent: (a, cfg) => mount(a, cfg),
+    feed: (a, item) => feed(a, item),
+    pet: (a) => pet(a),
+    pickFood: (s) => pickFood(s, game.state.bag, lookup, Math.max(remainingToday(F(), s.id, day()), 0.5))?.id ?? null,
+    okGround,
+  });
 
   // ── 디버그 훅(window.__dinos) ──
   const nearest = (id?: string) => {
@@ -1094,6 +1160,14 @@ export default function build(ctx: Ctx) {
     near: (id: string) => nearest(id),
     request: () => todayReq(),
     flags: () => F(),
+    /** P1 도구(알·목장·대이동·놀이) */
+    p1: p1.debug,
+    /** 티노 물고기 선물 수 바꾸기(30 이면 전설) */
+    tinoFish(n?: number) {
+      if (typeof n === 'number') { F().tinoFish = Math.max(0, Math.floor(n)); if (tinoLegend(F().tinoFish)) tinoBecomeLegend(); save(); }
+      return { fish: F().tinoFish, legend: tinoIsLegend(), left: tinoLeft(F().tinoFish) };
+    },
+    rideTino: () => { rideTino(); return tinoRide; },
   };
 
   // ── 매 프레임 ──
@@ -1120,6 +1194,7 @@ export default function build(ctx: Ctx) {
     // 1초마다: 녹은 매머드 있고 없고 · 멀리 두고 온 탈것 공룡 보내기
     if (t >= slowTick) { slowTick = t + 1; tickMammoth(px, pz); tickStrays(px, pz); }
     for (const a of agents) updateAgent(a, t, dt, px, pz, h, req);
+    p1?.update(t, dt, px, pz);
     // 펫: 멀리 떨어지면 곁으로 순간이동(땅 위에 있을 때만)
     for (const a of agents) {
       if (!a.pet) continue;
@@ -1257,11 +1332,12 @@ export default function build(ctx: Ctx) {
     R.root.visible = d < 420;
     // 살금살금: C(또는 Ctrl)를 누르고 있으면 언덕 근처에서 걸음이 느려진다
     const sneak = sneaking() && p.mode === 'ground' && !p.mounted && d < 30;
+    if (tinoRide) { R.root.visible = true; if (tino.gaugeShown !== -1) { tino.gaugeShown = -1; game!.hud.gauge('tino', { label: '티노 소음', value: 0, color: '#ffa24c', show: false }); } }
     if (sneak && dt > 0) { const k = Math.pow(0.6, dt * 60); p.vel.x *= k; p.vel.z *= k; }
     const m = tino.m;
     const home = Math.hypot(tino.x - bed.x, tino.z - bed.z) < 1.5;
     const caught = m.state === 'chase' && d < tinoRig.tpl.radius * TINO_SC + 1.2;
-    const evs = far && m.state !== 'chase' ? tinoStep(m, { dt, hour: h, dist: Infinity, summitDist: sd, speed: 0, home: true }) : tinoStep(m, { dt, hour: h, dist: d, summitDist: sd, speed: p.mounted ? 12 : p.speed, sneaking: sneak, home, caught });
+    const evs = tinoRide ? [] : far && m.state !== 'chase' ? tinoStep(m, { dt, hour: h, dist: Infinity, summitDist: sd, speed: 0, home: true }) : tinoStep(m, { dt, hour: h, dist: d, summitDist: sd, speed: p.mounted ? 12 : p.speed, sneaking: sneak, home, caught });
     for (const e of evs) emit('tino', { state: e });
     if (m.state !== tino.prev) {
       const prev = tino.prev;
@@ -1278,7 +1354,7 @@ export default function build(ctx: Ctx) {
       toast('쉿… 티노가 낮잠 중! 달리면 깨요. C 를 꾹 누르면 살금살금~');
     }
     // 게이지 HUD(언덕 근처 낮잠 중일 때만)
-    const show = (m.state === 'sleep' || m.state === 'stir') && d < 18;
+    const show = !tinoRide && (m.state === 'sleep' || m.state === 'stir') && d < 18;
     const gv = show ? Math.round(m.gauge) : -1;
     if (gv !== tino.gaugeShown) {
       tino.gaugeShown = gv;
@@ -1287,7 +1363,11 @@ export default function build(ctx: Ctx) {
     if (!R.root.visible) return;
     // 움직임
     let want = 0, tx = tino.x, tz = tino.z;
-    if (m.state === 'chase') { want = 6.5; tx = px; tz = pz; }
+    // 타고 멀리 다녀왔으면 걸어서 집(낮잠 자리)으로
+    const homing = !tinoRide && m.state !== 'chase' && m.state !== 'wake' && Math.hypot(tino.x - bed.x, tino.z - bed.z) > 12;
+    if (tinoRide) { /* 탑승 조종(landDrive)이 움직인다 */ }
+    else if (homing) { want = 4; tx = bed.x; tz = bed.z; }
+    else if (m.state === 'chase') { want = 6.5; tx = px; tz = pz; }
     else if (m.state === 'return') { want = 3; tx = bed.x; tz = bed.z; }
     else if (m.state === 'awake') {
       // 저녁·밤: 낮잠 자리 둘레를 어슬렁
@@ -1296,20 +1376,21 @@ export default function build(ctx: Ctx) {
     }
     const dx = tx - tino.x, dz = tz - tino.z, dl = Math.hypot(dx, dz);
     const stop = m.state === 'chase' ? tinoRig.tpl.radius * TINO_SC + 0.8 : 0.4;
-    if (want > 0 && dl > stop) {
+    if (!tinoRide && want > 0 && dl > stop) {
       let dy = Math.atan2(dx, dz) - tino.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       tino.yaw += dy * Math.min(1, dt * 4);
       tino.speed += (want - tino.speed) * Math.min(1, dt * 4);
-    } else tino.speed *= Math.max(0, 1 - dt * 6);
-    if (tino.speed > 0.02) {
+    } else if (!tinoRide) tino.speed *= Math.max(0, 1 - dt * 6);
+    if (!tinoRide && tino.speed > 0.02) {
       const nx = tino.x + Math.sin(tino.yaw) * tino.speed * dt, nz = tino.z + Math.cos(tino.yaw) * tino.speed * dt;
-      if (okGround(nx, nz, 'dino', true) && Math.hypot(nx - bed.x, nz - bed.z) < 40) { tino.x = nx; tino.z = nz; }
+      const dHome = Math.hypot(nx - bed.x, nz - bed.z);
+      if ((okGround(nx, nz, 'dino', true) || homing) && (dHome < 40 || dHome < Math.hypot(tino.x - bed.x, tino.z - bed.z))) { tino.x = nx; tino.z = nz; }
     }
-    if ((m.state === 'sleep' || m.state === 'stir') && !home) { tino.x += (bed.x - tino.x) * Math.min(1, dt); tino.z += (bed.z - tino.z) * Math.min(1, dt); }
-    if (m.state === 'sleep' || m.state === 'stir') { let dy = bed.yaw - tino.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); tino.yaw += dy * Math.min(1, dt * 2); }
-    tino.y = island.heightAt(tino.x, tino.z);
+    if (!tinoRide && !homing && (m.state === 'sleep' || m.state === 'stir') && !home) { tino.x += (bed.x - tino.x) * Math.min(1, dt); tino.z += (bed.z - tino.z) * Math.min(1, dt); }
+    if (!tinoRide && !homing && (m.state === 'sleep' || m.state === 'stir')) { let dy = bed.yaw - tino.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); tino.yaw += dy * Math.min(1, dt * 2); }
+    if (!tinoRide) tino.y = island.heightAt(tino.x, tino.z);
     // 몸짓
-    const asleep = m.state === 'sleep' || m.state === 'stir';
+    const asleep = !tinoRide && !homing && (m.state === 'sleep' || m.state === 'stir');
     tino.phase += dt * tino.speed * 2.2;
     const sw = Math.sin(tino.phase), amp = Math.min(0.7, tino.speed * 0.12);
     if (R.legs[0]) R.legs[0].rotation.x = asleep ? -1.2 : sw * amp;
@@ -1384,13 +1465,18 @@ export default function build(ctx: Ctx) {
       (R.head.children[0] as THREE.Mesh).castShadow = shadow;
       R.root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o !== R.rig.children[0] && o !== R.head.children[0]) o.castShadow = false; });
     }
+    // 멀어도 바깥 조종(대이동 행진 등)은 길만 따라가게 돌린다(가까이 오면 툭 튀지 않게)
+    if (far && a.state !== 'ride' && !a.pet && a.ctl && a.ctl(a, t, dt)) a.y = game!.groundAt(a.x, a.z);
     if (far && a.state !== 'ride' && !a.pet) { R.root.visible = dp < (a.spec.scale > 3 ? 320 : 150); if (a.mark) a.mark.visible = false; return; }
     R.root.visible = true;
     const sc = a.spec.scale;
     const baseSpeed = a.spec.speed * Math.sqrt(sc);
-    const awake = a.pet || a.adopted || awakeAt(a.spec.time, h);
+    const awake = a.pet || a.adopted || !!a.ctl || awakeAt(a.spec.time, h);
 
-    if (a.state !== 'ride') {
+    if (a.state !== 'ride' && a.ctl && a.ctl(a, t, dt)) {
+      // P1 바깥 조종(도둑 도망·대이동 행진·놀이 중 멈춤)
+      a.y = game!.groundAt(a.x, a.z);
+    } else if (a.state !== 'ride') {
       a.timer -= dt;
       if (!awake) { if (a.state !== 'sleep') { a.state = 'sleep'; a.speed = 0; } }
       else if (a.state === 'sleep') { a.state = 'yawn'; a.timer = 2.2; }

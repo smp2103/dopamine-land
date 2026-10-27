@@ -165,7 +165,7 @@ export const DINOS: DinoSpec[] = [
     neck: { fwd: 0.28, up: 0.38, r: 0.2 }, head: { r: 0.34, ry: 0.32, rz: 0.36, snout: 0.4 },
     tail: { len: 0.85, r: 0.24, up: 0.1 }, leg: { len: 0.38, r: 0.14 }, arm: { len: 0.2, r: 0.06 },
     feat: ['crest', 'beak'], parts: ['crest'], personality: 'calm', speed: 1.4, herd: [2, 4], weight: 1.1,
-    fav: FERN, reward: { kind: 'item', item: 'f_dino_musicbox', text: '뿌우~ 소리가 나는 음악 상자를 줘요' },
+    fav: FERN, reward: { kind: 'item', item: 'f_dino_musicbox', text: '뿌우~ 음악 상자를 주고, E 로 리듬 합창 놀이를 같이 해요' },
   }),
   S({
     id: 'dino-pachy', gdd: 'z_pachy', name: '박치기', rarity: 2, habitat: 'land', form: 'BIPED', home: 'dino', zones: ['forest'], time: ['day'],
@@ -196,7 +196,7 @@ export const DINOS: DinoSpec[] = [
     neck: { fwd: 0.55, up: 1.55, r: 0.17 }, head: { r: 0.3, ry: 0.27, rz: 0.33, snout: 0.3 },
     tail: { len: 1.0, r: 0.24, up: 0.15 }, leg: { len: 0.55, r: 0.16 },
     feat: ['spots'], parts: [], personality: 'calm', speed: 0.9, herd: [1, 2], weight: 0.7,
-    fav: FRUIT, reward: { kind: 'p1', text: '목 엘리베이터로 절벽 위에 데려다줄 거래요(준비 중)' },
+    fav: FRUIT, reward: { kind: 'p1', text: '목 엘리베이터! E 로 목을 타고 올라 절벽 위·높은 열매까지 가요' },
   }),
   S({
     id: 'z_apatosaurus', gdd: 'z_apatosaurus', name: '미끄럼틀', rarity: 3, habitat: 'land', form: 'LONGNECK', home: 'dino', zones: ['lake'], time: ['day'],
@@ -206,7 +206,7 @@ export const DINOS: DinoSpec[] = [
     neck: { fwd: 0.85, up: 1.1, r: 0.16 }, head: { r: 0.28, ry: 0.26, rz: 0.32, snout: 0.28 },
     tail: { len: 1.6, r: 0.26, up: 0.05 }, leg: { len: 0.5, r: 0.16 },
     feat: ['spots'], parts: [], personality: 'calm', speed: 0.9, herd: [1, 2], weight: 0.6,
-    fav: FERN, reward: { kind: 'p1', text: '꼬리 미끄럼틀 → 호수 풍덩! (준비 중)' },
+    fav: FERN, reward: { kind: 'p1', text: '꼬리 미끄럼틀! E 로 등에 올라 슝~ 호수에 풍덩' },
   }),
   S({
     id: 'z_oviraptor', gdd: 'z_oviraptor', name: '알도둑', rarity: 3, habitat: 'nest', form: 'BIPED', home: 'dino', zones: ['nest'], time: ['morning'],
@@ -216,7 +216,7 @@ export const DINOS: DinoSpec[] = [
     neck: { fwd: 0.2, up: 0.36, r: 0.16 }, head: { r: 0.36, ry: 0.34, rz: 0.36, snout: 0.26 },
     tail: { len: 0.7, r: 0.2, up: 0.2 }, leg: { len: 0.4, r: 0.11 }, arm: { len: 0.2, r: 0.05 },
     feat: ['crest', 'beak', 'feathers'], parts: ['crest', 'feathers'], personality: 'curious', speed: 2.6, herd: [2, 3], weight: 0.9,
-    fav: FRUIT, reward: { kind: 'p1', text: '쫓아가 잡으면 공룡 알을 준대요(준비 중)' },
+    fav: FRUIT, reward: { kind: 'p1', text: '과일을 훔쳐 가면 쫓아가 잡아요 — 잡으면 공룡 알(하루 1개)!' },
   }),
   S({
     id: 'z_therizino', gdd: 'z_therizino', name: '손톱정원사', rarity: 3, habitat: 'land', form: 'BIPED', home: 'dino', zones: ['jungle'], time: ['day'],
@@ -288,7 +288,7 @@ export const DINOS: DinoSpec[] = [
     neck: { fwd: 0.2, up: 0.3, r: 0.32 }, head: { r: 0.52, ry: 0.44, rz: 0.54, snout: 0.45 },
     tail: { len: 1.1, r: 0.32, up: 0.08 }, leg: { len: 0.4, r: 0.17 }, arm: { len: 0.13, r: 0.055 },
     feat: ['crown', 'spots'], parts: ['crown'], personality: 'calm', speed: 1.4, herd: [1, 1], weight: 0,
-    fav: FISH, reward: { kind: 'p1', text: '물고기 선물 30번이면 전설의 탈것이 된대요(준비 중)' },
+    fav: FISH, reward: { kind: 'p1', text: '물고기 선물 30번이면 친구! 전설의 탈것이 돼요 (F)' },
   }),
   // ── 하늘·물(목격형) ──
   S({
@@ -379,6 +379,8 @@ export const mountKey = (id: string) => `v:dino_${shortId(id)}`;
 export const DINO_GOODS: Species[] = [
   { id: 'f_stego_plate', name: '꽃 등판 장식', category: 'item', rarity: 3, price: 1200, tags: ['furniture', 'dino-gift'], desc: '접시등이 준 등판 모양 장식. 꽃이 피어 있다.' },
   { id: 'f_dino_musicbox', name: '뿌우 음악 상자', category: 'item', rarity: 3, price: 1200, tags: ['furniture', 'dino-gift'], desc: '열면 나팔이 합창이 뿌우~ 흘러나온다.' },
+  // P1 — 알도둑을 잡으면 받는 알. 부화기(집)·화석 연구소 부화장에 넣고 게임 3일이면 깨어난다(무슨 공룡일지는 비밀)
+  { id: 'it_dino_egg', name: '공룡 알', category: 'item', rarity: 3, price: 800, tags: ['dino-egg', 'dino-gift'], desc: '동글동글 따뜻한 알. 부화기에 넣고 3일 기다리면 누가 나올까?' },
 ];
 
 // ───────────── 화석(GDD 3.7 · 5.5) ─────────────

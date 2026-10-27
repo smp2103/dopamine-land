@@ -121,6 +121,11 @@ export type PhotoEvent = Ev<'photo', { spot?: string; species?: string[] }>;
 export type NetPeerEvent = Ev<'net-peer', { state: string }>;
 export type NetCoopEvent = Ev<'net-coop', { kind: string; data: unknown }>;
 
+// ── 주민 P1(이사·제안·감정)
+export type NpcMoveInEvent = Ev<'npc-movein', { npc: string; island: string; from?: string | null }>;
+export type NpcProposeEvent = Ev<'npc-propose', { npc: string; island: string | null }>;
+export type AppraiseEvent = Ev<'appraise', { id: string; dino: string; part: string; cost: number }>;
+
 /** 계약에 있는 모든 이벤트 */
 export type KnownEvent =
   | RegisterEvent | CollectEvent | CoinsEvent | BagEvent | SellEvent | BuyEvent | CraftEvent | DonateEvent | StarsEvent
@@ -134,7 +139,8 @@ export type KnownEvent =
   | OpenPanelEvent | OpenShipyardEvent | UiOpenEvent | UiCloseEvent
   | MissionDoneEvent | MissionsAllEvent | AchievementEvent | SetCompleteEvent | WeekdayEventEvent | MailEvent
   | PlaceEvent | DevStageEvent | LighthouseEvent
-  | TinoEvent | ReleaseEvent | SecretFoundEvent | EndingEvent | PhotoEvent | NetPeerEvent | NetCoopEvent;
+  | TinoEvent | ReleaseEvent | SecretFoundEvent | EndingEvent | PhotoEvent | NetPeerEvent | NetCoopEvent
+  | NpcMoveInEvent | NpcProposeEvent | AppraiseEvent;
 
 export type EventType = KnownEvent['type'];
 /** 이름으로 이벤트 모양 찾기: EventOf<'catch'> */

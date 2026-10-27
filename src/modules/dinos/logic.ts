@@ -1,7 +1,8 @@
 // 공룡 규칙(순수) — 하트(친밀도)·하루 상한·먹이 판정·사는 구역 고르기·하루 선물 횟수. three·DOM 없음 → 테스트가 바로 부른다.
-// 저장은 game.state.flags.dino 하나(계약 v2 7장): {hearts, dayGain, fed, petDay, tinoFish, eggs, …}.
+// 저장은 game.state.flags.dino 하나(계약 v2 7장): {hearts, dayGain, fed, petDay, tinoFish, eggs, …} — P1 칸(알·목장 …)은 p1logic.DinoP1Flags.
 import { MATERIALS } from '../economy/data';
 import type { DinoSpec, DinoZone, Fav, TimeCode } from './data';
+import { ensureP1, type DinoP1Flags } from './p1logic';
 
 // ───────────── 하트 ─────────────
 /** 하트 칸(화면에 보이는 최대) */
@@ -16,7 +17,7 @@ export type GainKind = 'feed' | 'pet' | 'request';
 export const PET_GAIN = 0.5;
 export const REQUEST_GAIN = 1;
 
-export interface DinoFlags {
+export interface DinoFlags extends DinoP1Flags {
   /** 종 id → 하트(0.5 단위) */
   hearts: Record<string, number>;
   /** 게임 날 → 종 id → 그날 오른 하트 */
@@ -27,8 +28,6 @@ export interface DinoFlags {
   petDay: Record<string, number>;
   /** 티노에게 준 물고기(P1 전설 탈것은 30번) */
   tinoFish: number;
-  /** 알(P1 부화 — dinos-p1) */
-  eggs: unknown[];
   /** 게임 날 → 종 id → 그날 받은 선물 수 */
   drops: Record<string, Record<string, number>>;
   /** 한 번만 주는 선물(가구)을 받았나 */
@@ -64,7 +63,6 @@ export function ensureFlags(raw: unknown): DinoFlags {
   f.fed = numMap(f.fed);
   f.petDay = numMap(f.petDay);
   f.tinoFish = num(f.tinoFish);
-  f.eggs = Array.isArray(f.eggs) ? f.eggs : [];
   f.drops = nestedMap(f.drops);
   const gifts: Record<string, boolean> = {};
   if (isObj(f.gifts)) for (const [k, b] of Object.entries(f.gifts)) if (b) gifts[k] = true;
@@ -75,6 +73,8 @@ export function ensureFlags(raw: unknown): DinoFlags {
   const un: Record<string, boolean> = {};
   if (isObj(f.unlocked)) for (const [k, b] of Object.entries(f.unlocked)) if (b) un[k] = true;
   f.unlocked = un;
+  // P1: 알·목장·대이동·리듬·복원·전설 티노(p1logic.ensureP1)
+  ensureP1(f);
   return f as unknown as DinoFlags;
 }
 

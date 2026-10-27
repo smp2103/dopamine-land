@@ -2,9 +2,13 @@
 // 감정 말풍선을 띄우고, 플레이어가 다가오면 손 흔들기, 부탁이 있으면 '!'(NPC 서비스가 켠다).
 // 대화 말풍선은 타자기(SpeechBubble) — 글자는 NPC 서비스가 한 글자씩 밀어 넣는다.
 // 반응: 박수(clap)·손 흔들기(launch-wave)는 그쪽(x,z)을 보고 한다.
+// P1: 특별 모델(model — 브라키오·로봇·문어…), 늦게 오는 주민(addHome — 이주), 섬 옮기기(relocate — 청크 사이),
+// 마주 보기(face — 주민끼리 수다). 시설 NPC 그릇 이름은 'npc-<id>'(촬영·검수가 찾는다).
 import * as THREE from 'three';
 import type { Ctx } from '../../core/types';
+import { applyCurve } from '../../core/curve';
 import { buildAnimal, type AnimalRig, type Outfit, type Accessory } from './animal';
+import { buildSpecial } from './special';
 import { blobShadow } from './kit';
 import { bubbleTexture, type BubbleKind } from './tex';
 import { SpeechBubble } from './bubble';
@@ -106,10 +110,12 @@ export interface Live extends Talker {
   moodEvery: number;
   react: NpcReaction | null;
   rnd: () => number;
+  /** 이 시각까지 (x,z) 를 마주 본다(수다) */
+  look: { x: number; z: number; until: number } | null;
 }
 
 /** 부두에서 섬 안쪽으로 걸어가며 평평한 땅을 찾는다 */
-function placeOnIsland(ctx: Ctx, def: PlacedDef): { x: number; z: number } | null {
+export function placeOnIsland(ctx: Ctx, def: PlacedDef): { x: number; z: number } | null {
   const { island } = ctx;
   if (def.at) return def.at;
   const d = island.islandById(def.island);
@@ -141,6 +147,9 @@ function placeOnIsland(ctx: Ctx, def: PlacedDef): { x: number; z: number } | nul
   return null;
 }
 
+const CELL = 96;
+const cellOf = (x: number, z: number) => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
+
 export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]) {
   const game = ctx.game;
   const { island } = ctx;
@@ -151,6 +160,8 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
     const at = placeOnIsland(ctx, def);
     if (at) homes.push({ def, ...at });
   }
+  /** 지금 살아 있는 청크 그릇(칸 → 그룹) — 늦게 온 주민을 바로 넣는다 */
+  const cells = new Map<string, THREE.Group>();
   /** 지금 시각(onUpdate t) — 말풍선 시각 기준 */
   let now = 0;
 
@@ -164,9 +175,10 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       spec.outfitColor = spec.outfitColor ?? def.accent;
     }
     if (!def.keepSpec && !spec.acc2) spec.acc2 = spec.acc === 'none' ? 'glasses' : ACC2[idx % ACC2.length];
-    const rig = buildAnimal(spec);
+    const rig = def.model ? buildSpecial(def.model, def.spec) : buildAnimal(spec);
     const container = new THREE.Group();
-    container.name = `resident:${def.id}`;
+    container.name = def.npc ? `npc-${def.npc}` : `resident:${def.id}`;
+    container.userData.npc = def.npc ?? def.id;
     const y = island.heightAt(h.x, h.z);
     container.position.set(h.x, y, h.z);
     container.add(rig.root);
@@ -187,9 +199,48 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       yaw: yaw0, yaw0, target: null, idleUntil: rnd() * 3,
       bubble, mood, greetUntil: -1, near: false, moodPhase: rnd() * 30,
       news: false, moodEvery: 11 + rnd() * 10, react: null,
-      speech: null, speechGone: -1, talking: false, rnd,
+      speech: null, speechGone: -1, talking: false, rnd, look: null,
     };
     return live;
+  }
+
+  /** 그 칸 청크가 살아 있으면 주민을 넣는다(곡률도 건다) */
+  function attach(L: Live) {
+    const g = cells.get(cellOf(L.p.x, L.p.z));
+    if (!g || !game || game.world !== 'earth') return;
+    g.add(L.container);
+    applyCurve(L.container);
+    active.add(L);
+  }
+  /** 늦게 오는 주민(이주) — 집 자리를 더하고 청크가 살아 있으면 바로 세운다 */
+  function addHome(def: PlacedDef, x: number, z: number) {
+    if (homes.some((h) => h.def.id === def.id)) return relocate(def.id, x, z);
+    if (!defs.includes(def)) defs.push(def);
+    const h = { def, x, z };
+    homes.push(h);
+    if (!game) return h;
+    const L = make(h);
+    lives.set(def.id, L);
+    attach(L);
+    return h;
+  }
+  /** 다른 자리(다른 섬)로 옮기기 — 지금 그릇에서 빼고 새 칸 그릇에 넣는다 */
+  function relocate(key: string, x: number, z: number) {
+    const h = homes.find((q) => q.def.id === key);
+    if (!h) return null;
+    h.x = x; h.z = z;
+    const L = lives.get(key);
+    if (L) {
+      L.container.parent?.remove(L.container);
+      active.delete(L);
+      L.home.set(x, z);
+      L.p.set(x, island.heightAt(x, z), z);
+      L.target = null;
+      L.look = null;
+      L.container.position.copy(L.p);
+      attach(L);
+    }
+    return h;
   }
 
   /** 주민 하나 → NPC 서비스 자리 */
@@ -204,15 +255,8 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       setTalking: (on) => { const L = live(); if (L) L.talking = on; },
       setNews: (on) => { const L = live(); if (L) L.news = on; },
       react: (r) => { const L = live(); if (L) L.react = r; },
-      moveTo: (x, z) => {
-        h.x = x; h.z = z;
-        const L = live();
-        if (!L) return;
-        L.home.set(x, z);
-        L.p.set(x, island.heightAt(x, z), z);
-        L.target = null;
-        L.container.position.copy(L.p);
-      },
+      // 청크 칸이 바뀌어도 맞는 그릇으로(멀리 옮기면 그 칸이 살아날 때 선다)
+      moveTo: (x, z) => { relocate(key, x, z); },
     };
   }
 
@@ -221,24 +265,26 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       key: 'characters-residents', size: 96, radius: 260, world: 'earth',
       build: ({ x0, z0, size }) => {
         const mine = homes.filter((h) => h.x >= x0 && h.x < x0 + size && h.z >= z0 && h.z < z0 + size);
-        if (!mine.length) return null;
+        // 빈 칸도 빈 그릇을 둔다(나중에 이사 오는 주민을 바로 넣게 — 그릇만이라 그리기 비용 0)
         const g = new THREE.Group();
         g.name = 'residents-chunk';
+        cells.set(cellOf(x0 + 1, z0 + 1), g);
         for (const h of mine) {
           let L = lives.get(h.def.id);
           if (!L) { L = make(h); lives.set(h.def.id, L); }
+          // 옮겨 간 주민의 자리가 바뀌었으면 맞춘다
+          L.p.set(h.x, island.heightAt(h.x, h.z), h.z);
+          L.home.set(h.x, h.z);
+          L.container.position.copy(L.p);
           g.add(L.container);
           active.add(L);
         }
-        g.userData.residents = mine.map((h) => h.def.id);
         return g;
       },
       // 모델은 다시 쓰니 지오메트리를 버리지 않는다
       dispose: (o) => {
-        for (const id of (o.userData.residents as string[]) ?? []) {
-          const L = lives.get(id);
-          if (L) active.delete(L);
-        }
+        for (const [k, g] of cells) if (g === o) cells.delete(k);
+        for (const L of lives.values()) if (L.container.parent === o) { active.delete(L); o.remove(L.container); }
       },
     });
   }
@@ -261,7 +307,9 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       if (toP > 8) L.near = false;
       let walk = 0;
       const wanderR = L.def.wander ?? (L.def.at ? 2.5 : 5);
-      if (talking || toP < 3.2 || R || wanderR <= 0) {
+      const look = L.look && t < L.look.until ? L.look : null;
+      if (L.look && !look) L.look = null;
+      if (talking || toP < 3.2 || R || look || wanderR <= 0) {
         L.target = null;
         L.idleUntil = t + 1.5;
       } else if (dt > 0) {
@@ -288,6 +336,7 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       }
       // 반응 쪽(로켓·박수 자리)을 보거나, 가까우면 플레이어를 본다. 고정 자리는 멀어지면 제 방향으로
       if (R && R.x != null && R.z != null) turnTo(L, R.x, R.z, dt, 6);
+      else if (look && !talking) turnTo(L, look.x, look.z, dt, 5);
       else if (player && toP < 4.5) turnTo(L, player.x, player.z, dt);
       else if (wanderR <= 0) { let dd = L.yaw0 - L.yaw; dd = Math.atan2(Math.sin(dd), Math.cos(dd)); L.yaw += dt > 0 ? dd * Math.min(1, dt * 2) : dd; }
       L.container.position.copy(L.p);
@@ -334,5 +383,16 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
     }
   }
 
-  return { update, homes, lives, active, make, actorOf };
+  /** 수다용: 마주 보기 */
+  function face(key: string, x: number, z: number, until: number) {
+    const L = lives.get(key);
+    if (L) L.look = { x, z, until };
+  }
+  /** 말풍선(수다): key 로 */
+  function sayKey(key: string, page: string | null, shown: number) {
+    const L = lives.get(key);
+    if (L) sayOn(L, page, shown, now);
+  }
+
+  return { update, homes, lives, active, make, actorOf, addHome, relocate, face, sayKey };
 }

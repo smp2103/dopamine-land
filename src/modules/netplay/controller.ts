@@ -537,6 +537,8 @@ export interface NetExt {
   gift(id: string, n?: number): boolean;
   open(tab?: string): void;
   leave(): void;
+  /** 친구 아바타(없으면 null) — netplay-play 의 2인 탈것·숨바꼭질이 쓴다 */
+  avatar(): RemoteAvatar | null;
   readonly emotes: typeof EMOTES;
   readonly presets: typeof CHAT_PRESETS;
 }
@@ -559,6 +561,7 @@ function makeExt(c: NetController): NetExt {
     gift: (id, n = 1) => c.gift(id, n),
     open: (tab) => c.game.hud.open('friends', tab),
     leave: () => c.leave(),
+    avatar: () => c.avatar,
     emotes: EMOTES,
     presets: CHAT_PRESETS,
   };

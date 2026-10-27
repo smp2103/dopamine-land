@@ -212,7 +212,7 @@ const GDD: GddRow[] = [
   { gdd: 'b_rainbow_beetle', old: 'jungle-beetle', name: '무지개딱정벌레', island: 'home', zones: ['flower'], time: 'all', weather: only('rainbow'), rarity: 3, behavior: 'perch', kind: 'beetle', body: 'BEETLE', spot: 'flower',
     colors: ['#ff9fb8', '#8fd3f4', '#ffd84a'], pattern: 'rainbow', size: 0.3, cm: [2, 3], tags: ['rainbow'], desc: '등에 무지개를 접어 둠. 무지개 뜬 날 꽃잎 언덕에만 놀러 와요.' },
   { gdd: 'b_heart_ladybug', old: 'heart-ladybug', name: '하트무당벌레', island: 'home', zones: ['heartpond', 'sakura'], time: 'day', rarity: 3, behavior: 'perch', kind: 'ladybug', body: 'BEETLE', spot: 'flower',
-    colors: ['#ff9fb8', '#ff6b6b', WHITE], pattern: 'heart', size: 0.22, cm: [0.8, 1.0], extra: { visit: 2, shy: 1.2 }, desc: '둘이 보면 행운. 친구가 놀러 오면 두 배로 나와요.' },
+    colors: ['#ff9fb8', '#ff6b6b', WHITE], pattern: 'heart', size: 0.22, cm: [0.8, 1.0], extra: { visit: 2, shy: 1.2 }, tags: ['friend-boost'], desc: '둘이 보면 행운. 친구가 놀러 오면 두 배로 나와요.' },
   { gdd: 'b_orchid_mantis', old: 'orchid-mantis', name: '난초사마귀', island: 'home', zones: ['flower'], time: 'sunset', rarity: 4, behavior: 'perch', kind: 'mantis', body: 'MANTIS', spot: 'flower',
     colors: ['#ffd0de', WHITE, '#ff9fb8'], pattern: 'plain', size: 0.36, cm: [5, 7], parts: ['flower'], extra: { shy: 1.2 }, tags: ['camo'], desc: '꽃인 척하는 연기 대상 수상. 1.5m 안으로 오면 깜짝 도망!' },
   { gdd: 'b_crown_butterfly', old: 'rainbow-butterfly', name: '왕관나비', island: 'home', zones: ['sakura'], time: 'morning', weather: only('clear'), rarity: 5, behavior: 'fly', kind: 'butterfly', body: 'BUTTERFLY', spot: 'air',

@@ -480,7 +480,12 @@ export default function build(ctx: Ctx) {
         if (here === r.id) {
           const t = document.createElement('span'); t.textContent = '여기예요!'; t.style.cssText = 'font-size:13px';
           row.appendChild(t);
-        } else if (r.ok) row.appendChild(h.button(r.cost > 0 ? `★${r.cost} 가기` : '가기', () => { pctx.close(); travel(r.id); }));
+        } else if (r.ok) row.appendChild(h.button(r.cost > 0 ? `★${r.cost} 가기` : '가기', () => {
+          pctx.close();
+          // 별길 비행(flight)이 있으면 날아서 간다 — 도착하면 flight 가 travel 을 부른다. 없으면 바로
+          const fl = game.ext.flight as { fly?: (id: string) => boolean } | undefined;
+          if (typeof fl?.fly === 'function') fl.fly(r.id); else travel(r.id);
+        }));
         wrap.appendChild(row);
       }
       wrap.appendChild(h.button('🌏 지구로 돌아가기', () => { pctx.close(); (space as unknown as { returnToEarth?: (w?: string) => void }).returnToEarth?.('rocket'); }));

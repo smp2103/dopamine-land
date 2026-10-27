@@ -14,8 +14,9 @@ export const round10 = (v: number) => Math.max(10, Math.round(v / 10) * 10);
 /** 재료(4.3) — 기본 재료·과일·쓰레기(t_)·잡동사니(it_) */
 export const MATERIALS: Material[] = MATERIAL_TABLE;
 export const MAT = new Map(MATERIALS.map((m) => [m.id, m]));
-/** 번호 붙는 잡동사니(it_map_3, it_letter_12)는 바탕 id 로 찾는다 */
-export const itemDef = (id: string): Material | undefined => MAT.get(id) ?? MAT.get(id.replace(/^(it_map|it_letter)_\d+$/, '$1'));
+/** 번호 붙는 잡동사니(it_map_3, it_letter_12)·주민 기념 사진(f_photo_nabi)은 바탕 id 로 찾는다 */
+export const itemDef = (id: string): Material | undefined =>
+  MAT.get(id) ?? MAT.get(id.replace(/^(it_map|it_letter)_\d+$/, '$1')) ?? (/^f_photo_.+$/.test(id) ? MAT.get('f_photo') : undefined);
 
 /** 재료 도감 칸(category 'item', 도감 탭엔 안 나온다) — 태그·산지까지 싣는다 */
 export type MaterialSpecies = Species & { tags: string[]; origin?: string };

@@ -6,7 +6,10 @@ import type { Footprint, Placed, RoomGrid } from './placement';
 /** 실내 i 번째 자리: 먼 지구 좌표(x = -20000 + i·300, y = 600) — 세계 경계 밖이라 아무 섬과도 안 겹친다 */
 export const INTERIOR_Y = 600;
 export const interiorOrigin = (i: number) => ({ x: -20000 + Math.max(0, Math.floor(i)) * 300, y: INTERIOR_Y, z: 0 });
-/** 정해진 자리 번호(나중에 비밀 동굴 등은 2 부터) */
+/** 정해진 자리 번호(나중에 비밀 동굴 등은 2 부터)
+ *  다른 모듈이 맡은 자리 — 겹치지 않게 여기에 적어 둔다:
+ *   12~15 hidden(해적 12 · 물 동굴 13 · 운석 14 · 피라미드 15)
+ *   20~26 secrets(폭포 20 · 벽화 21 · 거품 22 · 잠수 23 · 오로라 24 · 오두막 25 · 나무 26) */
 export const SLOT = { house: 0, museum: 1 } as const;
 
 // ───────────── 테마 ─────────────

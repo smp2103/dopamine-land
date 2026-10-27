@@ -2,6 +2,7 @@
 // 대사 고르기(첫 만남 → 평소 + 시간대 + 섬 + 특별 대사), 말풍선 쪽 나누기, 타자기(한 글자씩) 계산,
 // 우정 0~100(하트 = 20 마다 한 칸) · 선물 점수(좋아함 +5 / 보통 +2 / 싫어함 −1, 생일 ×3) · 선물 범주,
 // flags.npc 저장 모양 정리 + 옛 id 옮기기(toto → res_toto_home, bori → npc_mongsil).
+// P1: 이사(home·hx·hz), 우정 100 이사 제안(prop·pto)·사진 선물(photo), 감정 기록(memo), 통통 집 증축 대사, 고정 대사(pinned).
 import type { GiftCat, NpcSocial } from './data';
 
 // ───────────── 우정 ─────────────
@@ -18,7 +19,24 @@ export interface NpcFlag {
   /** 선물 받은 마지막 날 · 그날 받은 수(하루 우정 상한용) */
   gday?: number;
   gtoday?: number;
+  /** 이사 온 섬(없으면 원래 섬) + 집 자리 */
+  home?: string;
+  hx?: number;
+  hz?: number;
+  /** 우정 100 이사 제안: 1 기다림 · 2 이사함 · 3 끝(거절·이사 없는 NPC) */
+  prop?: number;
+  /** 제안한 섬 */
+  pto?: string;
+  /** 사진 선물을 받았나 */
+  photo?: boolean;
+  /** 작은 기록(프로 박사: 감정한 화석 id) */
+  memo?: string[];
 }
+
+/** 이사 제안 단계 */
+export const PROP_PENDING = 1, PROP_MOVED = 2, PROP_DONE = 3;
+/** memo 최대 길이 */
+export const MEMO_MAX = 200;
 
 export const F_MAX = 100;
 /** 하트 한 칸 = 우정 20 */
@@ -43,6 +61,13 @@ export function normalizeFlag(x: unknown): NpcFlag {
   };
   if (typeof o.gday === 'number') r.gday = Math.floor(o.gday);
   if (typeof o.gtoday === 'number') r.gtoday = Math.max(0, Math.floor(o.gtoday));
+  if (typeof o.home === 'string' && o.home) r.home = o.home;
+  if (typeof o.hx === 'number' && Number.isFinite(o.hx)) r.hx = o.hx;
+  if (typeof o.hz === 'number' && Number.isFinite(o.hz)) r.hz = o.hz;
+  if (typeof o.prop === 'number' && o.prop >= 1 && o.prop <= 3) r.prop = Math.floor(o.prop);
+  if (typeof o.pto === 'string' && o.pto) r.pto = o.pto;
+  if (o.photo === true) r.photo = true;
+  if (Array.isArray(o.memo)) r.memo = o.memo.filter((x): x is string => typeof x === 'string').slice(-MEMO_MAX);
   return r;
 }
 
@@ -57,6 +82,14 @@ function mergeFlags(a: NpcFlag, b: NpcFlag): NpcFlag {
   const r: NpcFlag = { f: Math.max(a.f, b.f), met: a.met || b.met, last: Math.max(a.last, b.last), gifts: a.gifts + b.gifts };
   const gd = Math.max(a.gday ?? -1, b.gday ?? -1);
   if (gd >= 0) { r.gday = gd; r.gtoday = (a.gday === gd ? a.gtoday ?? 0 : 0) + (b.gday === gd ? b.gtoday ?? 0 : 0); }
+  // 이사·제안·사진은 새 칸(b) 우선
+  const home = b.home ? b : a.home ? a : null;
+  if (home?.home) { r.home = home.home; if (home.hx != null) r.hx = home.hx; if (home.hz != null) r.hz = home.hz; }
+  const prop = Math.max(a.prop ?? 0, b.prop ?? 0);
+  if (prop) r.prop = prop;
+  if (b.pto ?? a.pto) r.pto = b.pto ?? a.pto;
+  if (a.photo || b.photo) r.photo = true;
+  if (a.memo || b.memo) r.memo = [...new Set([...(a.memo ?? []), ...(b.memo ?? [])])].slice(-MEMO_MAX);
   return r;
 }
 
@@ -189,8 +222,8 @@ export interface TalkDef {
   usual: string[];
   /** 시간대 대사 */
   tod?: Partial<Record<TodName, string[]>>;
-  /** 역할(특별 대사): 꽥사장 인기 생물 · 펭박사 로켓 · 몽실 뗏목 */
-  role?: 'quack' | 'peng' | 'mongsil' | 'museum' | 'shipyard';
+  /** 역할(특별 대사): 꽥사장 인기 생물 · 펭박사 로켓 · 몽실 뗏목 · 통통 집 증축 */
+  role?: 'quack' | 'peng' | 'mongsil' | 'museum' | 'shipyard' | 'tongtong' | 'pro' | 'merchant' | 'owner';
 }
 
 export interface DialogCtx {
@@ -212,6 +245,10 @@ export interface DialogCtx {
   birthday?: boolean;
   /** 다른 모듈이 addDialog 로 넣은 대사 */
   extra?: string[];
+  /** 고정 대사(addDialog pin — 이야기 체인): 말 걸 때마다 평소 대사 앞에 */
+  pinned?: string[];
+  /** 집 증축 단계 0..4(통통) */
+  house?: number;
 }
 
 export interface DialogPick {
@@ -245,6 +282,14 @@ export function rocketLine(r: { count: number; blueprint: boolean } | null | und
 
 /** 몽실 뗏목 힌트(GDD 4.6.3) */
 export const RAFT_HINT = '뗏목 만들면 저 바다 너머도 갈 수 있대!';
+
+/** 통통 집 증축 대사(house:1..4 단계) */
+export function houseLine(stage: number | null | undefined): string {
+  const n = Math.max(0, Math.min(4, Math.floor(stage ?? 0)));
+  if (n <= 0) return '아직 텐트에서 자? 집 짓고 싶으면 나한테 말해, 뚝딱뚝딱!';
+  if (n >= 4) return '네 집은 이제 섬에서 제일 멋진 집이야! 내 평생 최고 작품이지, 뚝딱!';
+  return `지금 집이 ${n}단계구나! 방 하나 더 붙여 볼까? 뚝딱뚝딱!`;
+}
 
 const fill = (s: string, c: string) => s.replaceAll('{c}', c);
 
@@ -304,7 +349,10 @@ export function selectDialog(def: TalkDef, c: DialogCtx, pageMax = PAGE_MAX): Di
     return { pages, line: null, first: true };
   }
   if (c.birthday && c.firstToday) add(`오늘은 내 생일이야, {c}! 🎂 와 줘서 고마워!`);
+  // 이야기 체인 같은 고정 대사는 늘 먼저(평소 대사 하나는 그 뒤에 그대로)
+  for (const l of c.pinned ?? []) add(l);
   let special = false;
+  if (def.role === 'tongtong' && c.firstToday) { add(houseLine(c.house)); special = true; }
   if (def.role === 'quack' && c.hot?.length && c.firstToday) {
     add(`${hotLine(c.hot[0])} 두 배로 사 주지, 꽥!`);
     if (c.hot.length > 1) add(`오늘 인기 생물은 ${c.hot.join('·')}. 전부 두 배야!`);

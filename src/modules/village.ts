@@ -462,16 +462,21 @@ export default function build(ctx: Ctx) {
 
   // ───────── 섬 주민 집(characters 가 정한 주민 자리 옆) ─────────
   const residentPos: Array<{ id: string; island: string; x: number; z: number; rotY: number }> = [];
+  let houseTaken: Array<XZ & { r: number }> | null = null;
+  let houseBatch = 0;
   const placeResidentHouses = (homes: Array<{ id: string; island: string; x: number; z: number }>) => {
     const B = island.ISLAND_BOUNDS;
     const byIsland = new Map<string, Placer>();
-    const taken: Array<XZ & { r: number }> = [
+    // 비켜야 할 자리 — 나중에 이사 온 주민 집도 앞서 지은 집을 피하도록 계속 쌓아 둔다
+    const taken: Array<XZ & { r: number }> = houseTaken ??= [
       ...Object.values(P.docks).map((d) => ({ x: d.x, z: d.z, r: 10 })),
       ...Object.values(bubblePos).map((d) => ({ ...d, r: 6 })),
       ...Object.values(controls.lighthouses).map((d) => ({ x: d.x, z: d.z, r: 12 })),
       ...Object.values(facPos).map((d) => ({ x: d.x, z: d.z, r: 12 })),
     ];
+    const batch = houseBatch++;
     for (const h of homes) {
+      if (residentPos.some((r) => r.id === h.id && r.island === h.island)) continue; // 이미 이 섬에 집이 있다
       if (h.island === 'home' && h.x >= B.minX && h.x <= B.maxX && h.z >= B.minZ && h.z <= B.maxZ) continue; // 룩 테스트 마을(이미 집이 있다)
       const d = island.islandById(h.island);
       if (!d) continue;
@@ -496,7 +501,7 @@ export default function build(ctx: Ctx) {
       residentPos.push({ id: h.id, island: h.island, x: +at.x.toFixed(2), z: +at.z.toFixed(2), rotY: +rotY.toFixed(3) });
     }
     for (const [id, p] of byIsland) {
-      const g = bakeNamed(p, `village-residents-${id}`);
+      const g = bakeNamed(p, batch ? `village-residents-${id}-${batch}` : `village-residents-${id}`);
       out.add(g);
       addLod(g, 600);
     }
@@ -513,6 +518,13 @@ export default function build(ctx: Ctx) {
       if (done) return;
       const homes = readHomes();
       if (homes || ++tries > 240) { done = true; if (homes) placeResidentHouses(homes); }
+    });
+    // 나중에 이사 온 주민(npc-movein)도 그 자리에 집을 지어 준다
+    game.state.on((e) => {
+      if ((e as { type: string }).type !== 'npc-movein' || !done) return;
+      const id = (e as unknown as { npc?: string }).npc;
+      const h = readHomes()?.find((x) => x.id === id);
+      if (h) placeResidentHouses([h]);
     });
   }
 

@@ -736,8 +736,17 @@ export default function build(ctx: Ctx) {
   const actOf = new WeakMap<object, Activity>();
   const boosts = (): Record<string, number> | undefined => {
     try {
-      const b = game.ext?.calendar?.boosts?.();
-      return b && typeof b === 'object' ? b as Record<string, number> : undefined;
+      // 달력(요일 이벤트) × 친구(넷플레이 하트 짝꿍) — 같은 태그는 곱한다
+      const out: Record<string, number> = {};
+      let any = false;
+      for (const b of [game.ext?.calendar?.boosts?.(), game.ext?.net?.boostTags]) {
+        if (!b || typeof b !== 'object') continue;
+        for (const [k, v] of Object.entries(b as Record<string, unknown>)) {
+          if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) continue;
+          out[k] = (out[k] ?? 1) * v; any = true;
+        }
+      }
+      return any ? out : undefined;
     } catch { return undefined; }
   };
   const rollEnv = (): ApiRollEnv & PureEnv => ({

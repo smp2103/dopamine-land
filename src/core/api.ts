@@ -478,7 +478,15 @@ export interface RocketStatus {
 }
 export interface MuseumWing { id: string; got: number; total: number; milestones: number[] }
 export interface StorageApi { size: number; list(): Array<{ id: string; n: number }>; put(id: string, n: number): boolean; take(id: string, n: number): boolean }
-export interface EconRequest { id: string; npc?: string; species?: RollSpecies; item?: string; n: number; reward: number; stars?: number; done: boolean }
+export interface EconRequest {
+  id: string; npc?: string; species?: RollSpecies; item?: string; n: number; reward: number; stars?: number; done: boolean;
+  /** 부탁 종류(편지 부탁은 'letter') */
+  kind?: string;
+  /** 편지 부탁 — 받는 섬/주민 */
+  to?: string;
+  /** 부탁 문구 */
+  text?: string;
+}
 
 /** game.econ — economy(order 9). 돈·별·열쇠·해금은 여기만 바꾼다 */
 export interface EconApi {
@@ -534,6 +542,8 @@ export interface EconApi {
   openChest(tier?: ChestTier, where?: string): ChestResult;
   requests(): EconRequest[];
   fulfill(rid: string): boolean;
+  /** 편지 배달 완료(우체통·부표 우체통 — 자리 확인 없이). 끝냈으면 true */
+  deliverLetter?(idOrItem: string): boolean;
   // 기타
   flags(): Record<string, unknown>;
   p0: boolean;

@@ -165,6 +165,7 @@ export const MATERIAL_TABLE: Material[] = [
   })),
   { id: 'it_map', name: '보물지도', price: 0, icon: '🗺️', color: '#f6e2b8', tags: ['misc'], noSell: true, desc: '쪼꼬미섬 X 에 금상자가!' },
   { id: 'it_letter', name: '주민 편지', price: 0, icon: '💌', color: '#ffe0e8', tags: ['misc'], noSell: true, desc: '읽으면 반짝별 3' },
+  { id: 'f_photo', name: '기념 사진', price: 0, icon: '🖼️', color: '#fff4e0', tags: ['misc'], noSell: true, desc: '친구가 된 날 받은 사진. 액자에 넣어 걸어 둘까?' },
   { id: 'it_blackbox', name: '블랙박스', price: 0, icon: '📦', color: '#c9c3d9', tags: ['misc'], noSell: true, desc: '추락한 탐사선의 기록' },
   { id: 'it_invite', name: '주민 초대권', price: 0, icon: '🎟️', color: '#ffe9b0', tags: ['misc'], noSell: true, desc: '새 주민을 섬으로 불러요' },
   // 물약(물약 가게, P1) — 마시면(econ.use) 게임 분 단위 버프

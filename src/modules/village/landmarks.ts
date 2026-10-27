@@ -389,26 +389,16 @@ export function buildLandmarks(ctx: Ctx, mk: () => Placer, footY: FootY, imps: I
   const imp = (kind: ImpKind, o: THREE.Object3D) => { imps.push({ kind, o }); return o; };
   const I = ctx.island;
   const out: THREE.Group[] = [];
-  /** 섬 중심에서 각도 ang 방향으로 걸어 나가며 해안 거리가 coast 이상인 가장 바깥 땅 */
-  const spot = (id: string, ang: number, coast: number) => {
-    const d = I.islandById(id)!;
-    let best = { x: d.x, z: d.z };
-    for (let r = 0; r < d.r * 1.6; r += 3) {
-      const x = d.x + Math.cos(ang) * r, z = d.z + Math.sin(ang) * r;
-      const s = I.worldSample(x, z);
-      if (s.island?.id === id && s.coast >= coast) best = { x, z };
-    }
-    return best;
-  };
+  /** 섬 중심에서 각도 ang 방향으로 걸어 나가며 해안 거리가 coast 이상인 가장 바깥 땅(world.ts coastSpot 과 같은 식) */
+  const spot = (id: string, ang: number, coast: number) => I.coastSpot(id, ang, coast);
   const faceTo = (from: { x: number; z: number }, to: { x: number; z: number }) => Math.atan2(to.x - from.x, to.z - from.z);
   const put = (P: Placer, b: Built, p: { x: number; z: number }, rotY: number, sink = 0.1) => P.place(b, p.x, footY(p.x, p.z, Math.max(1, (b.foot ?? 1) * (b.scale ?? 1) * 0.8)) - sink * (b.scale ?? 1), p.z, rotY);
   const big = (b: Built, k: number) => { b.scale = k; return b; };
 
   const docks = I.PLACES.docks;
-  const names: Record<string, [string, string]> = {
-    dino: ['공룡 섬', '#6fbf5e'], ice: ['얼음 섬', '#5fa8f0'], mushroom: ['버섯 요정 섬', '#ff7fa8'],
-    coral: ['산호 섬', '#ff8a6a'], desert: ['사막 오아시스 섬', '#f0a040'], launch: ['발사대 섬', '#7a8cf0'],
-  };
+  // 환영 아치 글씨는 GDD 섬 이름(world.ts ISLAND_NAMES), 색만 여기서
+  const ARCH_COLOR: Record<string, string> = { dino: '#6fbf5e', ice: '#5fa8f0', mushroom: '#ff7fa8', coral: '#ff8a6a', desert: '#f0a040', launch: '#7a8cf0' };
+  const names: Record<string, [string, string]> = Object.fromEntries(Object.entries(ARCH_COLOR).map(([id, c]) => [id, [I.islandName(id), c]]));
   /** 도착 부두: 도크 지점에 아치, 섬 바깥(바다) 쪽으로 잔교 */
   const dock = (P: Placer, id: string) => {
     const d = I.islandById(id)!, k = docks[id];

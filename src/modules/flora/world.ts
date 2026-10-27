@@ -149,6 +149,16 @@ export function setupWorldFlora(ctx: Ctx, game: Game): THREE.Group {
     { x: P.launchPad.x, z: P.launchPad.z, r: 55 },
     // 섬 스폰 지점(배·순간이동 도착) 둘레는 비워 둔다
     ...island.ISLANDS.map((d) => { const p = island.islandSpawnPoints(d.id, 1, 0.08)[0]; return p ? { x: p.x, z: p.z, r: 14 } : { x: 1e9, z: 1e9, r: 0 }; }),
+    // 약속한 건물 터(집·우체통·조선소·연구소·시설·등대·동굴 입구)는 나무로 덮지 않는다
+    { x: P.house.x, z: P.house.z, r: 12 },
+    { x: P.mailbox.x, z: P.mailbox.z, r: 4 },
+    { x: P.shipyard.x, z: P.shipyard.z, r: 14 },
+    { x: P.pengLab.x, z: P.pengLab.z, r: 14 },
+    ...Object.values(P.facilities).map((f) => ({ x: f.x, z: f.z, r: 12 })),
+    ...Object.values(P.lighthouses).map((f) => ({ x: f.x, z: f.z, r: 9 })),
+    ...P.caves.map((c) => ({ x: c.x, z: c.z, r: 6 })),
+    // 얼음 성 빙산은 맨 얼음으로 둔다
+    { x: P.iceberg.x, z: P.iceberg.z, r: P.iceberg.r + 6 },
   ];
   const blocked = (x: number, z: number) => keepOut.some((k) => (x - k.x) ** 2 + (z - k.z) ** 2 < k.r * k.r);
 

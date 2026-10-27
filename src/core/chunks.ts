@@ -23,6 +23,23 @@ export interface ChunkLayer {
 
 interface Live { obj: THREE.Object3D | null; }
 
+/** 레이어 하나의 현재 통계(벤치·디버그용) */
+export interface LayerStat {
+  key: string;
+  world: 'earth' | 'space';
+  detail: boolean;
+  /** 살아 있는 청크 칸(빈 칸 포함) */
+  chunks: number;
+  /** 실제 오브젝트가 있는 청크 */
+  filled: number;
+  /** 메시 수(InstancedMesh 도 1) ≈ 드로우 콜 */
+  meshes: number;
+  /** 인스턴스 수(일반 메시 1 + InstancedMesh.count) */
+  instances: number;
+  /** 삼각형 수(인스턴스 곱) */
+  tris: number;
+}
+
 export class ChunkManager {
   root = new THREE.Group();
   layers: Array<{ layer: ChunkLayer; live: Map<string, Live> }> = [];
@@ -42,6 +59,10 @@ export class ChunkManager {
   /** 만들 청크가 남았나(촬영 대기용) */
   pending = 0;
 
+  /** 레이어별 통계 — 벤치가 어느 레이어가 무거운지 본다 */
+  layerStats(): LayerStat[] { return layerStats(this); }
+
+  /** focus = 만드는 중심(코어가 game.focusOverride ?? player.pos 를 넘긴다) */
   update(focus: THREE.Vector3, force = false) {
     this.focus.copy(focus);
     const t0 = performance.now();
@@ -84,6 +105,30 @@ export class ChunkManager {
     }
     this.pending = pending;
   }
+}
+
+/** 레이어별 오브젝트·인스턴스·삼각형 수(살아 있는 청크만, 보이지 않는 것도 센다) */
+export function layerStats(m: Pick<ChunkManager, 'layers'>): LayerStat[] {
+  const out: LayerStat[] = [];
+  for (const { layer, live } of m.layers) {
+    const st: LayerStat = { key: layer.key, world: layer.world ?? 'earth', detail: !!layer.detail, chunks: live.size, filled: 0, meshes: 0, instances: 0, tris: 0 };
+    for (const v of live.values()) {
+      if (!v.obj) continue;
+      st.filled++;
+      v.obj.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.geometry) return;
+        const n = (o as THREE.InstancedMesh).isInstancedMesh ? (o as THREE.InstancedMesh).count : 1;
+        const g = mesh.geometry;
+        const tri = g.index ? g.index.count / 3 : (g.attributes.position?.count ?? 0) / 3;
+        st.meshes++;
+        st.instances += n;
+        st.tris += Math.round(tri * n);
+      });
+    }
+    out.push(st);
+  }
+  return out;
 }
 
 /** 청크 전용 지오메트리만 버린다(공유 지오메트리는 userData.shared = true 로 표시) */

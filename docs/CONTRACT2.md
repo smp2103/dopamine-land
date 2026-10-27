@@ -71,13 +71,15 @@ SHARED RUNTIME CONTRACT v2 (dopamine-land). Wave-0 workstream core-contract writ
   - game.consumedKeys: Set of codes claimed this frame by current/currentAlt. The hotkey dispatcher skips them.
   - listInteractions(); interact(id).
   - The pure selection lives in src/core/interact.ts selectInteractions(cands, mounted).
+  - Frame order (wave 1): chunks → pick interactions → run E/alt keys → module onUpdate hooks. Providers therefore see module state from the previous frame, and use() runs before the modules' own update in that frame.
 - Player:
   - lock(owner)/unlock(owner) use a counter. The `locked` getter is owners>0 || legacy flag; the setter keeps legacy behaviour.
   - act(name, seconds).
   - Poses: fish, cast, reel, net, dig, shake, chop, hit, pick, pet, hold, cheer, stung, sit, sleep, eat, wave, photo, plant, water, peace.
 - Ground providers: game.addGroundProvider(fn(x,z)=>number|null). The first non-null result wins over Island.heightAt. Used by Player teleport, the safety net, mount exit and the CameraRig ground clamp. The WORLD_BOUNDS clamp only applies when world==='earth' and no provider claims the point.
+  - The phys-ground chunk collider is still built from Island.heightAt, not groundAt. An owner whose provider floor sits above the terrain (interiors, planets) must add its own physics.addStatic floor collider; otherwise only the safety net (snap when > 0.6 m below) and teleport respect the floor.
 - Prompts: GameUI.setPrompt(primary, alt?) renders both in core #ui. hud wraps setPrompt and renders its own chips (one renderer at a time).
-- engine.timeScale (default 1; multiplies dt). ctx.onTodChange(fn(name)) fires only when the name changes.
+- engine.timeScale (default 1; multiplies dt only — t / game.time keeps running in real time, so things timed by t do not pause at timeScale 0). ctx.onTodChange(fn(name)) fires only when the name changes.
 - window.__dl = { game, give(id,n), coins(n), stars(n), teleport(x,z), world(w), hour(h), advance(sec), list(), interact(id), unlockAll(), save() }.
 
 4. EVENTS (src/core/events.ts typed union; emitted via game.state.emit)

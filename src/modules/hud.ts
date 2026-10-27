@@ -2,6 +2,7 @@
 import type { Ctx } from '../core/types';
 import type { Game } from '../core/game';
 import type { Species } from '../core/state';
+import type { PanelDef, PanelCtx, HudRenderer } from '../core/api';
 import { CSS } from './hud/style';
 import { MAT, SHOP_ITEMS, RECIPES, needsOf, GOODS, TIERS, DEX_TABS, CAT_ICON, RARITY_COLOR, ISLAND_LOOK, type ChestTier } from './economy/data';
 
@@ -272,9 +273,10 @@ export default function build(ctx: Ctx) {
     if (!flushQ) { flushQ = true; requestAnimationFrame(flush); setTimeout(() => flushQ && flush(), 60); }
   };
 
-  // ── 탑승 중 프롬프트: E 는 내리기라서 다른 상호작용 대신 'E 내리기' 고정(코어 선택 로직 수정은 needs)
+  // ── 탑승 중 프롬프트: 코어가 whileMounted 상호작용을 골라 주니, 고른 게 없을 때만 'E 내리기'. 아랫줄(F)은 그대로 넘긴다
   const coreSetPrompt = game.ui.setPrompt.bind(game.ui);
-  game.ui.setPrompt = (text: string | null) => coreSetPrompt(game.player.mounted ? 'E 내리기' : text);
+  game.ui.setPrompt = (primary: string | null, alt?: string | null) =>
+    coreSetPrompt(game.player.mounted && !primary ? 'E 내리기' : primary, alt);
 
   // ── 잡았다 연출
   const catchEl = $('.catch'), catchBox = $('.catch .box');
@@ -330,10 +332,19 @@ export default function build(ctx: Ctx) {
 
   // ── 창
   const win = $('.win'), wTtl = $('.win .ttl'), wMeta = $('.win .meta'), wTabs = $('.win .tabs'), wBody = $('.win .body');
-  let cur: { kind: string; tab: string; sel?: string } | null = null;
-  const close = () => { win.classList.remove('on'); cur = null; game.player.locked = false; };
+  // cur.reg 가 있으면 다른 모듈이 game.hud.registerPanel 로 등록한 패널(그리기는 그쪽 render)
+  let cur: { kind: string; tab: string; sel?: string; reg?: { def: PanelDef; ctx: PanelCtx } } | null = null;
+  // 창 그리기만(열고 닫는 결정은 game.hud 레지스트리가 한다 — 렌더러에서 부른다)
+  const closeWin = () => { win.classList.remove('on'); cur = null; game.player.unlock('hud', true); };
+  const openWin = (kind: string, tab?: string, reg?: { def: PanelDef; ctx: PanelCtx }) => {
+    if (!cur) game.player.lock('hud');
+    cur = { kind, tab: tab ?? reg?.def.defaultTab ?? defaultTab(kind), reg };
+    render(); win.classList.add('on');
+  };
+  // 바깥에서 여닫기는 전부 레지스트리를 거친다(열린 패널 상태가 한 곳에만 있게)
+  const close = () => game.hud.close();
+  const open = (kind: string, tab?: string) => game.hud.open(kind, tab);
   ($('.win .x')).onclick = close;
-  const open = (kind: string, tab?: string) => { cur = { kind, tab: tab ?? defaultTab(kind) }; game.player.locked = true; render(); win.classList.add('on'); };
   const defaultTab = (k: string) => (k === 'dex' ? 'fish' : k === 'shop' ? 'sell' : k === 'craft' ? '전체' : 'all');
   const WC: Record<string, string> = { dex: '#7cc8ff', bag: '#ffb36b', shop: '#ffbe3b', craft: '#9bd77a', museum: '#c59bff', board: '#ff9cb8' };
   const icoOf = (id: string) => MAT.get(id)?.icon ?? GOODS[id]?.icon ?? CAT_ICON[st.species.get(id)?.category ?? ''] ?? '🎁';
@@ -343,9 +354,26 @@ export default function build(ctx: Ctx) {
     wTabs.innerHTML = list.map(([id, nm]) => `<button class="tab${cur!.tab === id ? ' on' : ''}" data-t="${id}">${nm}</button>`).join('');
     wTabs.querySelectorAll('button').forEach((b) => (b.onclick = () => { cur!.tab = (b as HTMLElement).dataset.t!; cur!.sel = undefined; render(); }));
   };
+  // 등록 패널 그리기 — 제목·메타·탭은 여기서, 본문은 패널의 render 가
+  const renderReg = (def: PanelDef, pc: PanelCtx) => {
+    wTtl.textContent = `${def.icon ? def.icon + ' ' : ''}${def.title}`;
+    try { wMeta.textContent = def.meta?.() ?? ''; } catch { wMeta.textContent = ''; }
+    let list: Array<{ id: string; label: string; icon?: string }> = [];
+    try { list = def.tabs?.() ?? []; } catch { /* 탭 없음 */ }
+    wTabs.innerHTML = list.map((t) => `<button class="tab${pc.tab === t.id ? ' on' : ''}" data-t="${esc(t.id)}">${t.icon ? `<span class="ti">${t.icon}</span>` : ''}${esc(t.label)}</button>`).join('');
+    wTabs.querySelectorAll('button').forEach((b) => (b.onclick = () => pc.setTab((b as HTMLElement).dataset.t!)));
+    wBody.innerHTML = '';
+    try { def.render(wBody, pc); } catch (e) { console.error(`[hud] ${def.kind}.render`, e); wBody.innerHTML = '<div style="font-size:18px;color:#a88a66">앗, 이 창을 그리다 넘어졌어요…</div>'; }
+  };
   const render = () => {
     if (!cur) return;
     wTabs.classList.remove('dex');
+    if (cur.reg) {
+      win.classList.remove('wide');
+      win.style.setProperty('--wc', cur.reg.def.color);
+      renderReg(cur.reg.def, cur.reg.ctx);
+      return;
+    }
     win.classList.toggle('wide', cur.kind === 'dex');
     win.style.setProperty('--wc', WC[cur.kind] ?? '#ffb36b');
     const E = econ();
@@ -456,5 +484,26 @@ export default function build(ctx: Ctx) {
     if (e.code === 'KeyI') { if (cur?.kind === 'bag') close(); else open('bag'); }
   });
 
-  (game as Game & { dex?: unknown }).dex = { open: (k = 'dex', tab?: string) => open(k, tab), close, toast: (t: string) => game.ui.toast(t), showRegion };
+  // ── game.hud 레지스트리에 그리기 붙이기(game.dex 는 코어가 이 위에 만든 외관이라 따로 안 넣는다)
+  // 원래 창들(도감·가방·상점·제작·박물관·게시판)도 패널로 등록해 둔다 — 그리기는 위 render 가 한다
+  const LEGACY: Array<[string, string, string]> = [['dex', '도감', '📖'], ['bag', '가방', '🎒'], ['shop', '꽥꽥상회', '🦆'], ['craft', '작업대', '🔨'], ['museum', '박물관', '🏛️'], ['board', '마을 게시판', '📌']];
+  const legacyKinds = new Set(LEGACY.map((l) => l[0]));
+  for (const [kind, title, icon] of LEGACY) game.hud.registerPanel({ kind, title, icon, color: WC[kind], defaultTab: defaultTab(kind), render: () => {} });
+  const regRenderer: HudRenderer = {
+    openPanel: (def, pc) => (legacyKinds.has(def.kind) ? openWin(def.kind, pc.tab) : openWin(def.kind, pc.tab, { def, ctx: pc })),
+    renderPanel: (def, pc) => {
+      if (!cur || cur.kind !== def.kind) { regRenderer.openPanel(def, pc); return; }
+      if (cur.reg) { cur.reg = { def, ctx: pc }; cur.tab = pc.tab ?? cur.tab; }
+      render();
+    },
+    closePanel: closeWin,
+    showBanner: (b) => showRegion(`${b.icon ? b.icon + ' ' : ''}${b.text}`, b.sub ?? '', b.color ?? '#ffb36b'),
+    showCard: (c) => game.ui.toast(`${c.icon ? c.icon + ' ' : ''}${c.title} — ${c.body}`, c.ms ?? 2600),
+    setGauge: () => {},
+    refreshChips: () => {},
+    toast: (t) => game.ui.toast(t),
+    showRegion,
+    helpers: { confetti },
+  };
+  game.hud.attach(regRenderer);
 }

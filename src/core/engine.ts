@@ -49,6 +49,12 @@ export class Engine {
   envRT: THREE.WebGLRenderTarget | null = null;
   updates: Array<(t: number, dt: number) => void> = [];
   todHooks: Array<(name: string, p: TodPreset) => void> = [];
+  /** 시간대 이름이 바뀔 때만(ctx.onTodChange) */
+  todChangeHooks: Array<(name: string, prev: string) => void> = [];
+  /** 마지막으로 알린 시간대 이름(onTodChange 비교용) */
+  private todFired: string;
+  /** 시간 배율(기본 1) — 프레임 dt 를 자른 뒤에 곱한다. 0 이면 dt 가 멈춤(t·game.time 은 실제 시간대로 흐른다. 촬영 모드의 고정 시간과는 별개) */
+  timeScale = 1;
   occupied: Array<{ x: number; z: number; r: number }> = [];
   timer = new THREE.Timer();
   todName: string;
@@ -66,6 +72,7 @@ export class Engine {
 
   constructor(public opts: EngineOpts) {
     this.todName = TOD[opts.tod] ? opts.tod : 'day';
+    this.todFired = this.todName;
     this.fx = { ao: true, bloom: true, tilt: true, smaa: true, grade: true, shadows: true, curve: true, ...opts.fx };
     this.quality = opts.quality;
 
@@ -373,6 +380,29 @@ export class Engine {
     }
     this.updateView();
     for (const fn of this.todHooks) fn(name, p);
+    this.fireTodChange(name);
+  }
+
+  /** 이름이 바뀌었을 때만 onTodChange 를 부른다(한 리스너가 터져도 나머지는 돈다) */
+  private fireTodChange(name: string) {
+    if (name === this.todFired) return;
+    const prev = this.todFired;
+    this.todFired = name;
+    for (const fn of [...this.todChangeHooks]) {
+      try { fn(name, prev); } catch (e) { console.error('[onTodChange]', e); }
+    }
+  }
+
+  /** 매 프레임 훅 등록 — 해제 함수를 돌려준다 */
+  addUpdate(fn: (t: number, dt: number) => void): () => void {
+    this.updates.push(fn);
+    return () => { const i = this.updates.indexOf(fn); if (i >= 0) this.updates.splice(i, 1); };
+  }
+
+  /** 시간대 이름 바뀜 훅 등록 — 해제 함수를 돌려준다 */
+  onTodChange(fn: (name: string, prev: string) => void): () => void {
+    this.todChangeHooks.push(fn);
+    return () => { const i = this.todChangeHooks.indexOf(fn); if (i >= 0) this.todChangeHooks.splice(i, 1); };
   }
 
   /** 그래픽 품질 단계: 효과 켜고 끄기·해상도·그림자 맵·장식 거리. URL fx= 는 그 위에 덮어쓴다 */
@@ -452,8 +482,9 @@ export class Engine {
     return {
       scene: this.scene, renderer: this.renderer, camera: this.camera,
       island: Island, palette: PALETTE, rng: rngFor,
-      onUpdate: (fn) => { this.updates.push(fn); },
+      onUpdate: (fn) => this.addUpdate(fn),
       onTod: (fn) => { this.todHooks.push(fn); },
+      onTodChange: (fn) => this.onTodChange(fn),
       scatter: (o) => this.scatter(o),
       tod: this.todName,
       game: this.game,
@@ -538,7 +569,10 @@ export class Engine {
     let n = 0;
     const loop = () => {
       this.timer.update();
-      const dt = Math.min(this.timer.getDelta(), 0.05);
+      // 긴 멈춤(탭 전환 등) 뒤 순간이동을 막으려 먼저 자르고, 그 다음 시간 배율을 곱한다
+      const ts = Number.isFinite(this.timeScale) ? Math.max(0, this.timeScale) : 1;
+      const rawDt = Math.min(this.timer.getDelta(), 0.05);
+      const dt = rawDt * ts;
       const t = this.opts.freezeT ?? this.timer.getElapsed();
       if (this.controls) {
         this.controls.update();
@@ -547,9 +581,10 @@ export class Engine {
       }
       if (this.game) this.game.update(t, this.opts.freezeT !== null ? 0 : dt);
       this.updateView();
-      for (const fn of this.updates) fn(t, this.opts.freezeT !== null ? 0 : dt);
+      // 복사본으로 돈다 — 훅 안에서 해제해도 이번 프레임 순서가 흔들리지 않게
+      for (const fn of this.updates.slice()) fn(t, this.opts.freezeT !== null ? 0 : dt);
       this.renderer.info.reset();
-      this.composer.render(dt);
+      this.composer.render(rawDt);
       onFrame?.(++n);
       requestAnimationFrame(loop);
     };

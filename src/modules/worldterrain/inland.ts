@@ -102,7 +102,11 @@ export function buildInlandWater(island: typeof Island): THREE.Group {
   const mat = waterMat(island);
   // 호수: 격자판(곡률이 휘도록 정점을 충분히)
   for (const L of island.worldLakes()) {
-    if (L.frozen) continue;
+    // 언 호수: 판은 없고 얼음 구멍(L.holes)에만 작은 물 원판
+    if (L.frozen) {
+      for (let k = 0; k < (L.holes?.length ?? 0); k++) g.add(holeDisc(island, L.holes[k], L.level, mat, `lake-${L.id}-hole${k}`));
+      continue;
+    }
     const R = L.r * 1.45, N = 56;
     const pos: number[] = [], aw: number[] = [], idx: number[] = [];
     for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
@@ -120,7 +124,7 @@ export function buildInlandWater(island: typeof Island): THREE.Group {
   // 강: 중심선을 따라 띠(폭포 마디는 촘촘히)
   for (const Rv of island.worldRivers()) {
     const pts = Rv.pts;
-    const cols = 12, half = Rv.halfW + 5;
+    const cols = 12;
     const pos: number[] = [], aw: number[] = [], idx: number[] = [];
     let along = 0, rows = 0;
     for (let i = 0; i < pts.length - 1; i++) {
@@ -137,11 +141,14 @@ export function buildInlandWater(island: typeof Island): THREE.Group {
         const lv = Math.min(a.level + (b.level - a.level) * tt, island.heightAt(cx0, cz0) + 1.5);
         const dl = drop > 1.2 ? (drop * 6 * Math.max(0, 1 - Math.abs(t - 0.67) / 0.08)) / segL : drop / segL;
         const cx = a.x + (b.x - a.x) * t, cz = a.z + (b.z - a.z) * t;
+        // 하구: 물이 바다 높이에 가까워질수록 world.ts 처럼 넓어진다(그만큼 띠도 넓힌다)
+        const hw = Rv.halfW * (Rv.estuary > 0 ? 1 + Rv.estuary * sm(0.7, 0.05, lv) : 1);
+        const half = hw + 5;
         for (let k = 0; k <= cols; k++) {
           const off = (k / cols) * 2 - 1;
           const x = cx - tz * off * half, z = cz + tx * off * half;
           pos.push(x, lv, z);
-          aw.push(lv - island.heightAt(x, z), along + t * segL, (off * half) / Rv.halfW, Math.min(1, dl));
+          aw.push(lv - island.heightAt(x, z), along + t * segL, (off * half) / hw, Math.min(1, dl));
         }
         rows++;
       }
@@ -154,6 +161,25 @@ export function buildInlandWater(island: typeof Island): THREE.Group {
     g.add(mesh(pos, aw, idx, mat, 'river-' + Rv.island));
   }
   return g;
+}
+
+/** 얼음 구멍 물 원판 — 고리 몇 겹짜리 작은 부채꼴 판(호수 모드: aW.z = -9) */
+function holeDisc(island: typeof Island, q: { x: number; z: number; r: number }, level: number, mat: THREE.Material, name: string): THREE.Mesh {
+  const rings = 3, segs = 16, R = q.r * 1.15;
+  const pos: number[] = [q.x, level, q.z], aw: number[] = [level - island.heightAt(q.x, q.z), 0, -9, 0], idx: number[] = [];
+  for (let r = 1; r <= rings; r++) for (let s = 0; s < segs; s++) {
+    const a = (s / segs) * Math.PI * 2, rr = (R * r) / rings;
+    const x = q.x + Math.cos(a) * rr, z = q.z + Math.sin(a) * rr;
+    pos.push(x, level, z);
+    aw.push(level - island.heightAt(x, z), 0, -9, 0);
+  }
+  const at = (r: number, s: number) => (r === 0 ? 0 : 1 + (r - 1) * segs + (s % segs));
+  for (let s = 0; s < segs; s++) idx.push(0, at(1, s + 1), at(1, s));
+  for (let r = 1; r < rings; r++) for (let s = 0; s < segs; s++) {
+    const a = at(r, s), b = at(r, s + 1), c = at(r + 1, s), d = at(r + 1, s + 1);
+    idx.push(a, b, d, a, d, c);
+  }
+  return mesh(pos, aw, idx, mat, name);
 }
 
 const sm = (e0: number, e1: number, x: number) => {

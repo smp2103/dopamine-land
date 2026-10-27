@@ -1,6 +1,7 @@
-// 저장: 상태가 새로고침(새 GameState + load) 뒤에도 그대로인지, 주민 부탁 보상을 두 번 받을 수 없는지.
+// 저장(v2): 상태가 새로고침(새 GameState + load) 뒤에도 그대로인지, 옛 저장(v1) id 가 옮겨지는지, 주민 부탁 보상을 두 번 받을 수 없는지.
+// 코어 v2 는 save() 를 400ms 묶는다 → 테스트는 saveNow()/flush() 로 바로 쓴다(실제 게임은 pagehide 때 flush).
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GameState, type Species } from '../src/core/state';
+import { GameState, SAVE_KEY, type Species } from '../src/core/state';
 import * as Island from '../src/core/island';
 import { rngFor } from '../src/core/rng';
 import buildEconomy, { type Request } from '../src/modules/economy';
@@ -29,11 +30,36 @@ describe('GameState 저장', () => {
     s.addCoins(250);
     s.flags.hello = 1;
     s.save();
+    s.saveNow();
+    expect(JSON.parse(store.get(SAVE_KEY)!).v).toBe(2);
     const r = reload();
     expect(r.coins).toBe(250);
     expect(r.bag['fish:test']).toBe(1);
     expect(r.dex['fish:test'].best).toBe(12);
     expect(r.flags.hello).toBe(1);
+  });
+
+  it('묶인 저장은 saveNow 전엔 아직 안 쓰였다', () => {
+    const s = new GameState();
+    s.addCoins(10);
+    expect(store.has(SAVE_KEY)).toBe(false);
+    s.saveNow();
+    expect(reload().coins).toBe(10);
+  });
+
+  it('v1 저장(같은 키, v 없음)을 읽으면 옛 id 를 옮긴다', () => {
+    store.set(SAVE_KEY, JSON.stringify({
+      coins: 40, bag: { 'fruit-apple': 2, 'fruit-pear': 1, beehive: 1, 'star-shard': 6 },
+      dex: { 'star-shard': { count: 6, best: 0, first: 1 } }, flags: { econ: { stars: 2 } },
+    }));
+    const s = reload();
+    expect(s.bag).toEqual({ m_apple: 2, m_pear: 1, m_honey: 1, m_stardust: 6 });
+    expect(s.dex.m_stardust.count).toBe(6);
+    s.saveNow();
+    const raw = JSON.parse(store.get(SAVE_KEY)!);
+    expect(raw.v).toBe(2);
+    expect(raw.bag['fruit-apple']).toBeUndefined();
+    expect(reload().bag.m_apple).toBe(2);
   });
 });
 
@@ -63,7 +89,8 @@ describe('주민 부탁', () => {
     expect(econ.fulfill(rq.id)).toBe(true);
     const coins = s.coins;
 
-    // 다른 저장 없이 곧바로 새로고침
+    // 다른 저장 없이 곧바로 새로고침(페이지를 떠나며 묶인 저장이 flush 된다)
+    s.flush();
     const s2 = reload();
     s2.register([sp]);
     s2.addItem(sp.id, rq.n); // 다시 모아 와도

@@ -11,5 +11,5 @@
     "noUnusedLocals": false,
     "allowImportingTsExtensions": false
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

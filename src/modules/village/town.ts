@@ -318,7 +318,7 @@ export function buildBikeRack(): Built {
 
 // ───────── 나무 잔교(부두) ─────────
 /** 길이 len(+z 방향으로 뻗음), 폭 w. 갑판 높이 deckY(로컬, 원점 = 해안 시작점 땅). 끝에 넓은 선착장(endW) */
-export function buildPier(len: number, w: number, deckY: number, endW = 0, rng: () => number = Math.random): Built {
+export function buildPier(len: number, w: number, deckY: number, endW: number, rng: () => number): Built {
   const g = new THREE.Group();
   const cols: Built['cols'] = [];
   const boardW = 0.42;

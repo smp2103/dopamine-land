@@ -279,12 +279,13 @@ export default function build(ctx: Ctx) {
   // ── 잡았다 연출
   const catchEl = $('.catch'), catchBox = $('.catch .box');
   let catchTimer = 0;
+  const rnd = ctx.rng('hud:confetti');
   const confetti = (host: HTMLElement, colors: string[], n = 36) => {
     for (let i = 0; i < n; i++) {
       const c = document.createElement('i');
       c.className = 'confetti';
-      const a = (i / n) * Math.PI * 2 + Math.random() * 0.3, r = 180 + Math.random() * 220;
-      c.style.setProperty('--x', `${Math.cos(a) * r}px`); c.style.setProperty('--y', `${Math.sin(a) * r + 120}px`); c.style.setProperty('--r', `${Math.random() * 720 - 360}deg`);
+      const a = (i / n) * Math.PI * 2 + rnd() * 0.3, r = 180 + rnd() * 220;
+      c.style.setProperty('--x', `${Math.cos(a) * r}px`); c.style.setProperty('--y', `${Math.sin(a) * r + 120}px`); c.style.setProperty('--r', `${rnd() * 720 - 360}deg`);
       c.style.background = colors[i % colors.length];
       if (i % 3 === 0) c.style.borderRadius = '50%';
       host.appendChild(c);

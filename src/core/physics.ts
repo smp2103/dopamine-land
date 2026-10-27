@@ -118,6 +118,8 @@ export class Physics {
       this.accumulator -= this.step;
       n++;
     }
+    // 못 따라간 몫은 버린다(쌓아 두면 프레임이 회복될 때 물리가 빨리 감긴다)
+    if (n === 4) this.accumulator = 0;
     for (const b of this.bodies) {
       if (!b.mesh || b.body.isFixed()) continue;
       const p = b.body.translation(), q = b.body.rotation();
@@ -129,6 +131,8 @@ export class Physics {
   private applyBuoyancy() {
     for (const b of this.bodies) {
       if (!b.buoyancy || !b.body.isDynamic()) continue;
+      // Rapier 의 addForce 는 resetForces 전까지 매 스텝 남는다 → 스텝마다 지우고 새로 건다
+      b.body.resetForces(false);
       const p = b.body.translation();
       const lvl = this.waterLevel(p.x, p.z);
       if (!Number.isFinite(lvl) || p.y > lvl + 0.3) continue;

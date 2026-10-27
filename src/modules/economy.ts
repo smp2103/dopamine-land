@@ -204,11 +204,12 @@ export default function build(ctx: Ctx) {
   const fulfill = (rid: string) => {
     const rq = requests().find((x) => x.id === rid);
     if (!rq || rq.done || !st.has(rq.species.id, rq.n)) return false;
+    // 완료 표시를 먼저 — 아래 저장들에 같이 실려야 새로고침 뒤 보상을 또 받지 않는다
+    F().requestsDone[rid] = Date.now();
+    rq.done = true;
     st.addItem(rq.species.id, -rq.n);
     st.addCoins(rq.reward, 'request');
     addStars(rq.stars, 'request');
-    F().requestsDone[rid] = Date.now();
-    rq.done = true;
     emit('request-done', { id: rid, coins: rq.reward });
     return true;
   };

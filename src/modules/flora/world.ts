@@ -467,7 +467,7 @@ export function setupWorldFlora(ctx: Ctx, game: Game): THREE.Group {
   const TS = 96;
   const ring = (key: string, lod: Lod, inner: number, outer: number) => {
     game.chunks.add({
-      key, size: TS, radius: outer, innerRadius: inner >= 0 ? inner : undefined,
+      key, size: TS, radius: outer, innerRadius: inner >= 0 ? inner : undefined, detail: true,
       build: ({ cx, cz, x0, z0, size }) => {
         const items = treesIn(cx, cz, x0, z0, size);
         if (!items.length) return null;
@@ -518,7 +518,7 @@ export function setupWorldFlora(ctx: Ctx, game: Game): THREE.Group {
   // 작은 풀꽃: 가까이(hi)·조금 멀리(mid)
   const SS = 32;
   const small = (key: string, lod: Lod, inner: number, outer: number) => game.chunks.add({
-    key, size: SS, radius: outer, innerRadius: inner >= 0 ? inner : undefined,
+    key, size: SS, radius: outer, innerRadius: inner >= 0 ? inner : undefined, detail: true,
     build: ({ cx, cz, x0, z0, size }) => {
       const items = smallIn(cx, cz, x0, z0, size);
       if (!items.length) return null;
@@ -533,7 +533,7 @@ export function setupWorldFlora(ctx: Ctx, game: Game): THREE.Group {
   const grassGeo = [0, 1, 2].map((v) => { const g = grassTuft(rngG('w-grass2-' + v), 5, 0.24); g.userData.shared = true; return g; });
   const nClump = createNoise2D(mulberry32(5104));
   game.chunks.add({
-    key: 'flora-grass', size: 16, radius: 36,
+    key: 'flora-grass', size: 16, radius: 36, detail: true,
     build: ({ cx, cz, x0, z0, size }) => {
       if (!nearIsland(x0, z0, size)) return null;
       const r = ctx.rng(`flora-grass:${cx},${cz}`);

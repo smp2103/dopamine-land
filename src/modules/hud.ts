@@ -24,7 +24,7 @@ export default function build(ctx: Ctx) {
     <div class="clock dl-card"><div class="sun"></div><div><div class="t">12:00</div><div class="d">1일째 · 맑음</div></div><div class="place">시작 섬</div><div class="o2"><i></i></div></div>
     <div class="wallet"><div class="pill dl-card coinp"><div class="ic coin">₩</div><span class="v">0</span></div><div class="pill dl-card starp"><div class="ic star">★</div><span class="v">0</span></div></div>
     <div class="map dl-card"><canvas width="380" height="380"></canvas><div class="n">N</div><div class="lbl">시작 섬</div></div>
-    <div class="keys"><div class="key dl-card"><b>Tab</b>도감</div><div class="key dl-card"><b>I</b>가방</div><div class="key dl-card"><b>E</b>하기</div></div>
+    <div class="keys"><div class="key dl-card"><b>Tab</b>도감</div><div class="key dl-card"><b>I</b>가방</div><div class="key dl-card"><b>E</b>하기</div><div class="key dl-card"><b>G</b>화질</div></div>
     <div class="region"><div class="nm"></div><div class="sub"><i></i><span></span><i></i></div></div>
     <div class="catch"><div class="burst"></div><div class="box dl-card"></div></div>
     <div class="talk dl-card"><div class="who"></div><div class="tx"></div><div class="nx">▼</div></div>

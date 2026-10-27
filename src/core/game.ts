@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { Physics, RAPIER, gridTrimesh, type PhysBody } from './physics';
 import { ChunkManager } from './chunks';
+import { QUALITY } from './quality';
 import * as Island from './island';
 import { curveUniforms } from './curve';
 import { CURVE_K } from './presets';
@@ -446,6 +447,12 @@ export class Game {
     this.time = t;
     const inp = this.input;
     if (inp.hit('KeyV')) this.cam.setStyle(this.cam.style === 'adventure' ? 'cozy' : 'adventure');
+    if (inp.hit('KeyG')) {
+      const q = this.engine.cycleQuality();
+      this.engine.onQualityChange?.(q);
+      this.engine.guiSync?.();
+      this.ui.toast(`그래픽 품질: ${QUALITY[q].label}`);
+    }
     this.player.update(inp, dt, this.cam.yaw);
     this.physics.update(dt);
     this.chunks.update(this.player.pos);

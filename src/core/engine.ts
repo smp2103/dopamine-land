@@ -12,6 +12,7 @@ import { PALETTE } from './palette';
 import { applyCurve, curveUniforms } from './curve';
 import { rngFor } from './rng';
 import { TOD, CAMS, CURVE_K, type TodPreset } from './presets';
+import { QUALITY, QUALITY_ORDER, type QualityName } from './quality';
 import { MiniDofEffect } from '../modules/atmosphere/miniDof';
 import { SoftGradeEffect } from '../modules/atmosphere/grade';
 import '../modules/atmosphere/fogChunks'; // 높이 안개·공기 원근(전역 fog 청크 교체)
@@ -27,6 +28,7 @@ export interface EngineOpts {
   freezeT: number | null;
   fx: Record<string, boolean>;
   curveK: number | null;
+  quality: QualityName;
 }
 
 type Loader = () => Promise<{ default: ModuleBuild; order?: number }>;
@@ -55,6 +57,7 @@ export class Engine {
   fogOverride: { near: number; far: number } | null = null;
   errors: string[] = [];
   fx: Record<string, boolean>;
+  quality: QualityName;
   effects: {
     ao: N8AOPostPass; bloom: BloomEffect; tilt: MiniDofEffect; smaa: SMAAEffect; tone: ToneMappingEffect;
     hue: SoftGradeEffect; bc: BrightnessContrastEffect; vig: VignetteEffect;
@@ -64,12 +67,13 @@ export class Engine {
   constructor(public opts: EngineOpts) {
     this.todName = TOD[opts.tod] ? opts.tod : 'day';
     this.fx = { ao: true, bloom: true, tilt: true, smaa: true, grade: true, shadows: true, curve: true, ...opts.fx };
+    this.quality = opts.quality;
 
     const r = new THREE.WebGLRenderer({
       antialias: false, stencil: false, depth: true, powerPreference: 'high-performance',
       preserveDrawingBuffer: opts.shot,
     });
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    r.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY[opts.quality].pixelRatio));
     r.setSize(window.innerWidth, window.innerHeight);
     r.shadowMap.enabled = true;
     r.info.autoReset = false; // 모든 패스(그림자·AO·후처리) 합산 통계
@@ -238,7 +242,7 @@ export class Engine {
 
     if (opts.curveK !== null) curveUniforms.uCurveK.value = opts.curveK;
     this.applyTod(this.todName);
-    this.applyFx();
+    this.setQuality(this.quality);
 
     window.addEventListener('resize', () => this.resize());
   }
@@ -371,13 +375,46 @@ export class Engine {
     for (const fn of this.todHooks) fn(name, p);
   }
 
+  /** 그래픽 품질 단계: 효과 켜고 끄기·해상도·그림자 맵·장식 거리. URL fx= 는 그 위에 덮어쓴다 */
+  setQuality(name: QualityName) {
+    const q = QUALITY[name];
+    this.quality = name;
+    Object.assign(this.fx, { ao: q.ao !== 'off', bloom: q.bloom, tilt: q.tilt, smaa: q.smaa, shadows: q.shadows }, this.opts.fx);
+    const ao = this.effects.ao;
+    if (q.ao !== 'off') {
+      ao.setQualityMode(q.ao === 'full' ? 'High' : 'Medium');
+      ao.configuration.halfRes = q.ao === 'half';
+    }
+    const sh = this.sun.shadow;
+    if (sh.mapSize.x !== q.shadowMap) {
+      sh.mapSize.set(q.shadowMap, q.shadowMap);
+      sh.map?.dispose();
+      sh.map = null;
+    }
+    const pr = Math.min(window.devicePixelRatio, q.pixelRatio);
+    if (this.renderer.getPixelRatio() !== pr) {
+      this.renderer.setPixelRatio(pr);
+      this.resize();
+    }
+    if (this.game) this.game.chunks.detail = q.detail;
+    this.applyFx();
+  }
+
+  /** 다음 단계로(높음 → 보통 → 낮음 → 높음) */
+  cycleQuality() {
+    const i = QUALITY_ORDER.indexOf(this.quality);
+    this.setQuality(QUALITY_ORDER[(i + 1) % QUALITY_ORDER.length]);
+    return this.quality;
+  }
+
   applyFx() {
     const e = this.effects, f = this.fx;
-    // 마지막 패스를 끄면 화면이 비므로 패스는 두고 효과 불투명도만 0 으로
     e.ao.enabled = f.ao;
     e.bloom.blendMode.opacity.value = f.bloom ? 1 : 0;
-    e.smaa.blendMode.opacity.value = f.smaa ? 1 : 0;
-    e.tilt.blendMode.opacity.value = f.tilt ? 1 : 0;
+    // 중간 패스는 통째로 건너뛴다(불투명도 0 이어도 흐림·에지 검출은 돈다)
+    e.passSmaa.enabled = f.smaa;
+    e.passTilt.enabled = f.tilt;
+    // 마지막 패스를 끄면 화면이 비므로 패스는 두고 효과 불투명도만 0 으로
     for (const g of [e.hue, e.bc, e.vig]) g.blendMode.opacity.value = f.grade ? 1 : 0;
     this.sun.castShadow = f.shadows;
     curveUniforms.uCurveK.value = f.curve ? (this.opts.curveK ?? CURVE_K) : 0;
@@ -465,7 +502,14 @@ export class Engine {
 
   buildGui() {
     const gui = new GUI({ title: '룩 테스트' });
-    const state = { tod: this.todName, cam: this.opts.cam, curveK: curveUniforms.uCurveK.value, ...this.fx };
+    const state = { quality: this.quality, tod: this.todName, cam: this.opts.cam, curveK: curveUniforms.uCurveK.value };
+    const qNames = Object.fromEntries(QUALITY_ORDER.map((k) => [QUALITY[k].label, k]));
+    gui.add(state, 'quality', qNames).name('그래픽 품질').onChange((v: QualityName) => {
+      this.setQuality(v);
+      this.onQualityChange?.(v);
+      for (const c of gui.controllersRecursive()) c.updateDisplay();
+    });
+    this.guiSync = () => { state.quality = this.quality; for (const c of gui.controllersRecursive()) c.updateDisplay(); };
     gui.add(state, 'tod', Object.keys(TOD)).name('시간대').onChange((v: string) => this.applyTod(v));
     gui.add(state, 'cam', Object.keys(CAMS)).name('카메라').onChange((v: string) => this.setCam(v));
     const f = gui.addFolder('효과 켜고 끄기');
@@ -473,7 +517,7 @@ export class Engine {
       ao: '구석 그늘(AO)', bloom: '빛 번짐(블룸)', tilt: '틸트시프트', smaa: '안티에일리어싱', grade: '색보정·비네트', shadows: '그림자', curve: '휘는 땅',
     };
     for (const k of Object.keys(labels)) {
-      f.add(state, k as keyof typeof state).name(labels[k]).onChange((v: boolean) => { this.fx[k] = v; this.applyFx(); });
+      f.add(this.fx, k).name(labels[k]).onChange(() => this.applyFx());
     }
     const toneModes = { Neutral: ToneMappingMode.NEUTRAL, AgX: ToneMappingMode.AGX, ACES: ToneMappingMode.ACES_FILMIC };
     gui.add({ tone: 'Neutral' }, 'tone', Object.keys(toneModes)).name('톤매핑').onChange((v: keyof typeof toneModes) => {
@@ -484,6 +528,11 @@ export class Engine {
     });
     return gui;
   }
+
+  /** GUI 표시를 현재 값에 맞춘다(G 키로 품질을 바꿨을 때) */
+  guiSync: (() => void) | null = null;
+  /** 사람이 품질을 바꿨을 때(저장용) */
+  onQualityChange: ((q: QualityName) => void) | null = null;
 
   start(onFrame?: (n: number) => void) {
     let n = 0;

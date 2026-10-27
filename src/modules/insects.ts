@@ -135,7 +135,7 @@ export default function build(ctx: Ctx) {
   const inVillage = (x: number, z: number) => x > VB.minX - 4 && x < VB.maxX + 4 && z > VB.minZ - 4 && z < VB.maxZ + 4;
 
   g.chunks.add({
-    key: 'insects', size: CHUNK, radius: RADIUS,
+    key: 'insects', size: CHUNK, radius: RADIUS, detail: true,
     build: ({ cx, cz, x0, z0, size }) => {
       const rnd = ctx.rng(`insects:${cx},${cz}`);
       const n = rnd() < 0.3 ? 1 : rnd() < 0.75 ? 2 : 3;

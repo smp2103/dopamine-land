@@ -98,7 +98,7 @@ export default function build(ctx: Ctx) {
   const tmpCol = new THREE.Color();
 
   game.chunks.add({
-    key: 'ocean-reef', size: 40, radius: 92,
+    key: 'ocean-reef', size: 40, radius: 92, detail: true,
     build: ({ cx, cz, x0, z0, size }) => {
       // 바다가 아닌 청크는 건너뛴다
       let wet = 0;
@@ -224,7 +224,7 @@ export default function build(ctx: Ctx) {
   };
 
   game.chunks.add({
-    key: 'ocean-life', size: 40, radius: 66,
+    key: 'ocean-life', size: 40, radius: 66, detail: true,
     build: ({ cx, cz, x0, z0, size }) => {
       const rnd = ctx.rng(`ocean-life:${cx},${cz}`);
       const grp = new THREE.Group();

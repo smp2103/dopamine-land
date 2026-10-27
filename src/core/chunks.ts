@@ -17,6 +17,8 @@ export interface ChunkLayer {
   dispose?: (obj: THREE.Object3D) => void;
   /** 지구/우주 어느 세계 것인가(기본 earth) */
   world?: 'earth' | 'space';
+  /** 장식 레이어: 그래픽 품질의 detail 배율로 반경이 줄어든다 */
+  detail?: boolean;
 }
 
 interface Live { obj: THREE.Object3D | null; }
@@ -28,6 +30,8 @@ export class ChunkManager {
   budgetMs = 6;
   focus = new THREE.Vector3();
   world: 'earth' | 'space' = 'earth';
+  /** 장식 레이어 반경 배율(그래픽 품질) */
+  detail = 1;
 
   constructor() { this.root.name = 'chunks'; }
 
@@ -45,7 +49,8 @@ export class ChunkManager {
     for (const L of this.layers) {
       const { layer, live } = L;
       const active = (layer.world ?? 'earth') === this.world;
-      const s = layer.size, r = layer.radius, ri = layer.innerRadius ?? -1;
+      const k = layer.detail ? this.detail : 1;
+      const s = layer.size, r = layer.radius * k, ri = layer.innerRadius !== undefined ? layer.innerRadius * k : -1;
       const want = new Set<string>();
       if (active) {
         const c0x = Math.floor((focus.x - r) / s), c1x = Math.floor((focus.x + r) / s);

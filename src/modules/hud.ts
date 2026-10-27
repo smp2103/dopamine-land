@@ -3,7 +3,7 @@ import type { Ctx } from '../core/types';
 import type { Game } from '../core/game';
 import type { Species } from '../core/state';
 import { CSS } from './hud/style';
-import { MAT, SHOP_ITEMS, RECIPES, GOODS, TIERS, DEX_TABS, CAT_ICON, RARITY_COLOR, ISLAND_LOOK, type ChestTier } from './economy/data';
+import { MAT, SHOP_ITEMS, RECIPES, needsOf, GOODS, TIERS, DEX_TABS, CAT_ICON, RARITY_COLOR, ISLAND_LOOK, type ChestTier } from './economy/data';
 
 export const order = 12;
 
@@ -354,10 +354,10 @@ export default function build(ctx: Ctx) {
       wTtl.textContent = '📖 도감';
       const all = st.dexCount();
       wMeta.textContent = `모은 종 ${all.got} / ${all.total}`;
-      tabs(DEX_TABS.map((t) => { const n = [...st.species.values()].filter((s) => t.cats.includes(s.category)); return [t.id, `<span class="ti">${t.icon}</span>${t.name}<small>${n.filter((s) => st.dex[s.id]).length}/${n.length}</small>`] as [string, string]; }));
+      tabs(DEX_TABS.map((t) => { const n = [...st.species.values()].filter((s) => t.match(s)); return [t.id, `<span class="ti">${t.icon}</span>${t.name}<small>${n.filter((s) => st.dex[s.id]).length}/${n.length}</small>`] as [string, string]; }));
       wTabs.classList.add('dex');
       const tab = DEX_TABS.find((t) => t.id === cur!.tab)!;
-      const list = [...st.species.values()].filter((s) => tab.cats.includes(s.category)).sort((a, b) => a.rarity - b.rarity);
+      const list = [...st.species.values()].filter((s) => tab.match(s)).sort((a, b) => a.rarity - b.rarity);
       const sel = cur.sel ? st.species.get(cur.sel) : undefined;
       wBody.innerHTML = (sel && st.dex[sel.id] ? detail(sel) : '') + `<div class="grid dexg" style="margin-top:12px">${list.map((s) => {
         const rec = st.dex[s.id];
@@ -389,17 +389,19 @@ export default function build(ctx: Ctx) {
       wTtl.textContent = '🦆 꽥꽥상회'; tabs([['sell', '💰 팔기'], ['buy', '🛒 사기']]);
       wMeta.textContent = `🪙 ${fmt(st.coins)}`;
       wBody.innerHTML = `<div class="grid">${SHOP_ITEMS.map((it) => {
-        const pr = E?.shopPrice(it.id) ?? it.price; const ok = st.coins >= pr;
-        return `<div class="cell${ok ? '' : ' dim'}" style="--cc:${it.kind === 'tool' ? '#cfe8ff' : it.kind === 'seed' ? '#d8f5c8' : it.kind === 'bait' ? '#ffe2c4' : '#f1dcff'}"><div class="ico">${it.icon}</div><div class="nm">${esc(it.name)}</div><div class="sm">${esc(it.desc)}</div><button class="btn${ok ? ' gold' : ' off'}" data-buy="${it.id}">🪙 ${fmt(pr)}</button></div>`;
+        // 값 — 코인·반짝별·재료 중 붙은 것만 보여 준다
+        const cost = E?.shopCost(it.id) ?? { coins: it.price }; const ok = E ? E.canPay(cost) : st.coins >= (cost.coins ?? 0);
+        const pr = [cost.coins ? `🪙 ${fmt(cost.coins)}` : '', cost.stars ? `⭐ ${fmt(cost.stars)}` : '', ...Object.entries(cost.items ?? {}).map(([k, v]) => `${esc(nameOf(k))} ×${v}`)].filter(Boolean).join(' · ') || '🪙 0';
+        return `<div class="cell${ok ? '' : ' dim'}" style="--cc:${it.kind === 'tool' ? '#cfe8ff' : it.kind === 'seed' ? '#d8f5c8' : it.kind === 'bait' ? '#ffe2c4' : '#f1dcff'}"><div class="ico">${it.icon}</div><div class="nm">${esc(it.name)}</div><div class="sm">${esc(it.desc)}</div><button class="btn${ok ? ' gold' : ' off'}" data-buy="${it.id}">${pr}</button></div>`;
       }).join('')}</div>`;
       wBody.querySelectorAll('[data-buy]').forEach((b) => ((b as HTMLElement).onclick = () => { const id = (b as HTMLElement).dataset.buy!; if (E?.buy(id)) game.ui.toast(`${SHOP_ITEMS.find((s) => s.id === id)!.name} 샀다! 고마워꽥!`); render(); }));
     } else if (cur.kind === 'craft') {
-      wTtl.textContent = '🔨 작업대'; tabs([['전체', '전부'], ['가구', '🛋️ 가구'], ['도구', '🎣 도구'], ['탈것 부품', '⛵ 탈것 부품']]);
+      wTtl.textContent = '🔨 작업대'; tabs([['전체', '전부'], ['가구', '🛋️ 가구'], ['도구', '🎣 도구'], ['미끼', '🪱 미끼'], ['요리', '🍳 요리'], ['탈것 부품', '⛵ 탈것 부품'], ['로켓 부품', '🚀 로켓 부품'], ['섬 개발', '🏝️ 섬 개발']]);
       wMeta.textContent = `레시피 ${RECIPES.length}개`;
       const list = RECIPES.filter((r) => cur!.tab === '전체' || r.kind === cur!.tab);
       wBody.innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr))">${list.map((r) => {
         const ok = E?.canCraft(r.id);
-        const needs = Object.entries(r.needs).map(([k, v]) => `<span style="color:${st.has(k, v) ? '#5aa864' : '#d77a7a'}">${MAT.get(k)?.icon ?? ''}${esc(nameOf(k))} ${st.bag[k] ?? 0}/${v}</span>`).join('<br>');
+        const needs = Object.entries(needsOf(r, E?.p0 ?? true)).map(([k, v]) => `<span style="color:${st.has(k, v) ? '#5aa864' : '#d77a7a'}">${MAT.get(k)?.icon ?? ''}${esc(nameOf(k))} ${st.bag[k] ?? 0}/${v}</span>`).join('<br>');
         return `<div class="cell${ok ? '' : ' dim'}" style="--cc:${ok ? '#d8f5c8' : '#f3e6cf'}"><div class="ico">${r.icon}</div><div class="nm">${esc(r.name)}</div><div class="sm" style="line-height:1.35;margin:4px 0">${needs}</div><button class="btn${ok ? '' : ' off'}" data-craft="${r.id}">만들기</button></div>`;
       }).join('')}</div>`;
       wBody.querySelectorAll('[data-craft]').forEach((b) => ((b as HTMLElement).onclick = () => { const id = (b as HTMLElement).dataset.craft!; if (E?.craft(id)) { game.ui.toast(`뚝딱뚝딱… ${RECIPES.find((r) => r.id === id)!.name} 완성!`); confetti(win, ['#9bd77a', '#ffe58a', '#fff'], 30); } render(); }));

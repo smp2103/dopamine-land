@@ -4,7 +4,7 @@ import type { Ctx } from '../core/types';
 import type { Game } from '../core/game';
 import type { Species } from '../core/state';
 import { PLACES } from '../core/world';
-import { BASE, round10, MATERIALS, MAT, MATERIAL_SPECIES, SHOP_ITEMS, RECIPES, TIERS, PITY, type ChestTier } from './economy/data';
+import { BASE, round10, MATERIALS, MAT, MATERIAL_SPECIES, SHOP_ITEMS, TIERS, PITY, costOf, needsOf, recipeById, anyMatches, LEGACY_ITEMS, type ChestTier, type Cost } from './economy/data';
 import { buildChestLayer, spawnChestFx, type LiveChest } from './economy/chests';
 
 export const order = 9;
@@ -36,6 +36,13 @@ export default function build(ctx: Ctx) {
     for (const m of MATERIALS) st.bag[m.id] = Math.max(st.bag[m.id] ?? 0, 99);
   }
   const p0 = q.get('p0') !== '0';
+  // 옛 저장 정리 — 예전 제작이 남긴 '[object Object]' 칸, 바뀐 탈것·로켓 부품 아이템 → 해금 키
+  delete st.bag['[object Object]'];
+  for (const [old, key] of Object.entries(LEGACY_ITEMS)) {
+    if (!st.bag[old]) continue;
+    delete st.bag[old];
+    const f = F(); if (!f.unlocks.includes(key)) f.unlocks.push(key);
+  }
   const day = () => Math.floor(game.env?.day ?? 0);
   const emit = (type: string, extra: Record<string, unknown>) => st.emit({ type, ...extra });
 
@@ -85,27 +92,58 @@ export default function build(ctx: Ctx) {
     return total;
   };
 
+  // 값(코인·반짝별·재료)을 낼 수 있나 — 별 값 물건이 공짜로 나가지 않게 전부 본다
+  const canPay = (c: Cost) => (c.coins ?? 0) <= st.coins && (c.stars ?? 0) <= F().stars && Object.entries(c.items ?? {}).every(([k, v]) => st.has(k, v));
   const buy = (shopItemId: string) => {
     const it = SHOP_ITEMS.find((s) => s.id === shopItemId);
     if (!it) return false;
-    const cost = p0 ? Math.round(it.price / 5) : it.price;
-    if (st.coins < cost) { game.ui.toast('코인이 모자라요… 🥲'); return false; }
-    st.addCoins(-cost, 'buy');
+    const c = costOf(it, p0);
+    if (it.once && it.unlock && isUnlocked(it.unlock)) { game.ui.toast('이미 가지고 있어요! ✨'); return false; }
+    if (!canPay(c)) { game.ui.toast(c.stars && c.stars > F().stars ? '반짝별이 모자라요… ⭐' : '코인이 모자라요… 🥲'); return false; }
+    if (c.coins) st.addCoins(-c.coins, 'buy');
+    if (c.stars) F().stars -= c.stars;
+    for (const [k, v] of Object.entries(c.items ?? {})) st.addItem(k, -v);
     for (const [k, v] of Object.entries(it.gives)) st.addItem(k, v);
-    emit('buy', { id: shopItemId, n: 1, coins: -cost });
+    if (it.unlock) unlock(it.unlock);
+    emit('buy', { id: shopItemId, n: 1, coins: -(c.coins ?? 0) });
     return true;
   };
 
+  // 재료 칸 채우기 — 'any:*' 칸은 조건에 맞는 가방 물건으로(정해진 재료로 쓴 건 빼고)
+  const planNeeds = (needs: Record<string, number>) => {
+    const take: Record<string, number> = {};
+    const left = (id: string) => (st.bag[id] ?? 0) - (take[id] ?? 0);
+    for (const [k, v] of Object.entries(needs)) {
+      if (k.startsWith('any:')) continue;
+      if (left(k) < v) return null;
+      take[k] = (take[k] ?? 0) + v;
+    }
+    for (const [k, v] of Object.entries(needs)) {
+      if (!k.startsWith('any:')) continue;
+      let n = v;
+      for (const id of Object.keys(st.bag)) {
+        if (n <= 0) break;
+        const s = st.species.get(id);
+        if (left(id) <= 0 || !anyMatches(k, { id, category: s?.category, rarity: s?.rarity, tags: (s as { tags?: string[] } | undefined)?.tags })) continue;
+        const use = Math.min(n, left(id));
+        take[id] = (take[id] ?? 0) + use; n -= use;
+      }
+      if (n > 0) return null;
+    }
+    return take;
+  };
   const canCraft = (rid: string) => {
-    const r = RECIPES.find((x) => x.id === rid);
-    return !!r && Object.entries(r.needs).every(([k, v]) => st.has(k, v));
+    const r = recipeById(rid);
+    return !!r && !!planNeeds(needsOf(r, p0));
   };
   const craft = (rid: string) => {
-    const r = RECIPES.find((x) => x.id === rid);
-    if (!r || !canCraft(rid)) return false;
-    for (const [k, v] of Object.entries(r.needs)) st.addItem(k, -v);
-    st.addItem(r.gives, 1);
-    emit('craft', { id: rid, n: 1, coins: 0 });
+    const r = recipeById(rid);
+    const take = r && planNeeds(needsOf(r, p0));
+    if (!r || !take) return false;
+    for (const [k, v] of Object.entries(take)) st.addItem(k, -v);
+    for (const [k, v] of Object.entries(r.gives)) st.addItem(k, v);
+    if (r.unlock) unlock(r.unlock);
+    emit('craft', { id: r.id, n: 1, coins: 0 });
     return true;
   };
 
@@ -169,7 +207,7 @@ export default function build(ctx: Ctx) {
     const coins = round10(T.coins[0] + r() * (T.coins[1] - T.coins[0]));
     const loot: Array<{ id: string; n: number; name: string }> = [{ id: 'coins', n: coins, name: '도파코인' }];
     st.addCoins(coins, 'chest');
-    const mats = MATERIALS.filter((m) => (t === 'common' ? m.price < 200 : t === 'rare' ? m.price < 800 : true));
+    const mats = MATERIALS.filter((m) => !m.noSell && !m.tags.some((g) => g === 'junk' || g === 'misc')).filter((m) => (t === 'common' ? m.price < 200 : t === 'rare' ? m.price < 800 : true));
     for (let i = 0; i < T.mats; i++) {
       const m = mats[Math.floor(r() * mats.length)];
       const n = 1 + Math.floor(r() * (t === 'common' ? 3 : 2));
@@ -221,7 +259,9 @@ export default function build(ctx: Ctx) {
     get stamps() { return F().stamps; },
     flags: F,
     p0,
-    shopPrice: (id: string) => { const it = SHOP_ITEMS.find((s) => s.id === id); return it ? (p0 ? Math.round(it.price / 5) : it.price) : 0; },
+    shopPrice: (id: string) => { const it = SHOP_ITEMS.find((s) => s.id === id); return it ? costOf(it, p0).coins ?? 0 : 0; },
+    shopCost: (id: string): Cost => { const it = SHOP_ITEMS.find((s) => s.id === id); return it ? costOf(it, p0) : {}; },
+    canPay,
   };
   game.econ = econ;
 

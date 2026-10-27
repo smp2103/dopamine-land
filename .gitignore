@@ -1,3 +1,4 @@
 node_modules
 dist
-shots
+shots/*
+!shots/bench-baseline.json

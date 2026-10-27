@@ -1,0 +1,3419 @@
+{
+  "version": 1,
+  "createdAt": "2026-10-27T02:51:08.262Z",
+  "git": {
+    "branch": "feature/gdd-all",
+    "commit": "f179c55757a8"
+  },
+  "env": {
+    "w": 1600,
+    "h": 900,
+    "dpr": 1,
+    "platform": "darwin",
+    "gpu": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro, Unspecified Version)",
+    "live": true,
+    "frames": 120,
+    "settleMs": 3000
+  },
+  "limits": {
+    "calls": 900,
+    "tris": 4000000
+  },
+  "tolerance": {
+    "calls": 0.1,
+    "ms": 0.1,
+    "msFloor": 1
+  },
+  "stops": [
+    {
+      "id": "home-village",
+      "label": "시작 마을",
+      "q": "spawn=4,-4"
+    },
+    {
+      "id": "home-wild",
+      "label": "시작 섬 들판",
+      "q": "spawn=home"
+    },
+    {
+      "id": "dino-valley",
+      "label": "공룡 골짜기",
+      "q": "spawn=dino"
+    },
+    {
+      "id": "coral-coast",
+      "label": "산호 해변",
+      "q": "spawn=560,1260"
+    },
+    {
+      "id": "mushroom-night",
+      "label": "버섯 섬 밤",
+      "q": "spawn=mushroom&hour=22"
+    },
+    {
+      "id": "desert",
+      "label": "사막 오아시스",
+      "q": "spawn=desert"
+    },
+    {
+      "id": "launch-pad",
+      "label": "발사대",
+      "q": "spawn=300,-2360"
+    },
+    {
+      "id": "moon",
+      "label": "달",
+      "q": "world=space"
+    }
+  ],
+  "presets": {
+    "high": {
+      "stops": {
+        "home-village": {
+          "ms": 15.9,
+          "msP90": 31.4,
+          "fps": 63,
+          "calls": 932,
+          "callsMax": 937,
+          "tris": 5931146,
+          "trisMax": 5937582,
+          "pending": 0,
+          "heapMB": 363.79,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 70,
+              "objects": 70,
+              "meshes": 70,
+              "tris": 573440
+            },
+            "terrain-mid": {
+              "chunks": 19,
+              "objects": 19,
+              "meshes": 19,
+              "tris": 155648
+            },
+            "terrain-far": {
+              "chunks": 90,
+              "objects": 90,
+              "meshes": 90,
+              "tris": 184320
+            },
+            "village-phys": {
+              "chunks": 3,
+              "objects": 13,
+              "meshes": 10,
+              "tris": 26208
+            },
+            "flora-trees-hi": {
+              "chunks": 3,
+              "objects": 19,
+              "meshes": 16,
+              "tris": 361788
+            },
+            "flora-trees-mid": {
+              "chunks": 3,
+              "objects": 23,
+              "meshes": 20,
+              "tris": 304820
+            },
+            "flora-trees-lo": {
+              "chunks": 20,
+              "objects": 66,
+              "meshes": 46,
+              "tris": 526710
+            },
+            "flora-small-hi": {
+              "chunks": 2,
+              "objects": 10,
+              "meshes": 8,
+              "tris": 31128
+            },
+            "flora-small-mid": {
+              "chunks": 14,
+              "objects": 73,
+              "meshes": 59,
+              "tris": 296236
+            },
+            "flora-grass": {
+              "chunks": 3,
+              "objects": 11,
+              "meshes": 8,
+              "tris": 7950
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 7,
+              "objects": 63,
+              "meshes": 56,
+              "tris": 31920
+            },
+            "ocean-reef": {
+              "chunks": 15,
+              "objects": 168,
+              "meshes": 153,
+              "tris": 1509712
+            },
+            "ocean-life": {
+              "chunks": 8,
+              "objects": 76,
+              "meshes": 68,
+              "tris": 670376
+            },
+            "ocean-sites": {
+              "chunks": 2,
+              "objects": 21,
+              "meshes": 14,
+              "tris": 37960
+            },
+            "ocean-buoys": {
+              "chunks": 48,
+              "objects": 48,
+              "meshes": 48,
+              "tris": 222720
+            },
+            "characters-residents": {
+              "chunks": 1,
+              "objects": 73,
+              "meshes": 42,
+              "tris": 92100
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 4,
+              "objects": 4,
+              "meshes": 4,
+              "tris": 82
+            },
+            "insects": {
+              "chunks": 20,
+              "objects": 126,
+              "meshes": 68,
+              "tris": 441324
+            }
+          }
+        },
+        "home-wild": {
+          "ms": 12,
+          "msP90": 13.6,
+          "fps": 83,
+          "calls": 531,
+          "callsMax": 531,
+          "tris": 4454878,
+          "trisMax": 4454878,
+          "pending": 0,
+          "heapMB": 701.34,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 565248
+            },
+            "terrain-mid": {
+              "chunks": 25,
+              "objects": 25,
+              "meshes": 25,
+              "tris": 204800
+            },
+            "terrain-far": {
+              "chunks": 90,
+              "objects": 90,
+              "meshes": 90,
+              "tris": 184320
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 2,
+              "objects": 15,
+              "meshes": 13,
+              "tris": 495622
+            },
+            "flora-trees-mid": {
+              "chunks": 6,
+              "objects": 54,
+              "meshes": 48,
+              "tris": 666552
+            },
+            "flora-trees-lo": {
+              "chunks": 44,
+              "objects": 143,
+              "meshes": 99,
+              "tris": 1106735
+            },
+            "flora-small-hi": {
+              "chunks": 7,
+              "objects": 79,
+              "meshes": 72,
+              "tris": 840432
+            },
+            "flora-small-mid": {
+              "chunks": 24,
+              "objects": 140,
+              "meshes": 116,
+              "tris": 740012
+            },
+            "flora-grass": {
+              "chunks": 16,
+              "objects": 64,
+              "meshes": 48,
+              "tris": 156200
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 104880
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 22,
+              "objects": 22,
+              "meshes": 22,
+              "tris": 102080
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 21,
+              "objects": 154,
+              "meshes": 92,
+              "tris": 681912
+            }
+          }
+        },
+        "dino-valley": {
+          "ms": 13.6,
+          "msP90": 15.3,
+          "fps": 74,
+          "calls": 656,
+          "callsMax": 657,
+          "tris": 4814004,
+          "trisMax": 4819596,
+          "pending": 0,
+          "heapMB": 723.24,
+          "layers": {
+            "phys-ground": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 68,
+              "objects": 68,
+              "meshes": 68,
+              "tris": 557056
+            },
+            "terrain-mid": {
+              "chunks": 26,
+              "objects": 26,
+              "meshes": 26,
+              "tris": 212992
+            },
+            "terrain-far": {
+              "chunks": 78,
+              "objects": 78,
+              "meshes": 78,
+              "tris": 159744
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 7,
+              "meshes": 6,
+              "tris": 244380
+            },
+            "flora-trees-mid": {
+              "chunks": 7,
+              "objects": 46,
+              "meshes": 39,
+              "tris": 548724
+            },
+            "flora-trees-lo": {
+              "chunks": 43,
+              "objects": 210,
+              "meshes": 167,
+              "tris": 2327171
+            },
+            "flora-small-hi": {
+              "chunks": 4,
+              "objects": 16,
+              "meshes": 12,
+              "tris": 379900
+            },
+            "flora-small-mid": {
+              "chunks": 28,
+              "objects": 103,
+              "meshes": 75,
+              "tris": 607480
+            },
+            "flora-grass": {
+              "chunks": 16,
+              "objects": 64,
+              "meshes": 48,
+              "tris": 148500
+            },
+            "flora-landmark": {
+              "chunks": 5,
+              "objects": 10,
+              "meshes": 5,
+              "tris": 6884
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 86640
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 17,
+              "tris": 78880
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 13,
+              "objects": 1079,
+              "meshes": 563,
+              "tris": 1324785
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 22,
+              "objects": 105,
+              "meshes": 60,
+              "tris": 611244
+            }
+          }
+        },
+        "coral-coast": {
+          "ms": 13.8,
+          "msP90": 15.3,
+          "fps": 72,
+          "calls": 859,
+          "callsMax": 863,
+          "tris": 6757189,
+          "trisMax": 6764965,
+          "pending": 0,
+          "heapMB": 708.38,
+          "layers": {
+            "phys-ground": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 68,
+              "objects": 68,
+              "meshes": 68,
+              "tris": 557056
+            },
+            "terrain-mid": {
+              "chunks": 19,
+              "objects": 19,
+              "meshes": 19,
+              "tris": 155648
+            },
+            "terrain-far": {
+              "chunks": 88,
+              "objects": 88,
+              "meshes": 88,
+              "tris": 180224
+            },
+            "village-phys": {
+              "chunks": 2,
+              "objects": 11,
+              "meshes": 9,
+              "tris": 23000
+            },
+            "flora-trees-hi": {
+              "chunks": 2,
+              "objects": 6,
+              "meshes": 4,
+              "tris": 344634
+            },
+            "flora-trees-mid": {
+              "chunks": 6,
+              "objects": 18,
+              "meshes": 12,
+              "tris": 521664
+            },
+            "flora-trees-lo": {
+              "chunks": 21,
+              "objects": 42,
+              "meshes": 21,
+              "tris": 1584360
+            },
+            "flora-small-hi": {
+              "chunks": 7,
+              "objects": 14,
+              "meshes": 7,
+              "tris": 445720
+            },
+            "flora-small-mid": {
+              "chunks": 20,
+              "objects": 48,
+              "meshes": 28,
+              "tris": 618420
+            },
+            "flora-grass": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 9,
+              "objects": 81,
+              "meshes": 72,
+              "tris": 59280
+            },
+            "ocean-reef": {
+              "chunks": 7,
+              "objects": 87,
+              "meshes": 80,
+              "tris": 554940
+            },
+            "ocean-life": {
+              "chunks": 5,
+              "objects": 41,
+              "meshes": 36,
+              "tris": 358052
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 47,
+              "objects": 47,
+              "meshes": 47,
+              "tris": 218080
+            },
+            "characters-residents": {
+              "chunks": 1,
+              "objects": 92,
+              "meshes": 60,
+              "tris": 100836
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 3,
+              "objects": 3,
+              "meshes": 3,
+              "tris": 70
+            },
+            "insects": {
+              "chunks": 21,
+              "objects": 135,
+              "meshes": 81,
+              "tris": 523092
+            }
+          }
+        },
+        "mushroom-night": {
+          "ms": 12.9,
+          "msP90": 14.2,
+          "fps": 78,
+          "calls": 480,
+          "callsMax": 480,
+          "tris": 5406373,
+          "trisMax": 5406373,
+          "pending": 0,
+          "heapMB": 706.05,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 71,
+              "objects": 71,
+              "meshes": 71,
+              "tris": 581632
+            },
+            "terrain-mid": {
+              "chunks": 26,
+              "objects": 26,
+              "meshes": 26,
+              "tris": 212992
+            },
+            "terrain-far": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 141312
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 3,
+              "objects": 9,
+              "meshes": 6,
+              "tris": 593280
+            },
+            "flora-trees-mid": {
+              "chunks": 4,
+              "objects": 12,
+              "meshes": 8,
+              "tris": 292576
+            },
+            "flora-trees-lo": {
+              "chunks": 45,
+              "objects": 90,
+              "meshes": 45,
+              "tris": 2385504
+            },
+            "flora-small-hi": {
+              "chunks": 4,
+              "objects": 23,
+              "meshes": 19,
+              "tris": 391196
+            },
+            "flora-small-mid": {
+              "chunks": 28,
+              "objects": 153,
+              "meshes": 125,
+              "tris": 1012472
+            },
+            "flora-grass": {
+              "chunks": 15,
+              "objects": 60,
+              "meshes": 45,
+              "tris": 147300
+            },
+            "flora-landmark": {
+              "chunks": 4,
+              "objects": 8,
+              "meshes": 4,
+              "tris": 7136
+            },
+            "econ-chests": {
+              "chunks": 17,
+              "objects": 153,
+              "meshes": 136,
+              "tris": 118560
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 22,
+              "objects": 22,
+              "meshes": 22,
+              "tris": 102080
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 21,
+              "objects": 121,
+              "meshes": 69,
+              "tris": 773240
+            }
+          }
+        },
+        "desert": {
+          "ms": 11.8,
+          "msP90": 13.7,
+          "fps": 85,
+          "calls": 405,
+          "callsMax": 405,
+          "tris": 2566657,
+          "trisMax": 2566657,
+          "pending": 0,
+          "heapMB": 691.17,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 67,
+              "objects": 67,
+              "meshes": 67,
+              "tris": 548864
+            },
+            "terrain-mid": {
+              "chunks": 20,
+              "objects": 20,
+              "meshes": 20,
+              "tris": 163840
+            },
+            "terrain-far": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 141312
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 2,
+              "objects": 7,
+              "meshes": 5,
+              "tris": 183736
+            },
+            "flora-trees-mid": {
+              "chunks": 5,
+              "objects": 18,
+              "meshes": 13,
+              "tris": 112320
+            },
+            "flora-trees-lo": {
+              "chunks": 27,
+              "objects": 75,
+              "meshes": 48,
+              "tris": 609390
+            },
+            "flora-small-hi": {
+              "chunks": 6,
+              "objects": 24,
+              "meshes": 18,
+              "tris": 118732
+            },
+            "flora-small-mid": {
+              "chunks": 25,
+              "objects": 71,
+              "meshes": 46,
+              "tris": 158840
+            },
+            "flora-grass": {
+              "chunks": 15,
+              "objects": 60,
+              "meshes": 45,
+              "tris": 12750
+            },
+            "flora-landmark": {
+              "chunks": 4,
+              "objects": 8,
+              "meshes": 4,
+              "tris": 4996
+            },
+            "econ-chests": {
+              "chunks": 8,
+              "objects": 72,
+              "meshes": 64,
+              "tris": 59280
+            },
+            "ocean-reef": {
+              "chunks": 5,
+              "objects": 54,
+              "meshes": 49,
+              "tris": 151982
+            },
+            "ocean-life": {
+              "chunks": 2,
+              "objects": 17,
+              "meshes": 15,
+              "tris": 152524
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 36,
+              "objects": 36,
+              "meshes": 36,
+              "tris": 167040
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 4,
+              "objects": 4,
+              "meshes": 4,
+              "tris": 66
+            },
+            "insects": {
+              "chunks": 22,
+              "objects": 123,
+              "meshes": 70,
+              "tris": 714364
+            }
+          }
+        },
+        "launch-pad": {
+          "ms": 12.05,
+          "msP90": 13.7,
+          "fps": 83,
+          "calls": 508,
+          "callsMax": 508,
+          "tris": 4612921,
+          "trisMax": 4612921,
+          "pending": 0,
+          "heapMB": 678.12,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 565248
+            },
+            "terrain-mid": {
+              "chunks": 20,
+              "objects": 20,
+              "meshes": 20,
+              "tris": 163840
+            },
+            "terrain-far": {
+              "chunks": 76,
+              "objects": 76,
+              "meshes": 76,
+              "tris": 155648
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 2,
+              "objects": 10,
+              "meshes": 8,
+              "tris": 502200
+            },
+            "flora-trees-mid": {
+              "chunks": 5,
+              "objects": 25,
+              "meshes": 20,
+              "tris": 689840
+            },
+            "flora-trees-lo": {
+              "chunks": 45,
+              "objects": 180,
+              "meshes": 135,
+              "tris": 2399936
+            },
+            "flora-small-hi": {
+              "chunks": 3,
+              "objects": 19,
+              "meshes": 16,
+              "tris": 113468
+            },
+            "flora-small-mid": {
+              "chunks": 22,
+              "objects": 138,
+              "meshes": 116,
+              "tris": 726384
+            },
+            "flora-grass": {
+              "chunks": 17,
+              "objects": 68,
+              "meshes": 51,
+              "tris": 60950
+            },
+            "flora-landmark": {
+              "chunks": 3,
+              "objects": 6,
+              "meshes": 3,
+              "tris": 4556
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 100320
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 30,
+              "objects": 30,
+              "meshes": 30,
+              "tris": 139200
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 21,
+              "objects": 178,
+              "meshes": 112,
+              "tris": 766308
+            }
+          }
+        },
+        "moon": {
+          "ms": 9.7,
+          "msP90": 11.2,
+          "fps": 103,
+          "calls": 425,
+          "callsMax": 425,
+          "tris": 3109455,
+          "trisMax": 3109455,
+          "pending": 0,
+          "heapMB": 565.19,
+          "layers": {
+            "phys-ground": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-far": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-lo": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-small-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-small-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-grass": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-landmark": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "econ-chests": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            }
+          }
+        }
+      }
+    },
+    "medium": {
+      "stops": {
+        "home-village": {
+          "ms": 10.15,
+          "msP90": 12.5,
+          "fps": 99,
+          "calls": 893,
+          "callsMax": 897,
+          "tris": 5065904,
+          "trisMax": 5073680,
+          "pending": 0,
+          "heapMB": 582.6,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 70,
+              "objects": 70,
+              "meshes": 70,
+              "tris": 573440
+            },
+            "terrain-mid": {
+              "chunks": 19,
+              "objects": 19,
+              "meshes": 19,
+              "tris": 155648
+            },
+            "terrain-far": {
+              "chunks": 90,
+              "objects": 90,
+              "meshes": 90,
+              "tris": 184320
+            },
+            "village-phys": {
+              "chunks": 3,
+              "objects": 13,
+              "meshes": 10,
+              "tris": 26208
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 3,
+              "objects": 19,
+              "meshes": 16,
+              "tris": 136256
+            },
+            "flora-trees-lo": {
+              "chunks": 14,
+              "objects": 46,
+              "meshes": 32,
+              "tris": 368361
+            },
+            "flora-small-hi": {
+              "chunks": 2,
+              "objects": 10,
+              "meshes": 8,
+              "tris": 31128
+            },
+            "flora-small-mid": {
+              "chunks": 10,
+              "objects": 49,
+              "meshes": 39,
+              "tris": 188992
+            },
+            "flora-grass": {
+              "chunks": 3,
+              "objects": 11,
+              "meshes": 8,
+              "tris": 7950
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 7,
+              "objects": 63,
+              "meshes": 56,
+              "tris": 31920
+            },
+            "ocean-reef": {
+              "chunks": 11,
+              "objects": 130,
+              "meshes": 119,
+              "tris": 1160884
+            },
+            "ocean-life": {
+              "chunks": 4,
+              "objects": 26,
+              "meshes": 22,
+              "tris": 219020
+            },
+            "ocean-sites": {
+              "chunks": 2,
+              "objects": 21,
+              "meshes": 14,
+              "tris": 37960
+            },
+            "ocean-buoys": {
+              "chunks": 48,
+              "objects": 48,
+              "meshes": 48,
+              "tris": 222720
+            },
+            "characters-residents": {
+              "chunks": 1,
+              "objects": 73,
+              "meshes": 42,
+              "tris": 92100
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 4,
+              "objects": 4,
+              "meshes": 4,
+              "tris": 82
+            },
+            "insects": {
+              "chunks": 13,
+              "objects": 96,
+              "meshes": 55,
+              "tris": 314476
+            }
+          }
+        },
+        "home-wild": {
+          "ms": 7.25,
+          "msP90": 9.1,
+          "fps": 138,
+          "calls": 469,
+          "callsMax": 469,
+          "tris": 3557765,
+          "trisMax": 3557765,
+          "pending": 0,
+          "heapMB": 634.32,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 565248
+            },
+            "terrain-mid": {
+              "chunks": 25,
+              "objects": 25,
+              "meshes": 25,
+              "tris": 204800
+            },
+            "terrain-far": {
+              "chunks": 90,
+              "objects": 90,
+              "meshes": 90,
+              "tris": 184320
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 8,
+              "meshes": 7,
+              "tris": 310964
+            },
+            "flora-trees-mid": {
+              "chunks": 3,
+              "objects": 25,
+              "meshes": 22,
+              "tris": 271884
+            },
+            "flora-trees-lo": {
+              "chunks": 28,
+              "objects": 86,
+              "meshes": 58,
+              "tris": 741460
+            },
+            "flora-small-hi": {
+              "chunks": 3,
+              "objects": 32,
+              "meshes": 29,
+              "tris": 316224
+            },
+            "flora-small-mid": {
+              "chunks": 18,
+              "objects": 106,
+              "meshes": 88,
+              "tris": 582000
+            },
+            "flora-grass": {
+              "chunks": 10,
+              "objects": 40,
+              "meshes": 30,
+              "tris": 98100
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 104880
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 22,
+              "objects": 22,
+              "meshes": 22,
+              "tris": 102080
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 14,
+              "objects": 96,
+              "meshes": 55,
+              "tris": 465168
+            }
+          }
+        },
+        "dino-valley": {
+          "ms": 7.65,
+          "msP90": 10.6,
+          "fps": 131,
+          "calls": 603,
+          "callsMax": 603,
+          "tris": 4190807,
+          "trisMax": 4190807,
+          "pending": 0,
+          "heapMB": 679.27,
+          "layers": {
+            "phys-ground": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 68,
+              "objects": 68,
+              "meshes": 68,
+              "tris": 557056
+            },
+            "terrain-mid": {
+              "chunks": 26,
+              "objects": 26,
+              "meshes": 26,
+              "tris": 212992
+            },
+            "terrain-far": {
+              "chunks": 78,
+              "objects": 78,
+              "meshes": 78,
+              "tris": 159744
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 7,
+              "meshes": 6,
+              "tris": 244380
+            },
+            "flora-trees-mid": {
+              "chunks": 5,
+              "objects": 34,
+              "meshes": 29,
+              "tris": 433516
+            },
+            "flora-trees-lo": {
+              "chunks": 26,
+              "objects": 127,
+              "meshes": 101,
+              "tris": 1374502
+            },
+            "flora-small-hi": {
+              "chunks": 4,
+              "objects": 16,
+              "meshes": 12,
+              "tris": 379900
+            },
+            "flora-small-mid": {
+              "chunks": 12,
+              "objects": 44,
+              "meshes": 32,
+              "tris": 294808
+            },
+            "flora-grass": {
+              "chunks": 12,
+              "objects": 48,
+              "meshes": 36,
+              "tris": 111000
+            },
+            "flora-landmark": {
+              "chunks": 5,
+              "objects": 10,
+              "meshes": 5,
+              "tris": 6884
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 86640
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 17,
+              "tris": 78880
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 13,
+              "objects": 1079,
+              "meshes": 563,
+              "tris": 1324785
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 13,
+              "objects": 69,
+              "meshes": 40,
+              "tris": 344724
+            }
+          }
+        },
+        "coral-coast": {
+          "ms": 9.6,
+          "msP90": 11.4,
+          "fps": 104,
+          "calls": 827,
+          "callsMax": 829,
+          "tris": 5884376,
+          "trisMax": 5885432,
+          "pending": 0,
+          "heapMB": 659.7,
+          "layers": {
+            "phys-ground": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 68,
+              "objects": 68,
+              "meshes": 68,
+              "tris": 557056
+            },
+            "terrain-mid": {
+              "chunks": 19,
+              "objects": 19,
+              "meshes": 19,
+              "tris": 155648
+            },
+            "terrain-far": {
+              "chunks": 88,
+              "objects": 88,
+              "meshes": 88,
+              "tris": 180224
+            },
+            "village-phys": {
+              "chunks": 2,
+              "objects": 11,
+              "meshes": 9,
+              "tris": 23000
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 3,
+              "meshes": 2,
+              "tris": 334926
+            },
+            "flora-trees-mid": {
+              "chunks": 3,
+              "objects": 9,
+              "meshes": 6,
+              "tris": 226512
+            },
+            "flora-trees-lo": {
+              "chunks": 18,
+              "objects": 36,
+              "meshes": 18,
+              "tris": 1238085
+            },
+            "flora-small-hi": {
+              "chunks": 4,
+              "objects": 8,
+              "meshes": 4,
+              "tris": 214756
+            },
+            "flora-small-mid": {
+              "chunks": 15,
+              "objects": 33,
+              "meshes": 18,
+              "tris": 450840
+            },
+            "flora-grass": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 9,
+              "objects": 81,
+              "meshes": 72,
+              "tris": 59280
+            },
+            "ocean-reef": {
+              "chunks": 5,
+              "objects": 57,
+              "meshes": 52,
+              "tris": 219654
+            },
+            "ocean-life": {
+              "chunks": 4,
+              "objects": 38,
+              "meshes": 34,
+              "tris": 334148
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 47,
+              "objects": 47,
+              "meshes": 47,
+              "tris": 218080
+            },
+            "characters-residents": {
+              "chunks": 1,
+              "objects": 92,
+              "meshes": 60,
+              "tris": 100836
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 3,
+              "objects": 3,
+              "meshes": 3,
+              "tris": 70
+            },
+            "insects": {
+              "chunks": 14,
+              "objects": 90,
+              "meshes": 54,
+              "tris": 319356
+            }
+          }
+        },
+        "mushroom-night": {
+          "ms": 7.4,
+          "msP90": 9.4,
+          "fps": 135,
+          "calls": 437,
+          "callsMax": 437,
+          "tris": 3814422,
+          "trisMax": 3814422,
+          "pending": 0,
+          "heapMB": 653.68,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 71,
+              "objects": 71,
+              "meshes": 71,
+              "tris": 581632
+            },
+            "terrain-mid": {
+              "chunks": 26,
+              "objects": 26,
+              "meshes": 26,
+              "tris": 212992
+            },
+            "terrain-far": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 141312
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 4,
+              "objects": 12,
+              "meshes": 8,
+              "tris": 274208
+            },
+            "flora-trees-lo": {
+              "chunks": 28,
+              "objects": 56,
+              "meshes": 28,
+              "tris": 1523068
+            },
+            "flora-small-hi": {
+              "chunks": 4,
+              "objects": 23,
+              "meshes": 19,
+              "tris": 391196
+            },
+            "flora-small-mid": {
+              "chunks": 16,
+              "objects": 86,
+              "meshes": 70,
+              "tris": 611756
+            },
+            "flora-grass": {
+              "chunks": 10,
+              "objects": 40,
+              "meshes": 30,
+              "tris": 99250
+            },
+            "flora-landmark": {
+              "chunks": 4,
+              "objects": 8,
+              "meshes": 4,
+              "tris": 7136
+            },
+            "econ-chests": {
+              "chunks": 17,
+              "objects": 153,
+              "meshes": 136,
+              "tris": 118560
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 22,
+              "objects": 22,
+              "meshes": 22,
+              "tris": 102080
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 14,
+              "objects": 83,
+              "meshes": 47,
+              "tris": 543256
+            }
+          }
+        },
+        "desert": {
+          "ms": 7.6,
+          "msP90": 9.8,
+          "fps": 132,
+          "calls": 383,
+          "callsMax": 383,
+          "tris": 2398765,
+          "trisMax": 2398765,
+          "pending": 0,
+          "heapMB": 676.4,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 67,
+              "objects": 67,
+              "meshes": 67,
+              "tris": 548864
+            },
+            "terrain-mid": {
+              "chunks": 20,
+              "objects": 20,
+              "meshes": 20,
+              "tris": 163840
+            },
+            "terrain-far": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 141312
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 4,
+              "meshes": 3,
+              "tris": 139522
+            },
+            "flora-trees-mid": {
+              "chunks": 4,
+              "objects": 13,
+              "meshes": 9,
+              "tris": 86100
+            },
+            "flora-trees-lo": {
+              "chunks": 19,
+              "objects": 54,
+              "meshes": 35,
+              "tris": 408278
+            },
+            "flora-small-hi": {
+              "chunks": 4,
+              "objects": 16,
+              "meshes": 12,
+              "tris": 81328
+            },
+            "flora-small-mid": {
+              "chunks": 17,
+              "objects": 51,
+              "meshes": 34,
+              "tris": 113680
+            },
+            "flora-grass": {
+              "chunks": 9,
+              "objects": 36,
+              "meshes": 27,
+              "tris": 7000
+            },
+            "flora-landmark": {
+              "chunks": 4,
+              "objects": 8,
+              "meshes": 4,
+              "tris": 4996
+            },
+            "econ-chests": {
+              "chunks": 8,
+              "objects": 72,
+              "meshes": 64,
+              "tris": 59280
+            },
+            "ocean-reef": {
+              "chunks": 2,
+              "objects": 17,
+              "meshes": 15,
+              "tris": 25182
+            },
+            "ocean-life": {
+              "chunks": 1,
+              "objects": 10,
+              "meshes": 9,
+              "tris": 85604
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 36,
+              "objects": 36,
+              "meshes": 36,
+              "tris": 167040
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 4,
+              "objects": 4,
+              "meshes": 4,
+              "tris": 66
+            },
+            "insects": {
+              "chunks": 14,
+              "objects": 77,
+              "meshes": 45,
+              "tris": 439468
+            }
+          }
+        },
+        "launch-pad": {
+          "ms": 6.9,
+          "msP90": 9.4,
+          "fps": 145,
+          "calls": 448,
+          "callsMax": 448,
+          "tris": 3486078,
+          "trisMax": 3486078,
+          "pending": 0,
+          "heapMB": 641.64,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 565248
+            },
+            "terrain-mid": {
+              "chunks": 20,
+              "objects": 20,
+              "meshes": 20,
+              "tris": 163840
+            },
+            "terrain-far": {
+              "chunks": 76,
+              "objects": 76,
+              "meshes": 76,
+              "tris": 155648
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 5,
+              "meshes": 4,
+              "tris": 225340
+            },
+            "flora-trees-mid": {
+              "chunks": 4,
+              "objects": 20,
+              "meshes": 16,
+              "tris": 453640
+            },
+            "flora-trees-lo": {
+              "chunks": 28,
+              "objects": 112,
+              "meshes": 84,
+              "tris": 1593896
+            },
+            "flora-small-hi": {
+              "chunks": 1,
+              "objects": 3,
+              "meshes": 2,
+              "tris": 1428
+            },
+            "flora-small-mid": {
+              "chunks": 14,
+              "objects": 79,
+              "meshes": 65,
+              "tris": 387032
+            },
+            "flora-grass": {
+              "chunks": 10,
+              "objects": 40,
+              "meshes": 30,
+              "tris": 36300
+            },
+            "flora-landmark": {
+              "chunks": 3,
+              "objects": 6,
+              "meshes": 3,
+              "tris": 4556
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 100320
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 30,
+              "objects": 30,
+              "meshes": 30,
+              "tris": 139200
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 14,
+              "objects": 124,
+              "meshes": 80,
+              "tris": 534004
+            }
+          }
+        },
+        "moon": {
+          "ms": 4.4,
+          "msP90": 6.1,
+          "fps": 227,
+          "calls": 426,
+          "callsMax": 426,
+          "tris": 3109456,
+          "trisMax": 3109456,
+          "pending": 0,
+          "heapMB": 559.98,
+          "layers": {
+            "phys-ground": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-far": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-lo": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-small-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-small-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-grass": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-landmark": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "econ-chests": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            }
+          }
+        }
+      }
+    },
+    "low": {
+      "stops": {
+        "home-village": {
+          "ms": 6.6,
+          "msP90": 8.3,
+          "fps": 152,
+          "calls": 713,
+          "callsMax": 715,
+          "tris": 4320169,
+          "trisMax": 4326889,
+          "pending": 0,
+          "heapMB": 571.55,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 70,
+              "objects": 70,
+              "meshes": 70,
+              "tris": 573440
+            },
+            "terrain-mid": {
+              "chunks": 19,
+              "objects": 19,
+              "meshes": 19,
+              "tris": 155648
+            },
+            "terrain-far": {
+              "chunks": 90,
+              "objects": 90,
+              "meshes": 90,
+              "tris": 184320
+            },
+            "village-phys": {
+              "chunks": 3,
+              "objects": 13,
+              "meshes": 10,
+              "tris": 26208
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 3,
+              "objects": 19,
+              "meshes": 16,
+              "tris": 136256
+            },
+            "flora-trees-lo": {
+              "chunks": 6,
+              "objects": 21,
+              "meshes": 15,
+              "tris": 177523
+            },
+            "flora-small-hi": {
+              "chunks": 2,
+              "objects": 10,
+              "meshes": 8,
+              "tris": 31128
+            },
+            "flora-small-mid": {
+              "chunks": 4,
+              "objects": 22,
+              "meshes": 18,
+              "tris": 73136
+            },
+            "flora-grass": {
+              "chunks": 1,
+              "objects": 4,
+              "meshes": 3,
+              "tris": 3050
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 7,
+              "objects": 63,
+              "meshes": 56,
+              "tris": 31920
+            },
+            "ocean-reef": {
+              "chunks": 4,
+              "objects": 41,
+              "meshes": 37,
+              "tris": 236994
+            },
+            "ocean-life": {
+              "chunks": 4,
+              "objects": 26,
+              "meshes": 22,
+              "tris": 219020
+            },
+            "ocean-sites": {
+              "chunks": 2,
+              "objects": 21,
+              "meshes": 14,
+              "tris": 37960
+            },
+            "ocean-buoys": {
+              "chunks": 48,
+              "objects": 48,
+              "meshes": 48,
+              "tris": 222720
+            },
+            "characters-residents": {
+              "chunks": 1,
+              "objects": 73,
+              "meshes": 42,
+              "tris": 92100
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 4,
+              "objects": 4,
+              "meshes": 4,
+              "tris": 82
+            },
+            "insects": {
+              "chunks": 8,
+              "objects": 66,
+              "meshes": 39,
+              "tris": 237764
+            }
+          }
+        },
+        "home-wild": {
+          "ms": 4.7,
+          "msP90": 5.5,
+          "fps": 213,
+          "calls": 333,
+          "callsMax": 340,
+          "tris": 2396253,
+          "trisMax": 2407021,
+          "pending": 0,
+          "heapMB": 649.38,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 565248
+            },
+            "terrain-mid": {
+              "chunks": 25,
+              "objects": 25,
+              "meshes": 25,
+              "tris": 204800
+            },
+            "terrain-far": {
+              "chunks": 90,
+              "objects": 90,
+              "meshes": 90,
+              "tris": 184320
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 4,
+              "objects": 33,
+              "meshes": 29,
+              "tris": 386116
+            },
+            "flora-trees-lo": {
+              "chunks": 13,
+              "objects": 39,
+              "meshes": 26,
+              "tris": 358056
+            },
+            "flora-small-hi": {
+              "chunks": 2,
+              "objects": 21,
+              "meshes": 19,
+              "tris": 172400
+            },
+            "flora-small-mid": {
+              "chunks": 8,
+              "objects": 52,
+              "meshes": 44,
+              "tris": 276284
+            },
+            "flora-grass": {
+              "chunks": 7,
+              "objects": 28,
+              "meshes": 21,
+              "tris": 70500
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 104880
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 22,
+              "objects": 22,
+              "meshes": 22,
+              "tris": 102080
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 9,
+              "objects": 63,
+              "meshes": 38,
+              "tris": 318552
+            }
+          }
+        },
+        "dino-valley": {
+          "ms": 5.3,
+          "msP90": 6.6,
+          "fps": 189,
+          "calls": 442,
+          "callsMax": 445,
+          "tris": 3298406,
+          "trisMax": 3310814,
+          "pending": 0,
+          "heapMB": 660.57,
+          "layers": {
+            "phys-ground": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 68,
+              "objects": 68,
+              "meshes": 68,
+              "tris": 557056
+            },
+            "terrain-mid": {
+              "chunks": 26,
+              "objects": 26,
+              "meshes": 26,
+              "tris": 212992
+            },
+            "terrain-far": {
+              "chunks": 78,
+              "objects": 78,
+              "meshes": 78,
+              "tris": 159744
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 7,
+              "meshes": 6,
+              "tris": 244380
+            },
+            "flora-trees-mid": {
+              "chunks": 2,
+              "objects": 14,
+              "meshes": 12,
+              "tris": 198152
+            },
+            "flora-trees-lo": {
+              "chunks": 15,
+              "objects": 72,
+              "meshes": 57,
+              "tris": 757341
+            },
+            "flora-small-hi": {
+              "chunks": 4,
+              "objects": 16,
+              "meshes": 12,
+              "tris": 379900
+            },
+            "flora-small-mid": {
+              "chunks": 8,
+              "objects": 29,
+              "meshes": 21,
+              "tris": 191064
+            },
+            "flora-grass": {
+              "chunks": 4,
+              "objects": 16,
+              "meshes": 12,
+              "tris": 38050
+            },
+            "flora-landmark": {
+              "chunks": 5,
+              "objects": 10,
+              "meshes": 5,
+              "tris": 6884
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 86640
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 17,
+              "tris": 78880
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 13,
+              "objects": 1079,
+              "meshes": 563,
+              "tris": 1324785
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 8,
+              "objects": 50,
+              "meshes": 31,
+              "tris": 253128
+            }
+          }
+        },
+        "coral-coast": {
+          "ms": 5.8,
+          "msP90": 7.3,
+          "fps": 172,
+          "calls": 646,
+          "callsMax": 648,
+          "tris": 4330685,
+          "trisMax": 4331741,
+          "pending": 0,
+          "heapMB": 656.11,
+          "layers": {
+            "phys-ground": {
+              "chunks": 17,
+              "objects": 17,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 68,
+              "objects": 68,
+              "meshes": 68,
+              "tris": 557056
+            },
+            "terrain-mid": {
+              "chunks": 19,
+              "objects": 19,
+              "meshes": 19,
+              "tris": 155648
+            },
+            "terrain-far": {
+              "chunks": 88,
+              "objects": 88,
+              "meshes": 88,
+              "tris": 180224
+            },
+            "village-phys": {
+              "chunks": 2,
+              "objects": 11,
+              "meshes": 9,
+              "tris": 23000
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 4,
+              "objects": 12,
+              "meshes": 8,
+              "tris": 344916
+            },
+            "flora-trees-lo": {
+              "chunks": 11,
+              "objects": 22,
+              "meshes": 11,
+              "tris": 730215
+            },
+            "flora-small-hi": {
+              "chunks": 1,
+              "objects": 2,
+              "meshes": 1,
+              "tris": 4052
+            },
+            "flora-small-mid": {
+              "chunks": 8,
+              "objects": 16,
+              "meshes": 8,
+              "tris": 249480
+            },
+            "flora-grass": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-landmark": {
+              "chunks": 6,
+              "objects": 12,
+              "meshes": 6,
+              "tris": 8196
+            },
+            "econ-chests": {
+              "chunks": 9,
+              "objects": 81,
+              "meshes": 72,
+              "tris": 59280
+            },
+            "ocean-reef": {
+              "chunks": 3,
+              "objects": 42,
+              "meshes": 39,
+              "tris": 188156
+            },
+            "ocean-life": {
+              "chunks": 2,
+              "objects": 12,
+              "meshes": 10,
+              "tris": 98368
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 47,
+              "objects": 47,
+              "meshes": 47,
+              "tris": 218080
+            },
+            "characters-residents": {
+              "chunks": 1,
+              "objects": 92,
+              "meshes": 60,
+              "tris": 100836
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 3,
+              "objects": 3,
+              "meshes": 3,
+              "tris": 70
+            },
+            "insects": {
+              "chunks": 9,
+              "objects": 64,
+              "meshes": 40,
+              "tris": 215908
+            }
+          }
+        },
+        "mushroom-night": {
+          "ms": 5.05,
+          "msP90": 6.7,
+          "fps": 198,
+          "calls": 318,
+          "callsMax": 318,
+          "tris": 2706369,
+          "trisMax": 2706369,
+          "pending": 0,
+          "heapMB": 362.51,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 71,
+              "objects": 71,
+              "meshes": 71,
+              "tris": 581632
+            },
+            "terrain-mid": {
+              "chunks": 26,
+              "objects": 26,
+              "meshes": 26,
+              "tris": 212992
+            },
+            "terrain-far": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 141312
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 4,
+              "objects": 12,
+              "meshes": 8,
+              "tris": 274208
+            },
+            "flora-trees-lo": {
+              "chunks": 12,
+              "objects": 24,
+              "meshes": 12,
+              "tris": 660632
+            },
+            "flora-small-hi": {
+              "chunks": 3,
+              "objects": 17,
+              "meshes": 14,
+              "tris": 289732
+            },
+            "flora-small-mid": {
+              "chunks": 9,
+              "objects": 50,
+              "meshes": 41,
+              "tris": 341656
+            },
+            "flora-grass": {
+              "chunks": 5,
+              "objects": 20,
+              "meshes": 15,
+              "tris": 48100
+            },
+            "flora-landmark": {
+              "chunks": 4,
+              "objects": 8,
+              "meshes": 4,
+              "tris": 7136
+            },
+            "econ-chests": {
+              "chunks": 17,
+              "objects": 153,
+              "meshes": 136,
+              "tris": 118560
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 22,
+              "objects": 22,
+              "meshes": 22,
+              "tris": 102080
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 8,
+              "objects": 47,
+              "meshes": 27,
+              "tris": 304216
+            }
+          }
+        },
+        "desert": {
+          "ms": 4.25,
+          "msP90": 5.2,
+          "fps": 235,
+          "calls": 277,
+          "callsMax": 277,
+          "tris": 1748036,
+          "trisMax": 1748036,
+          "pending": 0,
+          "heapMB": 615.39,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 67,
+              "objects": 67,
+              "meshes": 67,
+              "tris": 548864
+            },
+            "terrain-mid": {
+              "chunks": 20,
+              "objects": 20,
+              "meshes": 20,
+              "tris": 163840
+            },
+            "terrain-far": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 141312
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 4,
+              "meshes": 3,
+              "tris": 139522
+            },
+            "flora-trees-mid": {
+              "chunks": 1,
+              "objects": 3,
+              "meshes": 2,
+              "tris": 16404
+            },
+            "flora-trees-lo": {
+              "chunks": 15,
+              "objects": 42,
+              "meshes": 27,
+              "tris": 308928
+            },
+            "flora-small-hi": {
+              "chunks": 1,
+              "objects": 4,
+              "meshes": 3,
+              "tris": 7820
+            },
+            "flora-small-mid": {
+              "chunks": 9,
+              "objects": 27,
+              "meshes": 18,
+              "tris": 73904
+            },
+            "flora-grass": {
+              "chunks": 6,
+              "objects": 24,
+              "meshes": 18,
+              "tris": 4600
+            },
+            "flora-landmark": {
+              "chunks": 4,
+              "objects": 8,
+              "meshes": 4,
+              "tris": 4996
+            },
+            "econ-chests": {
+              "chunks": 8,
+              "objects": 72,
+              "meshes": 64,
+              "tris": 59280
+            },
+            "ocean-reef": {
+              "chunks": 1,
+              "objects": 8,
+              "meshes": 7,
+              "tris": 16794
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 36,
+              "objects": 36,
+              "meshes": 36,
+              "tris": 167040
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 4,
+              "objects": 4,
+              "meshes": 4,
+              "tris": 66
+            },
+            "insects": {
+              "chunks": 8,
+              "objects": 36,
+              "meshes": 20,
+              "tris": 175264
+            }
+          }
+        },
+        "launch-pad": {
+          "ms": 5.4,
+          "msP90": 6.5,
+          "fps": 185,
+          "calls": 313,
+          "callsMax": 313,
+          "tris": 2574561,
+          "trisMax": 2574561,
+          "pending": 0,
+          "heapMB": 614.93,
+          "layers": {
+            "phys-ground": {
+              "chunks": 16,
+              "objects": 16,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 69,
+              "objects": 69,
+              "meshes": 69,
+              "tris": 565248
+            },
+            "terrain-mid": {
+              "chunks": 20,
+              "objects": 20,
+              "meshes": 20,
+              "tris": 163840
+            },
+            "terrain-far": {
+              "chunks": 76,
+              "objects": 76,
+              "meshes": 76,
+              "tris": 155648
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 1,
+              "objects": 5,
+              "meshes": 4,
+              "tris": 225340
+            },
+            "flora-trees-mid": {
+              "chunks": 1,
+              "objects": 5,
+              "meshes": 4,
+              "tris": 94300
+            },
+            "flora-trees-lo": {
+              "chunks": 16,
+              "objects": 64,
+              "meshes": 48,
+              "tris": 868552
+            },
+            "flora-small-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-small-mid": {
+              "chunks": 5,
+              "objects": 22,
+              "meshes": 17,
+              "tris": 97684
+            },
+            "flora-grass": {
+              "chunks": 7,
+              "objects": 28,
+              "meshes": 21,
+              "tris": 24500
+            },
+            "flora-landmark": {
+              "chunks": 3,
+              "objects": 6,
+              "meshes": 3,
+              "tris": 4556
+            },
+            "econ-chests": {
+              "chunks": 13,
+              "objects": 117,
+              "meshes": 104,
+              "tris": 100320
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 30,
+              "objects": 30,
+              "meshes": 30,
+              "tris": 139200
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 9,
+              "objects": 83,
+              "meshes": 54,
+              "tris": 362832
+            }
+          }
+        },
+        "moon": {
+          "ms": 3.4,
+          "msP90": 4.9,
+          "fps": 294,
+          "calls": 369,
+          "callsMax": 369,
+          "tris": 2980109,
+          "trisMax": 2980109,
+          "pending": 0,
+          "heapMB": 562.51,
+          "layers": {
+            "phys-ground": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-near": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "terrain-far": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "village-phys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-trees-lo": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-small-hi": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-small-mid": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-grass": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "flora-landmark": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "econ-chests": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-reef": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-life": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-sites": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "ocean-buoys": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "characters-residents": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "dinos": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "fishing-shadows": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            },
+            "insects": {
+              "chunks": 0,
+              "objects": 0,
+              "meshes": 0,
+              "tris": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

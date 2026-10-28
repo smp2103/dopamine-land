@@ -8,7 +8,7 @@ import { ellipsoid, capsule, taperTube } from '../geo';
 import { bubbleTexture } from '../tex';
 import { buildGlider, buildRod, buildNet, buildShovel, buildAxe, buildHammer, buildCan, buildCamera, buildSnack, buildSprout } from '../gear';
 import { Batch, SURF, bodyMat, type FillBoost } from './mats';
-import { faceSet, faceMaterial, EX, type EyeState, type Mouth, type FaceMat } from './face';
+import { faceSet, faceMaterial, EX, EY, MOUTH_Y, type EyeState, type Mouth, type FaceMat } from './face';
 import { buildHair } from './hair';
 import {
   H, HIP_Y, SHOULDER_Y, HEAD_Y, ELBOW, HAND, KNEE, LEMON, GOLD,
@@ -171,7 +171,7 @@ function buildModel(look: PlayerLook, boost: FillBoost): Model {
   tb.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(strapPts, true), 96, 0.012, 8, true), '#ff86ad', SURF.jelly);
   // 목(턱 밑 접촉 그늘: 위로 갈수록 조금 진하게)
   const skinC = new THREE.Color(pal.skin), neckDark = skinC.clone().multiplyScalar(0.8);
-  tb.add(capsule(0.056, 0.12), (p) => skinC.clone().lerp(neckDark, sstep(p.y, -0.01, 0.04)).getHex(), SURF.skin, 0, 0.62, -0.005);
+  tb.add(capsule(0.056, 0.12), (p) => skinC.clone().lerp(neckDark, sstep(p.y, -0.01, 0.04)).getHex(), SURF.skin, 0, 0.59, -0.005);
   torso.add(mk(tb, body));
   // 주머니 자리: 왼 엉덩이 조금 뒤(등 뒤에서도 옆으로 보인다)
   const hipA = Math.PI * 0.62;
@@ -215,7 +215,7 @@ function buildModel(look: PlayerLook, boost: FillBoost): Model {
     const T2 = torsoBatch(f, look.outfit, pal, true);
     const pts = Array.from({ length: 16 }, (_, i) => strapPoint(T2, (i / 16) * Math.PI * 2));
     f.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 24, 0.014, 4, true), '#ff86ad', SURF.jelly);
-    f.add(capsule(0.056, 0.12), pal.skin, SURF.skin, 0, 0.62, -0.005);
+    f.add(capsule(0.056, 0.12), pal.skin, SURF.skin, 0, 0.59, -0.005);
     f.add(ellipsoid(PR, PR * 0.92, PR * 0.86, 12, 8), '#ffd75a', SURF.candy, hip.x + 0.04, hip.y - 0.075, hip.z);
     torso.add(mk(f, body, 'far'));
   }
@@ -268,7 +268,7 @@ function buildModel(look: PlayerLook, boost: FillBoost): Model {
   const browCol = new THREE.Color(pal.hair.shade).lerp(new THREE.Color('#5a2a3a'), 0.25);
   const brows: THREE.Group[] = [];
   for (const m of [-1, 1]) {
-    const { p, n } = onFace(H, m * EX, 0.2, 0.003);
+    const { p, n } = onFace(H, m * (EX + 0.02), 0.27, 0.003);
     const pv = new THREE.Group();
     pv.position.copy(p);
     pv.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
@@ -277,9 +277,9 @@ function buildModel(look: PlayerLook, boost: FillBoost): Model {
     pv.add(inner);
     const bb = new Batch();
     // 짧고 통통한 둥근 획: 안쪽 끝이 조금 굵다
-    const w = 0.042;
+    const w = 0.03;
     const pts = [new THREE.Vector3(-m * w, -0.003, 0), new THREE.Vector3(-m * w * 0.3, 0.005, 0.002), new THREE.Vector3(m * w * 0.4, 0.004, 0.002), new THREE.Vector3(m * w, -0.004, 0)];
-    const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 14, 0.0085, 8, false);
+    const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 14, 0.0056, 8, false);
     const pp = g.attributes.position as THREE.BufferAttribute;
     // 끝으로 갈수록 가늘게 + 판판하게(이마에 붙게)
     for (let i = 0; i < pp.count; i++) {
@@ -343,10 +343,10 @@ function buildModel(look: PlayerLook, boost: FillBoost): Model {
     hf.deleteAttribute('uv');
     f.raw(hf);
     for (const m of [-1, 1]) {
-      const { p } = onFace(H, m * EX, -0.07, -0.004);
-      f.add(ellipsoid(0.03, 0.04, 0.012, 8, 6), ec.dark, SURF.eye, p.x, p.y, p.z);
+      const { p } = onFace(H, m * EX, EY, -0.004);
+      f.add(ellipsoid(0.034, 0.06, 0.012, 8, 6), ec.dark, SURF.eye, p.x, p.y, p.z);
     }
-    const bl = onFace(H, 0, -0.42, -0.002).p;
+    const bl = onFace(H, 0, MOUTH_Y, -0.002).p;
     f.add(ellipsoid(0.02, 0.012, 0.008, 6, 4), '#c0506a', SURF.skin, bl.x, bl.y, bl.z);
     const fh = buildHair(look.hair, pal.hair, H, 'far');
     f.raw(fh.main);
@@ -366,7 +366,7 @@ function buildModel(look: PlayerLook, boost: FillBoost): Model {
   for (const m of [-1, 1]) {
     const b = new Batch(); b.add(ellipsoid(0.08, 0.066, 0.062, 22, 14), '#ffb3b3', [0.4, 0.6, 0, 0.25]);
     const pf = mk(b, body);
-    const { p } = onFace(H, m * 0.6, -0.36, -0.03);
+    const { p } = onFace(H, m * 0.55, -0.5, -0.03);
     pf.position.copy(p);
     pf.scale.setScalar(0.001);
     pf.castShadow = false;

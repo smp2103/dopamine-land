@@ -7,6 +7,7 @@
 //   (rig.root.userData 에 같은 이름으로 넣어도 된다)
 import * as THREE from 'three';
 import { buildPlayer, PLAYER_POSES, type PlayerRig, type PoseState } from '../modules/characters/player';
+import { decodeLook } from '../modules/characters/player/look';
 import { buildAnimal, ANIMAL_KINDS, type AnimalKind, type AnimalSpec, type AnimalRig, type AnimalPose } from '../modules/characters/animal';
 import { buildSpecial, isSpecialKind, SPECIAL_ZOO } from '../modules/characters/special';
 import { buildVillager } from '../modules/characters/villager';
@@ -158,7 +159,8 @@ export async function buildStudioRig(ref: RigRef): Promise<StudioRig> {
   const key = rigKey(ref);
   switch (ref.type) {
     case 'player':
-      return wrapPlayerLike(key, '플레이어', buildPlayer(), PLAYER_POSES);
+      // ?look=L1.xxxxxxx(encodeLook 글자) 로 꾸민 모습을 찍는다 — 머리 모양·옷·모자 조합 점검용
+      return wrapPlayerLike(key, '플레이어', buildPlayer(typeof location !== 'undefined' ? decodeLook(new URLSearchParams(location.search).get('look')) : null), PLAYER_POSES);
     case 'concept': {
       const load = conceptMods[`../modules/characters/concepts/${ref.id}.ts`];
       if (!load) throw new Error(`콘셉트 '${ref.id}' 가 없어요 (src/modules/characters/concepts/${ref.id}.ts)`);

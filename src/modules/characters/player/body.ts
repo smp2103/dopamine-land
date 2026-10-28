@@ -15,7 +15,7 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 // ── 치수(루트 배율 1.12 전) ──
 export const HIP_Y = 0.27;
 export const SHOULDER_Y = 0.515;
-export const HEAD_Y = 0.865;
+export const HEAD_Y = 0.84;
 export const H: HeadR = { rx: 0.312, ry: 0.288, rz: 0.292 };
 export const ELBOW = 0.11;
 export const HAND = 0.138;
@@ -67,7 +67,7 @@ export function heartGeo(s: number): THREE.BufferGeometry {
 export function sculpt(x: number, y: number, z: number, r: HeadR, out: THREE.Vector3): THREE.Vector3 {
   const fz = Math.max(0, z);
   const front = sstep(z, -0.1, 0.7);
-  const cheek = 1 + 0.085 * Math.exp(-(((y + 0.32) / 0.27) ** 2)) * (0.4 + 0.6 * fz) * sstep(Math.abs(x), 0.05, 0.55);
+  const cheek = 1 + 0.1 * Math.exp(-(((y + 0.42) / 0.27) ** 2)) * (0.4 + 0.6 * fz) * sstep(Math.abs(x), 0.05, 0.55);
   const jaw = 1 - 0.17 * sstep(-y, 0.42, 1.0);
   const brow = 1 + 0.03 * Math.exp(-(((y - 0.38) / 0.3) ** 2)) * fz;
   const flat = 1 - 0.065 * sstep(z, 0.5, 1.0);
@@ -75,9 +75,7 @@ export function sculpt(x: number, y: number, z: number, r: HeadR, out: THREE.Vec
   // 아래 얼굴을 짧게(턱이 길면 '달덩이')
   const yy = y < 0 ? y * (1 - 0.15 * sstep(-y, 0.15, 1.0)) : y;
   let Z = z * r.rz * cheek * jaw * brow * flat * back;
-  // 코: 아주 작은 혹 + 턱끝 살짝 앞으로
-  const nd = Math.hypot(x / 0.1, (y + 0.24) / 0.075);
-  Z += 0.009 * Math.exp(-nd * nd) * front;
+  // 코 혹 없음(반짝 인형) — 턱끝만 살짝 앞으로
   Z += 0.006 * Math.exp(-(((y + 0.82) / 0.12) ** 2)) * front;
   return out.set(x * r.rx * cheek * jaw, yy * r.ry, Z);
 }

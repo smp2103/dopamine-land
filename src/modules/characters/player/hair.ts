@@ -182,8 +182,8 @@ function puffGeo(P: Painter, at: THREE.Vector3, r: number, seed: number, ws: num
 function bangs(L: LockDef[], kind: HairStyle) {
   const part = -0.28;
   const spec: Array<[az: number, end: number, w: number, tip: 'round' | 'point']> = kind === 'short'
-    ? [[-0.7, 0.5, 0.085, 'point'], [-0.32, 0.44, 0.095, 'round'], [0.08, 0.5, 0.1, 'point'], [0.46, 0.42, 0.09, 'round'], [0.78, 0.48, 0.08, 'point']]
-    : [[-0.68, 0.4, 0.088, 'round'], [-0.3, 0.33, 0.1, 'round'], [0.1, 0.38, 0.1, 'point'], [0.46, 0.31, 0.095, 'round'], [0.8, 0.36, 0.08, 'round']];
+    ? [[-0.7, 0.4, 0.085, 'point'], [-0.32, 0.33, 0.095, 'round'], [0.08, 0.38, 0.1, 'point'], [0.46, 0.32, 0.09, 'round'], [0.78, 0.38, 0.08, 'point']]
+    : [[-0.68, 0.3, 0.092, 'round'], [-0.3, 0.22, 0.105, 'round'], [0.1, 0.27, 0.105, 'point'], [0.46, 0.21, 0.1, 'round'], [0.8, 0.27, 0.085, 'round']];
   spec.forEach(([az, end, w, tip], i) => {
     const a0 = part + (az - part) * 0.2;
     L.push({ c: [[a0, 1.3, 0.99], [part + (az - part) * 0.6, 1.0, 1.1], [az - 0.03, 0.72, 1.11], [az, end + 0.08, 1.08], [az + 0.04, end - 0.02, 1.02]], w, t: w * 0.5, tip, val: [0.02, -0.03, 0.03, 0, -0.02][i] });
@@ -194,7 +194,7 @@ function bangs(L: LockDef[], kind: HairStyle) {
 function sides(L: LockDef[], kind: HairStyle) {
   const len = kind === 'short' ? 0.35 : 0;
   for (const m of [-1, 1]) {
-    L.push({ c: [[m * 1.12, 1.0, 1.05], [m * 1.06, 0.45, 1.1], [m * 1.0, -0.05 + len, 1.09], [m * 0.94, -0.34 + len, 1.06], [m * 0.82, -0.44 + len, 1.0]], w: 0.082, t: 0.042, tip: kind === 'short' ? 'point' : 'round', val: 0.02 });
+    L.push({ c: [[m * 1.08, 1.0, 1.05], [m * 1.0, 0.45, 1.1], [m * 0.94, -0.08 + len, 1.09], [m * 0.88, -0.4 + len, 1.06], [m * 0.76, -0.54 + len, 1.0]], w: 0.088, t: 0.042, tip: kind === 'short' ? 'point' : 'round', val: 0.02 });
     L.push({ c: [[m * 1.55, 1.0, 1.04], [m * 1.58, 0.4, 1.1], [m * 1.55, -0.12 + len, 1.1], [m * 1.5, -0.3 + len, 1.13], [m * 1.4, -0.4 + len, 1.22]], w: 0.1, t: 0.05, tip: 'round', val: -0.03 });
   }
 }

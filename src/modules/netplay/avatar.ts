@@ -1,87 +1,28 @@
-// 친구 아바타 — characters/player.ts 의 buildPlayer(허용된 import)를 친구가 고른 옷·머리 색으로 물들이고,
+// 친구 아바타 — 내 캐릭터와 같은 모델(characters/player.ts 의 buildPlayer)을 친구가 고른 모습(look)으로 세우고,
 // 머리 위 이름표 + 말풍선(채팅·이모트) + 발밑 둥근 그림자를 붙인다. 자세는 InterpBuffer 가 준 PoseOut 으로.
-// 드로콜: buildPlayer 는 메시가 80개쯤이라, 움직이지 않는 메시(애니메이션이 건드리지 않는 것)를 같은 부모·같은 재질끼리 합친다(mergeStatic).
-// 몸 그림자는 끄고 발밑 둥근 그림자 하나로 — 이름표 1 + 말풍선 1 + 그림자 1 을 더해도 모듈 예산(40) 안.
+// 모습: look 이 오면 그대로, 옛 친구(옷·머리 색만 보내는 통신)는 색에 가장 가까운 기본 모습(friendLook).
+// 드로콜: buildPlayer 는 이미 관절마다 메시 하나(≈ 20 드로)라 mergeStatic 은 남은 정지 메시만 마저 합친다.
+// 25 m 넘게 멀면 먼 모습(6 드로). 몸 그림자는 끄고 발밑 둥근 그림자 하나로.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildPlayer, PLAYER_POSES, type PlayerRig } from '../characters/player';
+import { buildPlayer, PLAYER_POSES, cleanLook, decodeLook, lookFromColors, sameLook, type PlayerRig, type PlayerLook } from '../characters/player';
 import { blobShadow } from '../../core/art';
 import { applyCurve } from '../../core/curve';
 import type { Colors } from './protocol';
 import type { PoseOut } from './interp';
 
-/** buildPlayer 기본 색(물들일 때 이 색 재질을 찾는다) */
-const BASE_TEE = 'ff8e86';
-const BASE_HAIR = '784a2e';
 const UI_TEXT = '#4a3b2a';
 const UI_BG = '#fff8e8';
+/** 이만큼 멀면 먼 모습(관절마다 메시 하나 = 6 드로) */
+const FAR_M = 25;
 
-/** 가슴 하트 티셔츠 그림(characters/tex 의 teeTexture 와 같은 모양 — 그 파일은 import 하지 않는다) */
-function teeTex(base: string): THREE.CanvasTexture {
-  const n = 256;
-  const c = document.createElement('canvas');
-  c.width = c.height = n;
-  const g = c.getContext('2d')!;
-  g.fillStyle = base;
-  g.fillRect(0, 0, n, n);
-  const cx = n * 0.5, cy = n * 0.42, s = n * 0.05;
-  g.fillStyle = '#ffffff';
-  g.beginPath();
-  g.moveTo(cx, cy + s * 1.1);
-  g.bezierCurveTo(cx - s * 1.6, cy, cx - s * 0.9, cy - s * 1.2, cx, cy - s * 0.4);
-  g.bezierCurveTo(cx + s * 0.9, cy - s * 1.2, cx + s * 1.6, cy, cx, cy + s * 1.1);
-  g.fill();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
-}
-
-type PMat = THREE.MeshStandardMaterial & { sheen?: number; map: THREE.Texture | null; emissiveMap: THREE.Texture | null };
-
-/** 리그의 옷·머리 재질을 새 색으로(재질은 복제해서 — 내 플레이어와 나눠 쓰지 않게) */
-export function tintRig(root: THREE.Object3D, colors: Colors): () => void {
-  const swap = new Map<THREE.Material, THREE.Material>();
-  const owned: Array<THREE.Material | THREE.Texture> = [];
-  const tee = new THREE.Color(colors.tee), hair = new THREE.Color(colors.hair), baseHair = new THREE.Color(`#${BASE_HAIR}`);
-  const make = (m: THREE.Material): THREE.Material => {
-    const hit = swap.get(m);
-    if (hit) return hit;
-    const pm = m as PMat;
-    let out: THREE.Material = m;
-    if (pm.color && !pm.vertexColors && pm.color.getHexString() === BASE_TEE) {
-      // 소매(무늬 없는 옷감)
-      const c = pm.clone() as PMat;
-      c.color.copy(tee); c.emissive?.copy(tee);
-      out = c;
-    } else if (pm.map && pm.emissiveMap && pm.sheen === 1 && pm.color?.getHexString() === 'ffffff' && pm.map instanceof THREE.CanvasTexture && !pm.vertexColors && pm.roughness === 0.9) {
-      // 하트 티셔츠(그림 무늬 옷감)
-      const c = pm.clone() as PMat;
-      const tx = teeTex(colors.tee);
-      c.map = tx; c.emissiveMap = tx;
-      owned.push(tx);
-      out = c;
-    } else if (pm.color && !pm.vertexColors && pm.color.getHexString() === BASE_HAIR) {
-      const c = pm.clone() as PMat;
-      c.color.copy(hair); c.emissive?.copy(hair);
-      out = c;
-    } else if (pm.vertexColors && pm.color?.getHexString() === 'ffffff' && pm.emissive?.getHexString() === BASE_HAIR) {
-      // 정점색 머리(앞머리 결) — 곱하는 색으로 비율만 바꾼다
-      const c = pm.clone() as PMat;
-      c.color.setRGB(hair.r / Math.max(0.02, baseHair.r), hair.g / Math.max(0.02, baseHair.g), hair.b / Math.max(0.02, baseHair.b));
-      c.emissive.copy(hair);
-      out = c;
-    }
-    if (out !== m) owned.push(out);
-    swap.set(m, out);
-    return out;
-  };
-  root.traverse((o) => {
-    const me = o as THREE.Mesh;
-    if (!me.isMesh) return;
-    me.material = Array.isArray(me.material) ? me.material.map(make) : make(me.material);
-  });
-  return () => { for (const x of owned) x.dispose(); };
+/**
+ * 친구 모습: 새 통신은 look('L1.' 글자 또는 객체)을, 옛 친구(옷·머리 색만)는 가장 가까운 옷 색·머리색을 고른 기본 모습.
+ * (look 이 이상하거나 더 새 버전이면 색으로 짐작한다)
+ */
+export function friendLook(colors: Colors | null | undefined, look?: unknown): PlayerLook {
+  const l = typeof look === 'string' ? decodeLook(look) : look && typeof look === 'object' ? cleanLook(look) : null;
+  return l ?? lookFromColors(colors ?? null);
 }
 
 /** 메시 하나의 '움직임 지문'(자리·회전·크기·보임·재질) */
@@ -136,6 +77,33 @@ export function mergeStatic(rig: PlayerRig): number {
     removed += list.length - 1;
   }
   return meshes.length - removed;
+}
+
+/** mergeStatic 이 만든 합친 메시 목록 */
+function mergedOf(rig: PlayerRig): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  rig.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.name === 'netplay:merged') out.push(m); });
+  return out;
+}
+/** 아직 rig 안에 붙어 있는지(모습을 바꾸면 옛 몸은 통째로 떨어져 나간다 · 도구 상자는 그대로 남는다) */
+function attached(rig: PlayerRig, o: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p === rig.root) return true;
+  return false;
+}
+/**
+ * mergeStatic 이 새로 만든 합친 기하는 rig 가 모르므로 여기서 버린다.
+ * list 를 주면 그중 rig 에서 떨어져 나간 것만(모습 바꾼 뒤), 안 주면 전부(친구가 떠날 때). 돌려준 값 = 버린 수.
+ */
+export function disposeMerged(rig: PlayerRig, list?: THREE.Mesh[]): number {
+  const all = !list;
+  let n = 0;
+  for (const m of list ?? mergedOf(rig)) {
+    if (!all && attached(rig, m)) continue;
+    m.geometry.dispose();
+    m.removeFromParent();
+    n++;
+  }
+  return n;
 }
 
 /** 둥근 라벨 그림(이름표·말풍선) → 스프라이트 */
@@ -206,7 +174,9 @@ function spriteFrom(c: HTMLCanvasElement, worldH: number, old?: THREE.Sprite): T
 export class RemoteAvatar {
   readonly root = new THREE.Group();
   private rig: PlayerRig;
-  private untint: () => void = () => {};
+  private look: PlayerLook;
+  private far = false;
+  private colorsKey = '';
   private tag: THREE.Sprite;
   private bubble: THREE.Sprite | null = null;
   private bubbleUntil = 0;
@@ -220,9 +190,10 @@ export class RemoteAvatar {
   /** 합친 뒤 몸 메시 수(디버그) */
   meshCount = 0;
 
-  constructor(name: string, colors: Colors) {
+  constructor(name: string, colors: Colors, look?: unknown) {
     this.root.name = 'netplay:friend';
-    this.rig = buildPlayer();
+    this.look = friendLook(colors, look);
+    this.rig = buildPlayer(this.look);
     this.rig.root.name = 'netplay:friend-rig';
     this.meshCount = mergeStatic(this.rig);
     // 몸 그림자는 끄고 발밑 둥근 그림자로(그림자 패스 드로콜을 아낀다)
@@ -234,14 +205,34 @@ export class RemoteAvatar {
     this.tag = spriteFrom(labelCanvas(' ', { size: 40, color: UI_TEXT, bg: UI_BG, border: '#ffffff' }), 0.24);
     this.tag.position.y = 1.62;
     this.root.add(this.tag);
-    this.setProfile(name, colors);
+    // 이름표는 늘 그려지므로, 그릴 때 카메라 거리로 먼 모습을 고른다(한 프레임 늦어도 티 안 남)
+    const wp = new THREE.Vector3();
+    this.tag.onBeforeRender = (_r, _s, cam) => {
+      this.root.getWorldPosition(wp);
+      const far = cam.position.distanceTo(wp) > FAR_M;
+      if (far !== this.far) { this.far = far; this.rig.setLod?.(far ? 'far' : 'near'); }
+    };
+    this.setProfile(name, colors, look);
     applyCurve(this.root);
     this.root.visible = false;
   }
 
-  setProfile(name: string, colors: Colors) {
-    this.untint();
-    this.untint = tintRig(this.rig.root, colors);
+  /** 이름·모습 바꾸기(look 없이 색만 바뀌면 색으로 짐작한 모습) */
+  setProfile(name: string, colors: Colors, look?: unknown) {
+    const ck = `${colors.tee}|${colors.hair}`;
+    if (look !== undefined || ck !== this.colorsKey) {
+      const next = look !== undefined ? friendLook(colors, look) : lookFromColors(colors, this.look);
+      this.colorsKey = ck;
+      if (!sameLook(next, this.look)) {
+        this.look = next;
+        const prev = mergedOf(this.rig);
+        this.rig.setLook?.(next);
+        disposeMerged(this.rig, prev);
+        mergeStatic(this.rig);
+        this.rig.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = false; m.receiveShadow = false; } });
+        if (this.far) this.rig.setLod?.('far');
+      }
+    }
     if (name !== this.name) {
       this.name = name;
       spriteFrom(labelCanvas(`♥ ${name}`, { size: 40, color: UI_TEXT, bg: UI_BG, border: colors.tee }), 0.24, this.tag);
@@ -296,8 +287,12 @@ export class RemoteAvatar {
     this.lastT = t;
   }
 
+  /** 지금 친구 모습 */
+  get currentLook(): PlayerLook { return { ...this.look }; }
+
   dispose() {
-    this.untint();
+    disposeMerged(this.rig);
+    this.rig.dispose?.();
     this.root.removeFromParent();
     this.root.traverse((o) => {
       const s = o as THREE.Sprite;

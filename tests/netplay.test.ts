@@ -587,3 +587,18 @@ describe('netplay 모듈', () => {
     ev.off();
   });
 });
+
+describe('인사에 꾸미기 모습 싣기', () => {
+  const base = { t: 'hello', v: PROTO, name: '하루', colors: { tee: '#7cc8f0', hair: '#f2d27a' }, summary: {}, role: 'host' };
+  it('모습 글자가 바르면 그대로 받는다', () => {
+    const r = decodeMsg(JSON.stringify({ ...base, look: 'L1.0123012f' }));
+    expect(r.ok && r.msg.t === 'hello' && r.msg.look).toBe('L1.0123012f');
+  });
+  it('이상한 모습 글자는 버리고 인사는 받는다(옛 친구처럼 색으로 짐작)', () => {
+    for (const bad of ['<script>', 'L1.', 42, 'x'.repeat(80)]) {
+      const r = decodeMsg(JSON.stringify({ ...base, look: bad }));
+      expect(r.ok).toBe(true);
+      if (r.ok && r.msg.t === 'hello') expect(r.msg.look).toBeUndefined();
+    }
+  });
+});

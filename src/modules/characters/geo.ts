@@ -2,9 +2,20 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
+// 세밀도 배율: 먼 LOD 를 같은 빌더로 낮은 해상도에 다시 만들 때 withDetail(0.3, …) 로 감싼다(기본 1 — 기존 호출은 그대로).
+let DETAIL = 1;
+/** 분할 수에 세밀도 배율을 건다(최소 m) */
+export const seg = (n: number, m = 4) => DETAIL === 1 ? n : Math.max(m, Math.round(n * DETAIL));
+/** fn 동안만 세밀도를 d 로 */
+export function withDetail<T>(d: number, fn: () => T): T {
+  const prev = DETAIL;
+  DETAIL = d;
+  try { return fn(); } finally { DETAIL = prev; }
+}
+
 /** 타원체(중심 원점) */
 export function ellipsoid(rx: number, ry: number, rz: number, ws = 32, hs = 22): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, ws, hs);
+  const g = new THREE.SphereGeometry(1, seg(ws, 8), seg(hs, 6));
   g.scale(rx, ry, rz);
   return g;
 }
@@ -12,7 +23,7 @@ export function ellipsoid(rx: number, ry: number, rz: number, ws = 32, hs = 22):
 /** 앞(+z) 반쪽 / 뒤 반쪽 타원체 — 얼굴 그림은 앞 반쪽에만 정면 투영 UV 로 붙인다. */
 export function halfEllipsoid(rx: number, ry: number, rz: number, front: boolean, ws = 48, hs = 48): THREE.BufferGeometry {
   // SphereGeometry: phi 0 → x=-1, phi π/2 → z=+1, phi π → x=+1
-  const g = new THREE.SphereGeometry(1, ws, hs, front ? 0 : Math.PI, Math.PI);
+  const g = new THREE.SphereGeometry(1, seg(ws, 8), seg(hs, 6), front ? 0 : Math.PI, Math.PI);
   g.scale(rx, ry, rz);
   return g;
 }
@@ -35,13 +46,13 @@ export function lathe(pts: Array<[number, number]>, segs = 48, samples = 32): TH
   // 점은 아래→위 순서여야 법선이 바깥을 향한다
   if (pts[0][1] > pts[pts.length - 1][1]) pts = [...pts].reverse();
   const curve = new THREE.CatmullRomCurve3(pts.map(([r, y]) => new THREE.Vector3(r, y, 0)), false, 'centripetal');
-  const sampled = curve.getPoints(samples).map((v) => new THREE.Vector2(Math.max(0, v.x), v.y));
-  return new THREE.LatheGeometry(sampled, segs, Math.PI, Math.PI * 2);
+  const sampled = curve.getPoints(seg(samples, 6)).map((v) => new THREE.Vector2(Math.max(0, v.x), v.y));
+  return new THREE.LatheGeometry(sampled, seg(segs, 8), Math.PI, Math.PI * 2);
 }
 
 /** 캡슐(세로, 중심 원점): 전체 길이 len, 반지름 r */
 export function capsule(r: number, len: number): THREE.BufferGeometry {
-  return new THREE.CapsuleGeometry(r, Math.max(0.001, len - 2 * r), 8, 24);
+  return new THREE.CapsuleGeometry(r, Math.max(0.001, len - 2 * r), seg(8, 2), seg(24, 6));
 }
 
 const smooth = (e0: number, e1: number, x: number) => {
@@ -139,13 +150,14 @@ export function hairCap(o: HairOpts): THREE.BufferGeometry {
 }
 
 /** 가늘어지는 관(삐침 머리·꼬리): 끝으로 갈수록 반지름 → 0 */
-export function taperTube(pts: THREE.Vector3[], r: number, seg = 24, radial = 12): THREE.BufferGeometry {
+export function taperTube(pts: THREE.Vector3[], r: number, segN = 24, radialN = 12): THREE.BufferGeometry {
+  const seg_ = seg(segN, 4), radial = seg(radialN, 4);
   const curve = new THREE.CatmullRomCurve3(pts);
-  const g = new THREE.TubeGeometry(curve, seg, r, radial, false);
+  const g = new THREE.TubeGeometry(curve, seg_, r, radial, false);
   const p = g.attributes.position as THREE.BufferAttribute;
   const c = new THREE.Vector3(), v = new THREE.Vector3();
-  for (let i = 0; i <= seg; i++) {
-    const u = i / seg;
+  for (let i = 0; i <= seg_; i++) {
+    const u = i / seg_;
     curve.getPointAt(u, c);
     const k = Math.max(0.12, Math.sin(Math.PI * Math.min(1, 0.25 + u * 0.75))) * (1 - u * 0.75);
     for (let j = 0; j <= radial; j++) {

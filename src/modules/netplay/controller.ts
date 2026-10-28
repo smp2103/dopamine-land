@@ -16,6 +16,7 @@ import {
 import type { BagOps } from './trade';
 import type { PoseOut } from './interp';
 import { RemoteAvatar } from './avatar';
+import { encodeLook, cleanLook } from '../characters/player/look';
 
 export type NetStatus = 'idle' | 'hosting' | 'offer' | 'joining' | 'answer' | 'connecting' | 'connected' | 'closed' | 'failed';
 
@@ -73,7 +74,11 @@ export class NetController {
   }
   profile(): Profile {
     const f = this.flags();
-    return { name: cleanName(f.name ?? '섬주민'), colors: { tee: cleanColor(f.tee, DEFAULT_COLORS.tee), hair: cleanColor(f.hair, DEFAULT_COLORS.hair) } };
+    const p: Profile = { name: cleanName(f.name ?? '섬주민'), colors: { tee: cleanColor(f.tee, DEFAULT_COLORS.tee), hair: cleanColor(f.hair, DEFAULT_COLORS.hair) } };
+    // 꾸미기에서 고른 모습이 있으면 글자로 같이 보낸다(친구 화면에 그대로 보이게)
+    const look = (this.game.state.flags as Record<string, unknown>).look;
+    if (look && typeof look === 'object') p.look = encodeLook(cleanLook(look));
+    return p;
   }
   setProfile(p: { name?: string; tee?: string; hair?: string }) {
     const f = this.flags();
@@ -381,9 +386,9 @@ export class NetController {
   private countedThis = false;
   private ensureAvatar(p: PeerInfo) {
     if (!this.avatar) {
-      this.avatar = new RemoteAvatar(p.name, p.colors);
+      this.avatar = new RemoteAvatar(p.name, p.colors, p.look);
       this.game.engine.scene.add(this.avatar.root);
-    } else this.avatar.setProfile(p.name, p.colors);
+    } else this.avatar.setProfile(p.name, p.colors, p.look);
   }
   /** 매 프레임 — 친구 아바타 자리 */
   frame(t: number, dt: number) {

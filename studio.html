@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>캐릭터 스튜디오 · 도파민랜드</title>
+<link rel="icon" href="data:," />
+<!-- 개발 전용 페이지(vite dev 에서만 열린다 — 빌드에는 index.html 만 들어간다) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f7efe6; }
+  canvas { display: block; }
+  #studio-info {
+    position: fixed; left: 12px; top: 10px; z-index: 2; pointer-events: none;
+    font: 14px/1.4 'Jua', 'Apple SD Gothic Neo', system-ui, sans-serif; color: #4a3b2a;
+    background: #fff8ecd9; padding: 6px 12px; border-radius: 14px; box-shadow: 0 2px 8px #0001;
+  }
+  #studio-help {
+    position: fixed; left: 12px; bottom: 10px; z-index: 2; pointer-events: none;
+    font: 12px/1.5 'Jua', system-ui, sans-serif; color: #6b5a48;
+  }
+</style>
+</head>
+<body>
+<div id="studio-info">캐릭터 스튜디오 준비 중…</div>
+<div id="studio-help">?rig=player | animal:bear | npc:quack | villager:nabi | concept:이름 · pose= · expr= · angle= · bg=grass · game=1 · lineup=1 · lod=far — 마우스로 돌려 보기</div>
+<script type="module" src="/src/studio/main.ts"></script>
+</body>
+</html>

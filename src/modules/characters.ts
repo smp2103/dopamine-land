@@ -14,7 +14,8 @@
 //   befriend(id, n), proposal(id), accept(id), appraise(id?), chatter(), chat(), station() }
 import * as THREE from 'three';
 import type { Ctx } from '../core/types';
-import { buildPlayer } from './characters/player';
+import { buildPlayer, cleanLook, colorsFromLook, type PlayerLook } from './characters/player';
+import { lookPanel } from './characters/player/panel';
 import { buildVillager } from './characters/villager';
 import { buildAnimal, ANIMAL_KINDS, type AnimalSpec, type AnimalKind } from './characters/animal';
 import { buildSpecial, SPECIAL_KINDS, SPECIAL_ZOO, type SpecialKind } from './characters/special';
@@ -51,7 +52,10 @@ export default function build(ctx: Ctx) {
   group.name = 'characters';
   try { void document.fonts?.load('52px Jua'); } catch { /* 글꼴 없으면 시스템 글꼴 */ }
 
-  const player = buildPlayer();
+  // 꾸미기: flags.look(없으면 기본 딸기우유 젤리 아이)
+  const flags = game?.state.flags as Record<string, unknown> | undefined;
+  let myLook: PlayerLook = cleanLook(flags?.look);
+  const player = buildPlayer(myLook);
   const dbg: Record<string, unknown> & { force: null | Partial<Parameters<typeof player.animate>[0]> } = { force: null };
   (window as unknown as { __chars: typeof dbg }).__chars = dbg;
   const py = island.heightAt(HERO.player.x, HERO.player.z);
@@ -82,6 +86,22 @@ export default function build(ctx: Ctx) {
       animate: (s) => player.animate(dbg.force ? { ...s, ...dbg.force } : s),
       holdSlot: player.holdSlot,
     });
+  }
+  if (game) {
+    game.hud.registerPanel(lookPanel({
+      renderer: ctx.renderer ?? null,
+      get: () => myLook,
+      set: (l) => {
+        myLook = cleanLook(l);
+        player.setLook?.(myLook);
+        const f = game.state.flags as Record<string, unknown>;
+        f.look = { ...myLook };
+        // 옛 통신(옷·머리 색만 보내는 친구)에게도 비슷하게 보이게 flags.net 색을 맞춘다
+        const net = (f.net ??= {}) as Record<string, unknown>;
+        Object.assign(net, colorsFromLook(myLook));
+        game.state.save();
+      },
+    }));
   }
   const vs = blobShadow(0.34, 0.38);
   vs.position.set(0, 0.012, 0);
@@ -582,9 +602,20 @@ export default function build(ctx: Ctx) {
   });
   let villFade = 1;
   const camW = new THREE.Vector3();
+  const lookV = new THREE.Vector3();
 
   ctx.onUpdate((t, dt) => {
     if (!game) player.update(t);
+    // 플레이어 바라보기: 4.5 m 안의 가장 가까운 주민·곰을 고개로 따라본다
+    if (game) {
+      const p0 = game.player.pos;
+      let best: { x: number; y: number; z: number } | null = null, bd = 4.5;
+      const consider = (x: number, y: number, z: number) => { const d = Math.hypot(x - p0.x, z - p0.z); if (d < bd && d > 0.6) { bd = d; best = { x, y, z }; } };
+      consider(villBox.position.x, villBox.position.y + 1.0, villBox.position.z);
+      for (const L of res.active) consider(L.p.x, L.p.y + 1.0, L.p.z);
+      const b = best as { x: number; y: number; z: number } | null;
+      player.setLookTarget?.(b ? lookV.set(b.x, b.y, b.z) : null);
+    }
     // 곰: 대화 중이면 플레이어를 보고 몸짓, 아니면 손 흔들기
     vill.update(t);
     const pp = game?.player.pos;

@@ -117,7 +117,7 @@ export class Session {
   }
   private sendHello() {
     const p = this.host.profile();
-    this.send({ t: 'hello', v: PROTO, name: p.name, colors: p.colors, summary: this.host.summary(), role: this.role });
+    this.send({ t: 'hello', v: PROTO, name: p.name, colors: p.colors, summary: this.host.summary(), role: this.role, ...(p.look ? { look: p.look } : {}) });
   }
   private emit(e: SessionEvent) {
     try { this.onEvent(e); } catch (err) { console.error('[netplay session]', err); }
@@ -313,7 +313,7 @@ export class Session {
       case 'hello': {
         if (m.role === this.role) { this.emit({ k: 'error', text: closeText('role') }); this.close('role'); return; }
         const first = !this.peer;
-        this.peer = { name: m.name, colors: m.colors, summary: m.summary, role: m.role, v: m.v };
+        this.peer = { name: m.name, colors: m.colors, summary: m.summary, role: m.role, v: m.v, ...(m.look ? { look: m.look } : {}) };
         if (first) {
           this.status = 'connected';
           this.emit({ k: 'status', status: 'connected' });

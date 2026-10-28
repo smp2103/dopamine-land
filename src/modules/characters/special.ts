@@ -4,8 +4,14 @@
 // AnimalRig 과 같은 모양(root · top · update · setFade)이라 residents 런타임이 그대로 굴린다. 부수효과 없는 빌더.
 import * as THREE from 'three';
 import { ellipsoid, lathe, capsule, taperTube } from './geo';
-import { skinMat, clothMat, glossMat, mesh, mergeByMaterial } from './kit';
-import { addEyes, addBlush, type EyeSet } from '../../core/art';
+import { mesh, mergeByMaterial } from './kit';
+import { skinMat, clothMat, glossMat } from './animal/mats';
+import { bakeLod, mergePalette } from './animal/lod';
+import { paletteMat } from './animal/mats';
+import { addBlush } from '../../core/art';
+import { ellipsoid as ellipsoidG, withDetail } from './geo';
+import { eyeTexture, cutPatch, decalMat, EYE_BOX, type EyeMode } from './animal/face';
+import type { AnimalExpr } from './animal';
 import type { AnimalRig, AnimalSpec, AnimalPose } from './animal';
 
 export type SpecialKind = 'brachio' | 'proto' | 'octopus' | 'robot' | 'alien' | 'babydino';
@@ -22,17 +28,48 @@ function onEllipsoid(RX: number, RY: number, RZ: number, x: number, y: number, l
   return { pos: new THREE.Vector3(x, y, zz).addScaledVector(n, lift), n };
 }
 
+/** 특별 모델 눈: 동물 주민과 같은 그림 눈(말랑 그림체) — 머리 타원체 곡면에서 오린 조각 둘 */
+interface SpecialEyes {
+  left: THREE.Mesh;
+  right: THREE.Mesh;
+  blush: THREE.Mesh[];
+  set: (m: EyeMode) => void;
+}
+
 /** 눈 두 개 + 볼터치를 타원체 머리(중심 c) 앞면에 */
-function faceOn(head: THREE.Object3D, R: [number, number, number], o: { size: number; y: number; gap: number; c?: THREE.Vector3; name: string }): EyeSet {
-  const eyes = addEyes(head, { size: o.size, y: o.y, gap: o.gap, blush: false, name: o.name });
+function faceOn(head: THREE.Object3D, R: [number, number, number], o: { size: number; y: number; gap: number; c?: THREE.Vector3; name: string; iris?: string }): SpecialEyes {
   const c = o.c ?? new THREE.Vector3();
-  for (const [m, e] of [[-1, eyes.left], [1, eyes.right]] as const) {
-    const s = onEllipsoid(R[0], R[1], R[2], m * o.gap / 2, o.y - c.y);
-    e.position.copy(s.pos).add(c);
-    e.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), s.n);
+  const src = ellipsoidG(R[0], R[1], R[2], 64, 48);
+  const st = { iris: o.iris ?? '#4a3040', noBlush: true };
+  const mat = decalMat(eyeTexture(st, 'open'));
+  const w = o.size * 0.42, h = o.size * 0.52;
+  const { L, R: RR, T, B } = EYE_BOX;
+  const make = (m: number) => {
+    const cx = m * o.gap / 2, cy = o.y - c.y;
+    const box = m > 0 ? { x0: cx - L * w, x1: cx + RR * w, y0: cy - B * h, y1: cy + T * h } : { x0: cx - RR * w, x1: cx + L * w, y0: cy - B * h, y1: cy + T * h };
+    const e = new THREE.Mesh(cutPatch(src, box, m < 0, 0.002, 0.05), mat);
+    e.position.copy(c);
+    e.castShadow = false;
+    e.renderOrder = 1;
+    e.userData.eye = true;
+    e.name = `${o.name}-${m < 0 ? 'L' : 'R'}`;
+    head.add(e);
+    return e;
+  };
+  const left = make(-1), right = make(1);
+  src.dispose();
+  // 볼터치(art 공용) — 눈 아래 바깥
+  const blush = addBlush(head, o.size, { y: o.y - o.size * 0.62, gap: o.gap * 1.45 });
+  for (const bm of blush) {
+    const s = onEllipsoid(R[0], R[1], R[2], bm.position.x - c.x, bm.position.y - c.y, 0.004);
+    bm.position.copy(s.pos).add(c);
+    bm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), s.n);
   }
-  addBlush(head, o.size);
-  return eyes;
+  let cur: EyeMode = 'open';
+  return {
+    left, right, blush,
+    set(m) { if (m === cur) return; cur = m; const t = eyeTexture(st, m); mat.map = t; mat.emissiveMap = t; },
+  };
 }
 
 /** 동그란 안경(눈 앞) */
@@ -76,7 +113,7 @@ interface Built {
   arms: THREE.Group[];
   legs: THREE.Group[];
   tail: THREE.Group | null;
-  eyes: EyeSet;
+  eyes: SpecialEyes;
   eyeSize: number;
   top: number;
   /** 다리 넷(브라키오) — 대각선끼리 같이 */
@@ -91,7 +128,9 @@ function finish(b: Built, spec: AnimalSpec): AnimalRig {
   const { root, rig, body, head, arms, legs, tail, eyes } = b;
   const keep = [eyes.left, eyes.right, ...eyes.blush];
   for (const k of keep) k.parent?.remove(k);
-  for (const g of b.merge) mergeByMaterial(g);
+  const pal = paletteMat();
+  for (const g of b.merge) { mergePalette(g, pal); mergeByMaterial(g); }
+  for (const g of [body]) { mergePalette(g, pal); mergeByMaterial(g); }
   for (const k of keep) head.add(k);
   const fadeMats = new Set<THREE.Material>();
   root.traverse((o) => {
@@ -107,11 +146,35 @@ function finish(b: Built, spec: AnimalSpec): AnimalRig {
   const headY = head.position.y;
   const armRest = arms.map((a) => a.rotation.z);
   let phase = 0, wave = 0, clap = 0, happyOn = false, fadeCur = 1;
+  let expr: AnimalExpr | null = null;
+  const lowBuild = pendingLow;
+  pendingLow = null;
   const cur = { bob: 0, lean: 0 };
+  // 먼 LOD: 처음 'far' 때 지금 모습을 굳힌다(무늬·얼굴 그림은 재질 그대로 따로)
+  let far: THREE.Group | null = null;
+  let lod: 'near' | 'far' = 'near';
+  rig.name = 'lod-near';
   return {
     root,
     top: b.top * S,
+    head,
+    setExpression(e) { expr = e; },
+    setLod(l) {
+      if (l === lod) return;
+      lod = l;
+      if (l === 'far' && !far) {
+        // 낮은 세밀도로 한 벌 더 만들어(같은 빌더) 굳힌다 — 없으면 지금 모습 그대로
+        const low = lowBuild?.() ?? null;
+        const src = low?.getObjectByName('lod-near') ?? rig;
+        far = bakeLod(src, (m) => !!m.userData.eye || !!(m.material as THREE.MeshStandardMaterial).map || m.name.startsWith('blush-'));
+        far.position.copy(rig.position);
+        root.add(far);
+      }
+      rig.visible = l === 'near';
+      if (far) far.visible = l === 'far';
+    },
     update(t, dt, p) {
+      if (lod === 'far') return;
       const snap = dt <= 0;
       const k = snap ? 1 : 1 - Math.exp(-dt * 10);
       if (!snap) phase += dt * (p.walk > 0.05 ? 4 + p.walk * 4.5 : 0);
@@ -152,9 +215,8 @@ function finish(b: Built, spec: AnimalSpec): AnimalRig {
       b.extra?.(t, dt, p, { wave, clap, walk: walking });
       const blink = (t + blinkPh) % blinkP < 0.12;
       const happy = !!p.clap;
-      if (happy !== happyOn) { happyOn = happy; eyes.setHappy(happy); }
-      const sy = happy ? 1 : blink ? 0.12 : p.happy ? 0.55 : 1;
-      eyes.left.scale.y = eyes.right.scale.y = b.eyeSize * sy;
+      happyOn = happy;
+      eyes.set(expr && expr !== 'neutral' ? EXPR_EYE[expr] : happy ? 'happy' : blink ? 'blink' : p.happy ? 'smile' : 'open');
     },
     setFade(o) {
       if (Math.abs(o - fadeCur) < 0.01) return;
@@ -163,6 +225,10 @@ function finish(b: Built, spec: AnimalSpec): AnimalRig {
     },
   };
 }
+
+const EXPR_EYE: Record<AnimalExpr, EyeMode> = { neutral: 'open', blink: 'blink', smile: 'smile', happy: 'happy', surprised: 'surprised', sad: 'sad' };
+/** 먼 LOD 용 낮은 세밀도 빌더(buildSpecial 이 finish 직전에 끼워 둔다) */
+let pendingLow: (() => THREE.Group) | null = null;
 
 function base(name: string) {
   const root = new THREE.Group();
@@ -564,6 +630,11 @@ function babydino(spec: AnimalSpec): AnimalRig {
 
 /** 특별 모델(종 이름으로) — 색은 AnimalSpec(fur·light·mark·accColor·outfitColor·scale)에서 */
 export function buildSpecial(kind: SpecialKind, spec: AnimalSpec): AnimalRig {
+  pendingLow = () => withDetail(0.32, () => { pendingLow = null; return buildSpecialRaw(kind, spec).root; });
+  try { return buildSpecialRaw(kind, spec); } finally { pendingLow = null; }
+}
+
+function buildSpecialRaw(kind: SpecialKind, spec: AnimalSpec): AnimalRig {
   switch (kind) {
     case 'brachio': return brachio(spec);
     case 'proto': return proto(spec);

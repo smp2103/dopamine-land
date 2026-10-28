@@ -78,6 +78,9 @@ const OUTFITS: Outfit[] = ['overalls', 'pocket', 'stripe', 'dress', 'hoodie'];
 const ACC2: Accessory[] = ['glasses', 'none', 'bow', 'none', 'none', 'bow', 'none'];
 
 const _cv = new THREE.Vector3();
+const _look = new THREE.Vector3();
+/** 이 거리(m)부터 먼 LOD */
+export const FAR_LOD_M = 25;
 
 /** 주민 자리 정의(시설 NPC 는 npc·yaw·wander 0 으로 고정 자리) */
 export interface PlacedDef extends Omit<ResidentDef, 'birthday' | 'likes' | 'dislikes' | 'voice'> {
@@ -165,6 +168,8 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
   }
   /** 지금 살아 있는 청크 그릇(칸 → 그룹) — 늦게 온 주민을 바로 넣는다 */
   const cells = new Map<string, THREE.Group>();
+  /** 먼 LOD 를 아직 안 구운 리그(한가한 프레임에 하나씩) */
+  const lodQueue: AnimalRig[] = [];
   /** 지금 시각(onUpdate t) — 말풍선 시각 기준 */
   let now = 0;
 
@@ -172,6 +177,8 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
     const def = h.def;
     const idx = Math.max(0, defs.indexOf(def));
     const spec = { ...def.spec };
+    // 시설 NPC 만 시그니처 소품(생김새가 같은 일반 주민은 안 단다)
+    if (def.npc) spec.npc = def.npc;
     // 우주복(헬멧)은 흰 옷 그대로, 나머지는 이름표 색으로 옷 모양을 돌린다
     if (!def.keepSpec && spec.acc !== 'helmet') {
       spec.outfit = spec.outfit ?? OUTFITS[idx % OUTFITS.length];
@@ -208,6 +215,9 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
     };
     // 멀리(90m 넘게) 가면 숨기고 쉬게 한다 — 청크 반경(260m)보다 훨씬 안쪽이라 그리기 비용을 크게 던다
     game?.chunks.lod?.register(container, 90, { at: live.p, onChange: (near) => { live.sleeping = !near; } });
+    // 25 m 넘으면 먼 모습(굳힌 한 덩이 + 얼굴 — 드로콜 ≤ 6). 빈 그릇을 맡겨 거리만 잰다(숨김은 그릇이 받는다)
+    if (rig.setLod) game?.chunks.lod?.register(new THREE.Object3D(), FAR_LOD_M, { at: live.p, onChange: (near) => rig.setLod?.(near ? 'near' : 'far') });
+    if (rig.prepareLod) lodQueue.push(rig);
     return live;
   }
 
@@ -304,6 +314,8 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
   };
   function update(t: number, dt: number, player: THREE.Vector3 | null, tod: string) {
     now = t;
+    // 먼 LOD 미리 굽기: 여유 있는 프레임(< 22 ms)에 하나씩
+    if (lodQueue.length && dt > 0 && dt < 0.022) lodQueue.shift()!.prepareLod?.();
     for (const L of active) {
       if (L.sleeping && !L.talking) continue;
       const toP = player ? Math.hypot(player.x - L.p.x, player.z - L.p.z) : 99;
@@ -351,8 +363,12 @@ export function setupResidents(ctx: Ctx, camera: THREE.Camera, defs: PlacedDef[]
       L.rig.root.rotation.y = L.yaw;
       const greeting = t < L.greetUntil;
       // 눈은 기본으로 뜨고, 말하는 중에만 웃는 눈
+      // 쳐다보기: 말하는 중이거나 가까운(5 m) 플레이어 얼굴 쪽 — 반응 자리가 있으면 그쪽
+      const lookAt = R && R.x != null && R.z != null ? _look.set(R.x, L.p.y + 1.2, R.z)
+        : look ? _look.set(look.x, L.p.y + 0.9, look.z)
+          : player && (toP < 5 || talking) ? _look.set(player.x, player.y + 0.95, player.z) : null;
       L.rig.update(t, dt, {
-        walk, talk: talking, clap: R?.kind === 'clap',
+        walk, talk: talking, clap: R?.kind === 'clap', look: lookAt,
         wave: R?.kind === 'wave' || greeting || (!player && L.moodPhase > 14),
         happy: R?.kind === 'happy' || (talking && Math.sin(t * 2.3) > 0.2),
       });

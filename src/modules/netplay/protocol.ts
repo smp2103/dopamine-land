@@ -38,7 +38,8 @@ export const MOVE_MODES: readonly MoveMode[] = ['ground', 'air', 'glide', 'swim'
 
 export interface Colors { tee: string; hair: string }
 export interface SaveSummary { dex: number; total: number; stars: number; coins: number; day: number }
-export interface Profile { name: string; colors: Colors }
+/** look: 꾸미기 모습 글자(encodeLook 'L1.xxxxxxx') — 옛 친구는 안 보내고, 받는 쪽은 색으로 짐작한다 */
+export interface Profile { name: string; colors: Colors; look?: string }
 export type Items = Record<string, number>;
 
 /** 이모트·스티커: id → 머리 위 그림 + 아바타 포즈(있으면) */
@@ -73,7 +74,7 @@ export const TRADE_OPS: readonly TradeOp[] = ['invite', 'accept', 'decline', 'of
 
 export interface PoseMsg { t: 'pose'; ts: number; x: number; y: number; z: number; yaw: number; m: MoveMode; a: string | null; w: string; s: number }
 export type Msg =
-  | { t: 'hello'; v: number; name: string; colors: Colors; summary: SaveSummary; role: Role }
+  | { t: 'hello'; v: number; name: string; colors: Colors; summary: SaveSummary; role: Role; look?: string }
   | { t: 'bye'; reason: string }
   | { t: 'ping'; ts: number }
   | { t: 'pong'; ts: number }
@@ -89,6 +90,8 @@ export type Msg =
 export type MsgType = Msg['t'];
 
 // ───────────── 거르기 ─────────────
+/** 꾸미기 모습 글자 모양(L<버전>.<칸들>[f]) */
+const LOOK_RE = /^L\d{1,3}\.[0-9a-z]{1,24}f?$/;
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -183,7 +186,10 @@ export function decodeMsg(raw: unknown): MsgDecode {
       const c = isObj(d.colors) ? d.colors : {};
       const role = d.role === 'host' || d.role === 'guest' ? d.role : null;
       if (!role) return bad;
-      return { ok: true, msg: { t: 'hello', v: Math.floor(v), name: cleanName(d.name), colors: { tee: cleanColor(c.tee, DEFAULT_COLORS.tee), hair: cleanColor(c.hair, DEFAULT_COLORS.hair) }, summary: cleanSummary(d.summary), role } };
+      const msg: Msg = { t: 'hello', v: Math.floor(v), name: cleanName(d.name), colors: { tee: cleanColor(c.tee, DEFAULT_COLORS.tee), hair: cleanColor(c.hair, DEFAULT_COLORS.hair) }, summary: cleanSummary(d.summary), role };
+      // 모습 글자는 모양만 본다(속뜻은 받는 아바타가 decodeLook 으로 — 이상하면 색으로 짐작)
+      if (typeof d.look === 'string' && LOOK_RE.test(d.look)) msg.look = d.look;
+      return { ok: true, msg };
     }
     case 'bye': return { ok: true, msg: { t: 'bye', reason: cleanText(d.reason, 40) } };
     case 'ping': case 'pong': {

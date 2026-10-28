@@ -196,7 +196,7 @@ Facility shops work from the start as a stall (counter plus NPC). islanddev stag
 8. IDS AND MODULE ORDER
 - Providers, interactables and chunk keys are prefixed with the module name.
 - Item prefixes: m_ materials; t_ junk; tool_; bait_; seed_; f_ furniture; p_ parts (non-vehicle); it_ misc (it_capsule, it_oxygen, it_starpiece_1..7, it_map_<n>, it_letter_<n>, it_blackbox, it_invite); fos_ fossils; cos_ cosmetics; skin_<kind>_<n>.
-- Module order: audio 1, worldterrain 2, village 4, flora 6, vehicles 6, economy 9, hud 12, ocean 12, hudfx 13, interiors 14, characters 20, treasure 25, fishing/insects/dinos 30, secrets 30, hidden 31, garden 32, seaworld 35, space 40, planets 42, flight 43, calendar 45, meta 46, islanddev 47, story 48, atmosphere 50, netplay 60, netplay-play 61, photo 60.
+- Module order: audio 1, worldterrain 2, village 4, flora 6, vehicles 6, economy 9, onboarding 11, hud 12, ocean 12, hudfx 13, interiors 14, characters 20, treasure 25, fishing/insects/dinos 30, secrets 30, hidden 31, garden 32, seaworld 35, space 40, planets 42, flight 43, calendar 45, meta 46, islanddev 47, story 48, atmosphere 50, netplay 60, netplay-play 61, photo 60.
 
 9. DEBUG HOOKS (window.__<name>; required)
 - Core and services: __dl (core); __env {advance, setHour, force(w)}; __econ {give, unlock, state()}; __hud {open, cards()}; __geo {zoneAt, disc()}
@@ -227,3 +227,18 @@ Rule checks in tests/loop.test.ts: module order matches section 8. The section 9
 - hudfx: queued discover cards are tagged with their world ('moon:'/'planet:' places → space) and dropped on a world switch, so earth landmark cards no longer appear after landing on the moon.
 - engine __perf.adaptive(true) now also puts the renderer back at the governor cap.
 - tests/loop.test.ts (plain P0): steps 9 and 10 fail if a zodiac fish or the mochi crucian had to be forced with catchNow ('바로 낚음' notes).
+
+12. INTEGRATION NOTES — wave 7 (UX polish: boot/title, minimal HUD + 말랑 주머니, onboarding)
+Boot and title:
+- index.html carries a pure HTML/CSS loader (#boot) and title layer (#title); the canvas (#dl-world) stays at opacity 0 until ready. src/core/boot.ts (no three import) holds BootScreen (honest stages), TitleScreen, skipTitle() and the camera-path math.
+- Game.started (typed by declaration merging in core/events.ts): main sets it false right after new Game, and true together with the new state event 'game:start' {skipped}. Automation (navigator.webdriver, shot=1, intro=0, cam=…, game=0) skips the title and starts at once (skipped:true); intro=1 forces the title. Modules that gate on it must treat undefined as started (hud: startedOf(v) = v !== false).
+- tests/kit FakeGame: started = true by default; start(skipped = true) sets it and emits 'game:start'.
+- Engine: loadModules(onProgress) fetches modules in parallel and builds them in order; Engine.prefetchModules; lazy lil-gui (buildGui/toggleGui, ?dev=1 or Backquote); engine.moduleMs per-module build times.
+HUD (additive API, core/api.ts + registry.ts):
+- PanelDef.badge?(): ring badge; PanelDef.app?: false | {order} (false = opens only at a place, not in the pocket ring).
+- ChipDef.peek?: boolean | 'live' (false = only hud.peek(id) shows it; 'live' = visible while it has content, e.g. vehicles:wind).
+- HudRegistry: peek(id, ms?), hint(opts: HintOpts {id, text, keys, ttl, priority, again, until, anchor?}) → true if hud draws it, hideHint(id), stageBusy(), stageClaim(ms, tag?) — big banners/region names/centre cards take the stage one at a time. Matching optional HudRenderer methods.
+- Keys: Tab = 말랑 주머니 (POCKET_KIND 'pocket'; opening emits ui-open {kind:'pocket'}), I = 가방, B = 도감, M = 지도, Esc = 닫기, Backslash (\) = HUD 숨기기. Backquote (`) belongs to the dev panel only.
+- The always-on 💾 chip is gone; the save panel opens from the '💾 세이브 코드' button in the 친구 panel.
+- AudioApi.muted?: read-only mute state (AudioService getter).
+Onboarding (order 11): game.ext.onboarding = {buddy, anchor(), active()}; flags.onboarding = {v:1, done, play}; window.__onboarding. Off under shot=1 or onb=0 (onb=1 forces it). It delegates bubbles to hud.hint when accepted (its own 3D star hides), ?onbview=own draws its own view.

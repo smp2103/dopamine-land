@@ -35,6 +35,8 @@ export class FxView {
   private timers = new Map<string, number>();
   private holdOn = false;
   readonly centers = new Sequencer<CenterItem>(6);
+  /** 큰 연출 자리(hud 와 하나를 같이 쓴다 — 배너·지역 이름·가운데 카드는 한 번에 하나). 없으면 늘 비어 있는 셈 */
+  stage: { free(): boolean; claim(ms: number): void } | null = null;
   /** 마지막 기준점(px) */
   ax = 0; ay = 0;
 
@@ -250,9 +252,12 @@ export class FxView {
   ceremony(c: Ceremony) { this.centers.push({ kind: 'ceremony', c, ms: c.ms }); this.pump(performance.now()); }
   /** 가운데 카드 차례 — 자주 불러도 된다(바뀔 때만 DOM) */
   pump(now: number) {
-    const u = this.centers.update(now, this.holdOn);
+    // 큰 연출 자리가 비었을 때만 다음 카드(내 카드가 내려간 뒤에도 0.6초 숨 고르기 — 내가 잡아 둔 자리가 그만큼 남는다)
+    const free = this.stage?.free() ?? true;
+    const u = this.centers.update(now, this.holdOn, free);
     if (u?.show) {
       const it = u.show;
+      this.stage?.claim(it.ms);
       const el = this.center;
       if (it.kind === 'discover') {
         const c = it.card;

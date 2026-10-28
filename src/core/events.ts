@@ -126,6 +126,10 @@ export type NpcMoveInEvent = Ev<'npc-movein', { npc: string; island: string; fro
 export type NpcProposeEvent = Ev<'npc-propose', { npc: string; island: string | null }>;
 export type AppraiseEvent = Ev<'appraise', { id: string; dino: string; part: string; cost: number }>;
 
+// ── 부팅(웨이브 7)
+/** 타이틀을 떠나 놀이가 시작됨 — 페이지마다 딱 한 번. skipped=true 면 타이틀 없이 바로(촬영·자동 실행·intro=0·cam=…) */
+export type GameStartEvent = Ev<'game:start', { skipped: boolean }>;
+
 /** 계약에 있는 모든 이벤트 */
 export type KnownEvent =
   | RegisterEvent | CollectEvent | CoinsEvent | BagEvent | SellEvent | BuyEvent | CraftEvent | DonateEvent | StarsEvent
@@ -140,7 +144,8 @@ export type KnownEvent =
   | MissionDoneEvent | MissionsAllEvent | AchievementEvent | SetCompleteEvent | WeekdayEventEvent | MailEvent
   | PlaceEvent | DevStageEvent | LighthouseEvent
   | TinoEvent | ReleaseEvent | SecretFoundEvent | EndingEvent | PhotoEvent | NetPeerEvent | NetCoopEvent
-  | NpcMoveInEvent | NpcProposeEvent | AppraiseEvent;
+  | NpcMoveInEvent | NpcProposeEvent | AppraiseEvent
+  | GameStartEvent;
 
 export type EventType = KnownEvent['type'];
 /** 이름으로 이벤트 모양 찾기: EventOf<'catch'> */
@@ -193,3 +198,11 @@ export const SECRET_IDS = [
 ] as const;
 export type SecretId = typeof SECRET_IDS[number];
 export const isSecretId = (s: unknown): s is SecretId => typeof s === 'string' && (SECRET_IDS as readonly string[]).includes(s);
+
+// ───────────── Game 덧붙임(타입만) ─────────────
+declare module './game' {
+  interface Game {
+    /** 타이틀을 떠나 놀이가 시작됐나 — main 이 new Game 직후 false 로 두고, 'game:start' 와 함께 true. 자동 실행은 준비되자마자 true */
+    started: boolean;
+  }
+}

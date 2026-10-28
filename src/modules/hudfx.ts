@@ -48,6 +48,8 @@ export default function build(ctx: Ctx) {
   const econ = () => (game.econ as EconApi | null) ?? null;
   const SHOT = new URLSearchParams(location.search).get('shot') === '1';
   const view = new FxView(ctx.rng('hudfx:parts'));
+  // 가운데 카드(발견·해금)는 hud 의 큰 연출 자리를 같이 쓴다 — 배너·지역 이름과 겹치지 않고, 놀기 전·컷신 중엔 기다린다
+  view.stage = { free: () => !game.hud.stageBusy(), claim: (ms) => game.hud.stageClaim(ms, 'hudfx') };
   const pillar = makePillar(game.root);
 
   const hudF = (st.flags.hud ??= {}) as { variants?: VariantSeen; hotDay?: number };
@@ -67,12 +69,6 @@ export default function build(ctx: Ctx) {
   const head = () => {
     const p = game.player.pos;
     return project(p.x, p.y + 1.7, p.z) ?? { x: window.innerWidth / 2, y: window.innerHeight * 0.42 };
-  };
-  const rectOf = (sel: string) => {
-    const el = document.querySelector(sel) as HTMLElement | null;
-    if (!el || el.offsetParent === null) return null;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
   };
 
   // ───────────── 시간 느리게 · 멈춤(engine.timeScale — dt 만 곱한다) ─────────────
@@ -212,11 +208,23 @@ export default function build(ctx: Ctx) {
     const sp = st.species.get(id);
     return { icon: sp ? CAT_ICON[sp.category] ?? '📦' : '🎁', color: '#ffe2a8' };
   };
+  // 지갑·가방은 늘 떠 있지 않다(wave 7) — 쏟아질 때 왼쪽 위로 살짝 띄우고 그쪽으로 날린다
+  // 떠오르는 중(애니메이션)인 방울은 아직 플레이어 쪽에 있으니, 변환을 뺀 제자리(오프셋)로 잰다
+  const peekRect = (chip: string, sel?: string) => {
+    const wrap = document.querySelector(`#dl .peeks .pk[data-peek="${chip}"]`) as HTMLElement | null;
+    const box = wrap?.parentElement;
+    if (!wrap || !box) return null;
+    const inner = (sel ? wrap.querySelector(sel) : null) as HTMLElement | null;
+    const el = inner && inner.offsetParent === wrap && inner.offsetWidth > 0 ? inner : wrap;
+    const b = box.getBoundingClientRect();
+    const ox = el === wrap ? 0 : el.offsetLeft, oy = el === wrap ? 0 : el.offsetTop;
+    return { x: b.left + wrap.offsetLeft + ox + el.offsetWidth / 2, y: b.top + wrap.offsetTop + oy + el.offsetHeight / 2 };
+  };
   const flyTarget = (to: CascadeItem['to']) =>
-    (to === 'wallet' ? rectOf('#dl .wallet .coinp') : to === 'star' ? rectOf('#dl .wallet .starp') : to === 'key' ? rectOf('#dl .wallet .keyp') ?? rectOf('#dl .wallet .starp') : rectOf('#dl [data-chip="hud:bag"]'))
-    ?? (to === 'bag' ? { x: 120, y: 120 } : { x: window.innerWidth - 120, y: 36 });
+    (to === 'wallet' ? peekRect('hud:wallet', '.coinp') : to === 'star' ? peekRect('hud:wallet', '.starp') : to === 'key' ? peekRect('hud:wallet', '.keyp') ?? peekRect('hud:wallet', '.starp') : peekRect('hud:bag'))
+    ?? (to === 'bag' ? { x: 110, y: 120 } : { x: 120, y: 80 });
   const countUp = () => {
-    const el = document.querySelector('#dl .wallet .coinp .v') as HTMLElement | null;
+    const el = document.querySelector('#dl [data-chip="hud:wallet"] .coinp .v') as HTMLElement | null;
     if (!el) return;
     el.classList.remove('dl-countup'); void el.offsetWidth; el.classList.add('dl-countup');
   };
@@ -228,6 +236,9 @@ export default function build(ctx: Ctx) {
     const from = project(p.x + f.x * 1.4, p.y + 0.7, p.z + f.z * 1.4) ?? { x: window.innerWidth / 2, y: window.innerHeight * 0.55 };
     const items = cascadePlan(loot, 0);
     window.setTimeout(() => {
+      // 받는 쪽(지갑·가방)을 먼저 띄워 둔다
+      if (items.some((i) => i.to !== 'bag')) game.hud.peek('hud:wallet', 4200);
+      if (items.some((i) => i.to === 'bag')) game.hud.peek('hud:bag', 4200);
       const coins = loot.find((l) => l.id === 'coins')?.n ?? 0;
       if (coins > 0) view.burst('coin', coinBurst(coins), { x: from.x, y: from.y, spread: 200 });
       view.burst('spark', T.pillar ? 18 : 10, { x: from.x, y: from.y - 20, colors: [T.color, T.glow, '#fff'], spread: 160 });

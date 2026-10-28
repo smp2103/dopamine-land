@@ -151,6 +151,8 @@ export interface AudioApi {
   setVolume(ch: AudioChannel, v: number): void;
   /** on 생략 = 토글. 지금 음소거인지 돌려준다 */
   mute(on?: boolean): boolean;
+  /** 지금 음소거인가(읽기만 — 바꾸기는 mute) */
+  readonly muted?: boolean;
 }
 
 export interface VehicleNow { kind: string; speed: number; boat: boolean; seats?: number; riders?: number }
@@ -264,6 +266,13 @@ export interface PanelDef {
   render(body: HTMLElement, ctx: PanelCtx): void;
   onOpen?(arg: unknown): void;
   onClose?(): void;
+  /** 말랑 주머니(Tab) 방울 위 작은 반짝 숫자(예: 안 읽은 편지 3). null·0·'' 이면 없음 (wave 7) */
+  badge?(): string | number | null;
+  /**
+   * 말랑 주머니 방울로 보일지(wave 7). false = 안 보임(상점·작업대처럼 NPC·자리에서 여는 창).
+   * {order} = 보이고 그 순서(작을수록 앞). 비우면 hud 가 정한 기본값(아는 창은 정해진 자리, 모르는 창은 뒤에).
+   */
+  app?: false | { order?: number };
 }
 export interface ChipDef {
   id: string;
@@ -271,6 +280,11 @@ export interface ChipDef {
   order: number;
   render(el: HTMLElement): void;
   update?(el: HTMLElement, dt: number): void;
+  /**
+   * 살짝 보이기(wave 7): 칩은 늘 떠 있지 않고, 보이는 내용이 바뀌면 잠깐(~3초) 왼쪽 위로 떠오른다.
+   * false = 저절로는 안 떠오름(시계처럼 늘 바뀌는 칩 — hud.peek(id) 로 부르면 뜬다) · 'live' = 내용이 있는 동안 늘 보임(바람처럼 상황 게이지).
+   */
+  peek?: boolean | 'live';
 }
 export interface HotkeyDef {
   /** KeyboardEvent.code (예: 'KeyB', 'Tab', 'Escape') */
@@ -296,6 +310,24 @@ export interface BannerOpts { text: string; sub?: string; icon?: string; color?:
 export interface CardOpts { title: string; body: string; icon?: string; color?: string; ms?: number }
 export interface GaugeOpts { label: string; /** 0..1 */ value: number; color: string; show: boolean }
 export interface PanelState { kind: string; tab: string | undefined; arg: unknown; sel: string | null }
+/** 처음 안내 말풍선(wave 7 — onboarding 이 부르고 hud 가 반짝이 별과 함께 그린다). 한 번에 하나, 본 id 는 flags.ui.hints 에 남는다 */
+export interface HintOpts {
+  id: string;
+  /** 말풍선 글. 키 글자(keys 의 'E'·'Shift' 등)나 [E] 는 키 모자로 그린다 */
+  text: string;
+  /** 키 모자로 그릴 키 — KeyboardEvent.code('KeyE') 또는 글자('E', 'WASD') */
+  keys?: string[];
+  /** true 가 되면 퐁 하고 사라진다(해냈다!) */
+  until?: () => boolean;
+  /** 최대 보이는 시간(ms, 기본 12000) */
+  ttl?: number;
+  /** 클수록 먼저(기본 0) */
+  priority?: number;
+  /** true 면 전에 본 id 라도 다시 보여 준다 */
+  again?: boolean;
+  /** 반짝이·말풍선을 붙일 화면 자리(px). 없으면 플레이어 어깨 옆 */
+  anchor?: () => { x: number; y: number } | null;
+}
 
 /** hud 모듈이 붙이는 실제 그리기 구현 */
 export interface HudRenderer {
@@ -321,6 +353,14 @@ export interface HudRenderer {
   removeLayer?(id: string): void;
   /** 기본 도우미를 덮어쓸 것(썸네일·아이콘 등) */
   helpers?: Partial<HudHelpers>;
+  // ── wave 7(선택): 칩 살짝 보이기 · 안내 말풍선 · 큰 연출 자리(배너 하나만)
+  peekChip?(id: string, ms?: number): void;
+  showHint?(h: HintOpts): boolean;
+  hideHint?(id: string): void;
+  /** 큰 연출 자리가 차 있나(배너·지역 이름·가운데 카드 — 하나씩, 사이 0.6초) */
+  stageBusy?(): boolean;
+  /** 다른 모듈이 큰 연출(가운데 카드 등)을 ms 동안 띄운다 — 그동안 배너는 기다린다 */
+  stageClaim?(ms: number, tag?: string): void;
 }
 
 /** game.hud — 코어가 늘 만들어 둔다(src/core/registry.ts HudRegistryStore) */
@@ -352,6 +392,17 @@ export interface HudRegistry {
   hotkeys(): readonly HotkeyDef[];
   layers(): MapLayerDef[];
   readonly gauges: Map<string, GaugeOpts>;
+  // ── wave 7(UX): 비어 있는 화면 · 말랑 주머니
+  /** 칩을 잠깐(ms, 기본 3000) 왼쪽 위로 띄운다. 놀기 시작 전·주머니가 열려 있으면 무시 */
+  peek(chipId: string, ms?: number): void;
+  /** 처음 안내 말풍선 하나(겹치면 줄 선다). 이미 본 id 면 false. 붙기 전엔 쌓아 둔다 */
+  hint(h: HintOpts): boolean;
+  /** 띄운(또는 줄 선) 안내 말풍선 치우기 */
+  hideHint(id: string): void;
+  /** 큰 연출 자리가 차 있나(렌더러가 없으면 true — 아직 아무것도 못 띄운다) */
+  stageBusy(): boolean;
+  /** 큰 연출(가운데 카드 등)을 ms 동안 띄운다고 알린다 — 그동안 배너·지역 이름은 기다린다 */
+  stageClaim(ms: number, tag?: string): void;
 }
 
 /** game.dex — 예전 이름. hud 위의 얇은 외관 */

@@ -992,7 +992,7 @@ export default function build(ctx: Ctx) {
 
     // ── 바람 칩(요트·열기구를 탈 때만)
     game.hud.registerChip({
-      id: 'vehicles:wind', order: 30,
+      id: 'vehicles:wind', order: 30, peek: 'live',
       render(el) {
         el.innerHTML = '<div class="chip dl-card" title="바람" style="display:flex;align-items:center;gap:6px"><span class="arr" style="display:inline-block;font-size:18px;color:#5aa9e6;transition:transform .25s">⬆</span><span class="v">—</span></div>';
         el.style.display = 'none';

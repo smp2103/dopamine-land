@@ -162,6 +162,9 @@ export class AudioService implements AudioApi {
     this.applyVolumes();
   }
 
+  /** 지금 음소거인가(읽기만) */
+  get muted(): boolean { return this.settings.muted; }
+
   mute(on?: boolean): boolean {
     this.settings.muted = on === undefined ? !this.settings.muted : !!on;
     saveSettings(this.settings);

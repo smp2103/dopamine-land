@@ -169,26 +169,39 @@ export function keyCap(code: string): string {
   if (/^Key[A-Z]$/.test(code)) return code.slice(3);
   if (/^Digit\d$/.test(code)) return code.slice(5);
   const M: Record<string, string> = {
-    Escape: 'Esc', Tab: 'Tab', Space: 'Space', Enter: 'Enter', Backquote: '`', ShiftLeft: 'Shift', ShiftRight: 'Shift',
+    Escape: 'Esc', Tab: 'Tab', Space: 'Space', Enter: 'Enter', Backquote: '`', Backslash: '\\', ShiftLeft: 'Shift', ShiftRight: 'Shift',
     ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Backspace: '⌫', Slash: '/', Minus: '-', Equal: '=',
   };
   return M[code] ?? code;
 }
 
 /**
- * hud 가 거는 단축키(GDD 3.11): B 도감 · Tab 가방 · I 가방(옛 키) · M 지도 · Esc 닫기 · ` HUD 숨기기.
- * panel '*' = 창이 열려 잠긴 동안에도 돈다(도감 ↔ 가방 바로 바꾸기, 같은 키로 닫기).
+ * hud 가 거는 단축키(GDD 3.11 · wave 7): Tab 말랑 주머니 · B 도감 · I 가방 · M 지도 · Esc 닫기 · \ HUD 숨기기(` 는 개발 패널 몫).
+ * panel '*' = 창이 열려 잠긴 동안에도 돈다(도감 ↔ 가방 바로 바꾸기, 같은 키로 닫기, 창에서 Tab → 주머니로).
  * 그 밖의 잠금(낚시 미니게임 등) 중엔 창이 없으니 안 돈다.
  */
-export interface HudKeySpec { id: string; code: string; label: string; hint?: boolean; panel?: string; action: 'toggle' | 'close' | 'hide'; kind?: string; tab?: string }
+export interface HudKeySpec { id: string; code: string; label: string; hint?: boolean; panel?: string; action: 'toggle' | 'close' | 'hide' | 'pocket'; kind?: string; tab?: string }
+/** 말랑 주머니 창 kind(레지스트리 패널 — 렌더러가 창 대신 고리로 그린다) */
+export const POCKET_KIND = 'pocket';
 export const HUD_KEYS: readonly HudKeySpec[] = [
+  { id: 'hud:pocket', code: 'Tab', label: '말랑 주머니', hint: true, panel: '*', action: 'pocket' },
   { id: 'hud:dex', code: 'KeyB', label: '도감', hint: true, panel: '*', action: 'toggle', kind: 'dex' },
-  { id: 'hud:bag', code: 'Tab', label: '가방', hint: true, panel: '*', action: 'toggle', kind: 'bag' },
-  { id: 'hud:bag-legacy', code: 'KeyI', label: '가방', panel: '*', action: 'toggle', kind: 'bag' },
+  { id: 'hud:bag', code: 'KeyI', label: '가방', hint: true, panel: '*', action: 'toggle', kind: 'bag' },
   { id: 'hud:map', code: 'KeyM', label: '지도', hint: true, panel: '*', action: 'toggle', kind: 'map' },
   { id: 'hud:close', code: 'Escape', label: '닫기', panel: '*', action: 'close' },
-  { id: 'hud:hide', code: 'Backquote', label: 'HUD 숨기기', action: 'hide' },
+  { id: 'hud:hide', code: 'Backslash', label: 'HUD 숨기기', action: 'hide' },
 ];
+
+/**
+ * Tab 을 눌렀을 때: 주머니가 열려 있으면 닫기 · 파는 가게/박물관 창이면 그 자리를 실은 가방(팔기·기증) ·
+ * 다른 창이면 주머니로 돌아가기 · 아무것도 없으면 주머니 열기.
+ */
+export function pocketKeyAction(open: { kind: string; arg: unknown } | null | undefined): { do: 'close' } | { do: 'bag'; arg: BagMode } | { do: 'pocket' } {
+  if (open?.kind === POCKET_KIND) return { do: 'close' };
+  const arg = open && open.kind !== 'bag' ? bagArgFrom(open) : undefined;
+  if (arg && arg.from) return { do: 'bag', arg };
+  return { do: 'pocket' };
+}
 
 /** 코어가 직접 받는 키(단축키 디스패처 밖) — 안내 칩에만 붙인다 */
 export const CORE_KEY_HINTS: ReadonlyArray<{ code: string; label: string }> = [{ code: 'KeyE', label: '하기' }, { code: 'KeyG', label: '화질' }];
@@ -287,14 +300,14 @@ export class TimedQueue<T extends { ms?: number }> {
     this.q.push(item);
     while (this.q.length > this.max) { this.q.shift(); this.dropped++; }
   }
-  /** 바뀌었으면 {show} 또는 {hide} */
-  update(now: number, hold = false): { show?: T; hide?: T } | null {
+  /** 바뀌었으면 {show} 또는 {hide}. allowShow=false 면 다 된 것을 내리기만 하고 새로 띄우지 않는다(큰 배너가 떠 있을 때 카드는 기다린다) */
+  update(now: number, hold = false, allowShow = true): { show?: T; hide?: T } | null {
     if (this.cur && !hold && now >= this.until) {
       const was = this.cur;
       this.cur = null;
-      if (!this.q.length) return { hide: was };
+      if (!this.q.length || !allowShow) return { hide: was };
     }
-    if (!this.cur && this.q.length) {
+    if (!this.cur && this.q.length && allowShow) {
       this.cur = this.q.shift()!;
       this.until = now + Math.max(400, this.cur.ms ?? this.defMs);
       return { show: this.cur };

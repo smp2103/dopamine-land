@@ -489,6 +489,8 @@ export class FakeGame {
   hudLog: RecordingRenderer = recordingRenderer();
   witnesses = makeWitnesses();
   focusOverride: THREE.Vector3 | null = null;
+  /** 타이틀을 떠나 놀고 있나(진짜는 main 이 'game:start' 와 함께 true) — 시험은 기본으로 이미 놀이 중. 타이틀부터 보려면 false 로 두고 start() */
+  started = true;
   ext: Record<string, any> = {};
 
   // 서비스 슬롯(주인이 채운다) — env 만 기본으로 대역이 들어 있다
@@ -663,6 +665,12 @@ export class FakeGame {
    * 시간 → 동작 풀기 → 청크 → 상호작용 고르기 → 눌린 키 처리 → onUpdate → ui → 입력 비우기.
    * env 대역은 저절로 흐르지 않는다(env.advance 로 직접).
    */
+  /** 타이틀 끝(main 흉내): started = true + 'game:start' 알림 */
+  start(skipped = true) {
+    this.started = true;
+    this.state.emit({ type: 'game:start', skipped } as never);
+  }
+
   tick(dt = 1 / 60, n = 1) {
     for (let i = 0; i < n; i++) {
       const d = dt * (this.engine.timeScale ?? 1);

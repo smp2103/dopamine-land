@@ -76,13 +76,14 @@ describe('패널 기본값·탭', () => {
 });
 
 describe('단축키 규칙', () => {
-  it('B 도감 · Tab 가방 · I 옛 가방, 안내 칩은 B·Tab 만', () => {
+  it('B 도감 · Tab 말랑 주머니 · I 가방, 안내 칩은 B·Tab·I (wave 7)', () => {
     expect(pick(['KeyB'])).toEqual(['hud:dex']);
-    expect(pick(['Tab'])).toEqual(['hud:bag']);
-    expect(pick(['KeyI'])).toEqual(['hud:bag-legacy']);
+    expect(pick(['Tab'])).toEqual(['hud:pocket']);
+    expect(pick(['KeyI'])).toEqual(['hud:bag']);
     const hints = keyHints(keys).map((k) => `${k.cap} ${k.label}`);
     expect(hints).toContain('B 도감');
-    expect(hints).toContain('Tab 가방');
+    expect(hints).toContain('Tab 말랑 주머니');
+    expect(hints).toContain('I 가방');
     expect(hints.filter((x) => x.endsWith('가방'))).toHaveLength(1);
     expect(hints).not.toContain('Esc 닫기');
   });
@@ -102,11 +103,13 @@ describe('단축키 규칙', () => {
   });
   it('잠금: 창이 열려 있으면 hud 키는 돈다(바꾸기·닫기), 창 없는 잠금(미니게임)이면 안 돈다', () => {
     expect(pick(['KeyB'], { locked: true, open: null })).toEqual([]);
-    expect(pick(['Tab'], { locked: true, open: 'dex' })).toEqual(['hud:bag']);
+    expect(pick(['Tab'], { locked: true, open: 'dex' })).toEqual(['hud:pocket']);
     expect(pick(['KeyB'], { locked: true, open: 'dex' })).toEqual(['hud:dex']);
     // HUD 숨기기는 패널 키가 아니라 잠금 중엔 안 돈다
-    expect(pick(['Backquote'], { locked: true, open: 'dex' })).toEqual([]);
-    expect(pick(['Backquote'])).toEqual(['hud:hide']);
+    expect(pick(['Backslash'], { locked: true, open: 'dex' })).toEqual([]);
+    // ` 는 개발 패널 몫이라 hud 가 안 잡는다
+    expect(pick(['Backquote'])).toEqual([]);
+    expect(pick(['Backslash'])).toEqual(['hud:hide']);
   });
   it('다른 모듈 패널 키는 자기 패널일 때만 잠금을 뚫는다', () => {
     const m: HotkeyDef = { code: 'KeyM', label: '지도', panel: 'map', run() {} };

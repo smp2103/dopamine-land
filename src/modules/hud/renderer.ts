@@ -1,22 +1,30 @@
 // HUD 렌더러(계약 v2 5장 HudRenderer) — game.hud 레지스트리가 부르는 실제 그리기.
-// 창(등록 패널 무엇이든) · 왼쪽 위 칩 칸 · 지갑 · 키 안내 · 행동 안내 칩 · 배너/카드 큐 · 게이지 · 지역 이름 · 미니맵(+등록 지도 층)
-// · 잡았다/상자/대화/토스트. 무엇을 열지·언제 닫을지는 레지스트리가 정하고, 여기는 그리기만 한다.
-// 미니맵은 큰 지도(M)와 같은 안개(fogSet)·같은 섬 모양(IslandShapes)을 쓴다. 잡았다 연출의 모델은 썸네일 큐로 복제해 보낸다.
+// wave 7 "모든 게 게임 속에 녹아든다": 평소 화면은 거의 비어 있다 — 왼쪽 위 말랑한 해/달 시계 방울 하나, 물건 앞 행동 안내(E·F),
+// 새 지역 이름, 그리고 필요할 때만 게이지(수영 힘·산소·콤보 — 다 차면 스르르 사라진다). 미니맵은 설정에서 켠다.
+// 칩(가방·지갑·우편·루틴·섬 별…)은 늘 떠 있지 않고 내용이 바뀔 때만 플레이어 쪽에서 방울처럼 떠올라 왼쪽 위로(bubbles.ts PeekView),
+// 전부 보려면 Tab — 말랑 주머니(pocket.ts): 플레이어 둘레 젤리 방울 고리 + 위쪽 상태 무지개(모든 칩).
+// 큰 배너·지역 이름·가운데 카드는 하나씩(present.ts Stage, 사이 0.6초), 토스트는 한 줄(ToastLine), 놀기 전(game.started=false)·컷신 중엔 줄만 선다.
+// 놀기 전엔 HUD 전체가 투명 — 'game:start' 뒤 0.6초 동안 스르르 나타난다. 처음 안내는 별 친구 반짝이 말풍선(HintView).
+// 창(등록 패널 무엇이든) · 미니맵(+등록 지도 층) · 잡았다/상자/대화 도 여기서. 무엇을 열지·언제 닫을지는 레지스트리가 정한다.
+import * as THREE from 'three';
 import type { Ctx } from '../../core/types';
 import type { Game } from '../../core/game';
-import type { BannerOpts, CardOpts, ChipDef, GaugeOpts, HotkeyDef, HudHelpers, HudRenderer, MapLayerDef, PanelCtx, PanelDef, ToPx } from '../../core/api';
+import type { BannerOpts, CardOpts, ChipDef, GaugeOpts, HintOpts, HotkeyDef, HudHelpers, HudRenderer, MapLayerDef, PanelCtx, PanelDef, ToPx } from '../../core/api';
 import type { CatchShow } from '../../core/ui';
 import { VARIANT_LABEL } from '../../core/ui';
 import { MAT, TIERS, CAT_ICON, RARITY_COLOR, ISLAND_LOOK } from '../economy/data';
 import {
-  TimedQueue, ToastDedupe, countStep, gaugeHot, gaugeValue, gaugeVisible, keyHints, keyView, KEY_LOOK, pickTab,
-  comboText, comboVisible, type HudTab, type PromptChip, type BannerItem, type CardItem,
+  TimedQueue, ToastDedupe, countStep, gaugeHot, gaugeValue, gaugeVisible, keyView, KEY_LOOK, pickTab, POCKET_KIND,
+  comboText, type HudTab, type PromptChip, type CardItem,
 } from './logic';
 import type { Look } from './panels/common';
 import { PLANET_NAME, fogSet } from './logic';
 import type { Thumbs } from './thumbs';
 import type { IslandShapes } from './map';
 import { drawIsland, drawPin } from './map';
+import { Stage, ToastLine, PeekTracker, HintQueue, chipSig, comboShown, startedOf, isCinematic, GAUGE_FADE_MS, type PeekResult } from './present';
+import { PeekView, FloatPops, HintView } from './bubbles';
+import { PocketView, type PocketApp } from './pocket';
 
 const h = (html: string) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild as HTMLElement; };
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -28,6 +36,12 @@ const now = () => performance.now();
 const WIDE = new Set(['dex']);
 /** 지도 반지름(m) */
 const MAP_R = 3000;
+/** 늘 제자리에 있는 칩(시계) */
+const CLOCK_CHIP = 'hud:clock';
+/** 상황 게이지처럼 내용이 있는 동안 늘 보이는 칩(ChipDef.peek === 'live' 와 같다) */
+const LIVE_CHIPS = new Set(['vehicles:wind']);
+/** 섬 사이를 건너거나 집에 드나든 뒤(초점이 바뀐 뒤) 배너를 쉬는 시간(ms) */
+const FOCUS_SETTLE_MS = 1200;
 
 /** 상자 등급 → 이름·색(계약 등급 wood…space + 예전 등급 common…legend) */
 const CHEST_LOOK: Record<string, { name: string; color: string; glow: string; n: number }> = {
@@ -38,6 +52,9 @@ const CHEST_LOOK: Record<string, { name: string; color: string; glow: string; n:
 // 경제 표의 등급 색·이름을 덮되, 꽃가루 수(n)는 위 기본값(없으면 예전 등급 규칙)을 지킨다
 for (const [k, t] of Object.entries(TIERS)) CHEST_LOOK[k] = { name: t.name, color: t.color, glow: t.glow, n: CHEST_LOOK[k]?.n ?? (k === 'legend' ? 80 : k === 'epic' ? 56 : 30) };
 
+/** 큰 연출 자리에 서는 것: 배너 · 지역 이름 */
+type StageEntry = { kind: 'banner'; ms: number; b: BannerOpts } | { kind: 'region'; ms: number; r: { name: string; sub: string; color: string; dark: string } };
+
 export class HudView implements HudRenderer {
   readonly root: HTMLElement;
   helpers: Partial<HudHelpers>;
@@ -45,25 +62,37 @@ export class HudView implements HudRenderer {
   // 창
   private win: HTMLElement; private wTtl: HTMLElement; private wMeta: HTMLElement; private wTabs: HTMLElement; private wBody: HTMLElement;
   private cur: { def: PanelDef; ctx: PanelCtx } | null = null;
-  // 칩·키·게이지
-  private chipsEl: HTMLElement; private chipEls = new Map<string, { def: ChipDef; el: HTMLElement }>();
-  private keysEl: HTMLElement; private keysDirty = true;
+  // 칩: 시계 자리 · 숨은 보관함 · 늘 보이는 상황 칩 줄 · 떠오르는 방울
+  private clockSlot: HTMLElement; private store: HTMLElement; private livesEl: HTMLElement;
+  private chipEls = new Map<string, { def: ChipDef; el: HTMLElement }>();
+  readonly peeks = new PeekTracker();
+  private peekView: PeekView;
+  private bumpAt = new Map<string, number>();
+  private floats: FloatPops;
+  // 게이지
   private gaugesEl: HTMLElement; private gaugeEls = new Map<string, HTMLElement>(); private comboEl: HTMLElement;
+  private comboN = 0; private comboAt = -1e9;
   private promptsEl: HTMLElement; private promptSig = '';
-  // 배너·카드
+  // 배너·지역 이름(큰 연출 자리 하나) · 카드 · 토스트 한 줄
   private bannerEl: HTMLElement; private cardEl: HTMLElement;
-  readonly banners = new TimedQueue<BannerItem>(2600, 6);
+  readonly stage = new Stage<StageEntry>();
   readonly cards = new TimedQueue<CardItem>(3200, 8);
-  // 지갑
-  private coinV: HTMLElement; private starV: HTMLElement; private keyP: HTMLElement;
+  readonly toasts = new ToastLine(900, 4);
+  private toastEl: HTMLElement | null = null;
+  // 지갑(칩 'hud:wallet' 안)
+  private coinV: HTMLElement | null = null; private starV: HTMLElement | null = null; private keyP: HTMLElement | null = null;
   private shownCoins: number; private shownStars = 0; private keySig = '';
   // 지도
   private cv: HTMLCanvasElement; private g2: CanvasRenderingContext2D; private mapEl: HTMLElement; private mapLbl: HTMLElement;
   private layerErr = new Set<string>();
+  private minimapOn = false;
   // 지역 이름
-  private region: HTMLElement; private regionTimer = 0; private curIsland: string | null | undefined;
-  // 대화·토스트·잡았다·상자
+  private region: HTMLElement; private curIsland: string | null | undefined;
+  // 대화·잡았다·상자
   private talk: HTMLElement; private typeTimer = 0; private talkTimer = 0;
+  /** 놀기 전·컷신 동안 들어온 대사(문이 열리면 차례로) */
+  private talkQ: Array<{ who: string; line: string; ms: number }> = [];
+  private talkUntil = 0;
   private catchEl: HTMLElement; private catchTimer = 0;
   private lootEl: HTMLElement; private lootTimer = 0;
   private dedupe = new ToastDedupe(1500);
@@ -71,19 +100,31 @@ export class HudView implements HudRenderer {
   private rnd: () => number;
   private lastSlow = -1; private lastChip = -1;
   private readonly SHOT = new URLSearchParams(location.search).get('shot') === '1';
+  // 놀기 시작 · 초점 바뀜
+  private startedFlag = false;
+  private forceStarted = false;
+  private focusRef: THREE.Vector3 | null = null;
+  private focusSettle = 0;
+  // 말랑 주머니 · 안내 말풍선
+  private pocket: PocketView;
+  /** 주머니 방울 목록(hud.ts 가 붙인다) */
+  pocketApps: () => PocketApp[] = () => [];
+  private hintView: HintView;
+  readonly hints: HintQueue;
+  private hiddenFlag = false;
+  private _v = new THREE.Vector3();
   /** 모델 썸네일(hud.ts 가 붙인다) · 섬 모양(미니맵·큰 지도 공용) */
   thumbs: Thumbs | null = null;
   shapes: IslandShapes | null = null;
 
   constructor(private game: Game, private ctx: Ctx, private look: Look) {
     this.rnd = ctx.rng('hud:confetti');
-    this.root = h(`<div id="dl">
-      <div class="chips"></div>
-      <div class="wallet"><div class="pill dl-card coinp"><div class="ic coin">₩</div><span class="v">0</span></div><div class="pill dl-card starp"><div class="ic star">★</div><span class="v">0</span></div><div class="pill dl-card keyp" style="display:none"></div></div>
+    this.root = h(`<div id="dl" class="prestart">
+      <div class="clockslot"></div>
+      <div class="chipstore" aria-hidden="true"></div>
       <div class="card dl-card"><div class="ci"></div><div><div class="ct"></div><div class="cb"></div></div></div>
-      <div class="gauges"><div class="combo"></div></div>
-      <div class="map dl-card"><canvas width="380" height="380"></canvas><div class="n">N</div><div class="lbl">—</div></div>
-      <div class="keys"></div>
+      <div class="gauges"><div class="lives"></div><div class="combo"></div></div>
+      <div class="map dl-card off"><canvas width="380" height="380"></canvas><div class="n">N</div><div class="lbl">—</div></div>
       <div class="prompts"></div>
       <div class="banner"><div class="bt"></div><div><div class="bs"></div></div></div>
       <div class="region"><div class="nm"></div><div class="sub"><i></i><span></span><i></i></div></div>
@@ -95,11 +136,10 @@ export class HudView implements HudRenderer {
     document.body.appendChild(this.root);
     this.win = this.$('.win'); this.wTtl = this.$('.win .ttl'); this.wMeta = this.$('.win .meta'); this.wTabs = this.$('.win .tabs'); this.wBody = this.$('.win .body');
     this.$('.win .x').onclick = () => game.hud.close();
-    this.chipsEl = this.$('.chips'); this.keysEl = this.$('.keys');
-    this.gaugesEl = this.$('.gauges'); this.comboEl = this.$('.combo');
+    this.clockSlot = this.$('.clockslot'); this.store = this.$('.chipstore');
+    this.gaugesEl = this.$('.gauges'); this.comboEl = this.$('.combo'); this.livesEl = this.$('.gauges .lives');
     this.promptsEl = this.$('.prompts');
     this.bannerEl = this.$('.banner'); this.cardEl = this.$('.card');
-    this.coinV = this.$('.coinp .v'); this.starV = this.$('.starp .v'); this.keyP = this.$('.keyp');
     this.shownCoins = game.state.coins;
     this.cv = this.root.querySelector('.map canvas') as HTMLCanvasElement;
     this.g2 = this.cv.getContext('2d')!;
@@ -107,6 +147,22 @@ export class HudView implements HudRenderer {
     this.region = this.$('.region');
     this.talk = this.$('.talk');
     this.catchEl = this.$('.catch'); this.lootEl = this.$('.loot');
+    // 떠오르는 방울 · 숫자 · 반짝이 · 말랑 주머니(창보다 아래, 배너보다 위)
+    this.peekView = new PeekView(this.root);
+    this.root.insertBefore(this.peekView.el, this.store);
+    this.floats = new FloatPops(this.root);
+    this.hintView = new HintView(this.root);
+    const uiF = (game.state.flags.ui ??= {}) as { hints?: string[] };
+    this.hints = new HintQueue(new Set(Array.isArray(uiF.hints) ? uiF.hints : []), (id) => {
+      const f = (game.state.flags.ui ??= {}) as { hints?: string[] };
+      f.hints = [...new Set([...(Array.isArray(f.hints) ? f.hints : []), id])].slice(-200);
+      game.state.save();
+    });
+    this.pocket = new PocketView(this.root, {
+      project: () => this.project(0.95),
+      sfx: (name, o) => { try { game.audio?.sfx(name, o); } catch { /* 소리 없음 */ } },
+      dismiss: () => game.hud.close(),
+    });
     this.coreToast = game.ui.toast.bind(game.ui);
     this.helpers = {
       confetti: (el, colors, n) => this.confetti(el, colors, n),
@@ -132,10 +188,70 @@ export class HudView implements HudRenderer {
     });
   }
 
+  // ───────────── 화면 자리 ─────────────
+  /** 플레이어 몸 위 dy(m) 자리 → 화면 px(뒤·화면 밖이면 null) */
+  project(dy = 1.2): { x: number; y: number } | null {
+    const p = this.game.player.pos;
+    this._v.set(p.x, p.y + dy, p.z).project(this.game.engine.camera);
+    if (!Number.isFinite(this._v.x) || this._v.z > 1 || this._v.z < -1) return null;
+    const x = (this._v.x * 0.5 + 0.5) * window.innerWidth, y = (-this._v.y * 0.5 + 0.5) * window.innerHeight;
+    if (x < -60 || y < -60 || x > window.innerWidth + 60 || y > window.innerHeight + 60) return null;
+    return { x, y };
+  }
+  private head() { return this.project(1.75) ?? { x: window.innerWidth / 2, y: window.innerHeight * 0.45 }; }
+
+  // ───────────── 놀기 시작 · 막 ─────────────
+  /** 놀기 시작했나(game.started 가 false 일 때만 아직) */
+  get started() { return this.forceStarted || startedOf((this.game as unknown as { started?: unknown }).started); }
+  /** 'game:start' 를 들었다 */
+  markStarted() { this.forceStarted = true; }
+  /** 큰 연출·토스트를 지금 띄워도 되나: 놀기 시작 · 컷신 아님 · 초점이 막 바뀌지 않음 */
+  presentGate(t = now()): boolean {
+    if (!this.started) return false;
+    let owners: string[] = [];
+    try { owners = this.game.player.lockedBy?.() ?? []; } catch { owners = []; }
+    if (isCinematic(owners)) return false;
+    return t >= this.focusSettle;
+  }
+  private syncStarted(t: number) {
+    const s = this.started;
+    if (s === this.startedFlag) return;
+    this.startedFlag = s;
+    if (s) {
+      // 스르르(0.6초) — 처음 화면은 거의 비어 있다
+      this.root.classList.remove('prestart');
+      this.root.classList.add('wake');
+      window.setTimeout(() => this.root.classList.remove('wake'), 900);
+      // 시작하자마자 뜰 큰 연출은 숨 한 번 고르고
+      this.stage.claim(450, t);
+    } else this.root.classList.add('prestart');
+  }
+  private watchFocus(t: number) {
+    const f = this.game.focusOverride;
+    if (f === this.focusRef) return;
+    this.focusRef = f;
+    this.focusSettle = t + FOCUS_SETTLE_MS;
+  }
+
   // ───────────── 창(패널) ─────────────
   openPanel(def: PanelDef, pc: PanelCtx): void {
     if (!this.cur) this.game.player.lock('hud');
+    const wasPocket = this.cur?.def.kind === POCKET_KIND;
     this.cur = { def, ctx: pc };
+    if (def.kind === POCKET_KIND) {
+      // 창 대신 말랑 주머니 — 떠 있던 칩 방울은 무지개로 옮긴다
+      this.win.classList.remove('on');
+      this.wBody.innerHTML = '';
+      this.root.classList.remove('panel');
+      this.root.classList.add('pocketing');
+      this.peeks.clear(now());
+      this.peekView.clear((el) => this.giveBack(el));
+      const chips = this.game.hud.chips().filter((d) => d.id !== CLOCK_CHIP).map((d) => this.chipEls.get(d.id)?.el).filter((e): e is HTMLElement => !!e);
+      this.pocket.open(this.pocketApps(), chips, (el) => this.giveBack(el));
+      return;
+    }
+    if (wasPocket || this.pocket.isOpen) { this.pocket.close(); this.root.classList.remove('pocketing'); }
+    this.root.classList.add('panel');
     this.draw();
     this.win.classList.remove('on'); void this.win.offsetWidth;
     this.win.classList.add('on');
@@ -143,17 +259,24 @@ export class HudView implements HudRenderer {
   renderPanel(def: PanelDef, pc: PanelCtx): void {
     if (!this.cur || this.cur.def.kind !== def.kind) { this.openPanel(def, pc); return; }
     this.cur = { def, ctx: pc };
+    if (def.kind === POCKET_KIND) return;
     this.draw();
   }
   closePanel(): void {
     if (!this.cur) return;
+    const was = this.cur.def.kind;
     this.cur = null;
+    if (was === POCKET_KIND || this.pocket.isOpen) { this.pocket.close(); this.root.classList.remove('pocketing'); }
+    this.root.classList.remove('panel');
     this.win.classList.remove('on');
     this.wBody.innerHTML = '';
     this.game.player.unlock('hud', true);
   }
   /** 열린 패널 kind(디버그) */
   openKind() { return this.cur?.def.kind ?? null; }
+  /** 주머니 키(열려 있을 때만) — 다룬 키면 true */
+  pocketKey(code: string) { return this.pocket.key(code); }
+  pocketInfo() { return this.pocket.info(); }
 
   private draw() {
     const c = this.cur;
@@ -181,9 +304,21 @@ export class HudView implements HudRenderer {
     this.wBody.scrollTop = keep;
   }
 
-  // ───────────── 칩 칸 ─────────────
-  addChip(def: ChipDef): void { this.removeChip(def.id); this.chipEls.set(def.id, { def, el: this.makeChip(def) }); }
-  removeChip(id: string): void { const c = this.chipEls.get(id); if (c) { c.el.remove(); this.chipEls.delete(id); } }
+  // ───────────── 칩 ─────────────
+  addChip(def: ChipDef): void {
+    this.removeChip(def.id);
+    const el = this.makeChip(def);
+    this.chipEls.set(def.id, { def, el });
+    this.giveBack(el);
+  }
+  removeChip(id: string): void {
+    const c = this.chipEls.get(id);
+    if (!c) return;
+    if (this.peekView.has(id)) this.peekView.hide(id, () => {}, true);
+    this.peeks.forget(id);
+    c.el.remove();
+    this.chipEls.delete(id);
+  }
   private makeChip(def: ChipDef) {
     const el = document.createElement('div');
     el.className = 'chip-slot';
@@ -191,35 +326,71 @@ export class HudView implements HudRenderer {
     try { def.render(el); } catch (e) { console.error(`[hud] chip ${def.id}.render`, e); }
     return el;
   }
+  private isLive(def: ChipDef) { return def.peek === 'live' || LIVE_CHIPS.has(def.id); }
+  /** 칩 제자리: 시계는 왼쪽 위, 상황 칩은 게이지 줄, 나머지는 숨은 보관함(떠오르거나 주머니가 빌려 간다) */
+  private giveBack(el: HTMLElement) {
+    const id = el.dataset.chip ?? '';
+    const c = this.chipEls.get(id);
+    if (!c || c.el !== el) return;
+    const home = id === CLOCK_CHIP ? this.clockSlot : this.isLive(c.def) ? this.livesEl : this.store;
+    // 주머니 무지개에 빌려 가 있는 동안엔 그대로 둔다(닫힐 때 돌려받는다)
+    if (this.pocket.isOpen && el.closest('.pocket') && id !== CLOCK_CHIP) return;
+    if (el.parentElement !== home) home.appendChild(el);
+  }
   refreshChips(): void {
-    // 레지스트리 순서(order)대로 다시 꽂는다. 모르는 칩은 새로 만든다
+    // 레지스트리 순서(order)대로 제자리에 다시 꽂는다. 모르는 칩은 새로 만든다
     const defs = this.game.hud.chips();
     const want = new Set(defs.map((d) => d.id));
     for (const id of [...this.chipEls.keys()]) if (!want.has(id)) this.removeChip(id);
     for (const d of defs) {
-      let c = this.chipEls.get(d.id);
-      if (!c || c.def !== d) { this.addChip(d); c = this.chipEls.get(d.id)!; }
-      this.chipsEl.appendChild(c.el);
+      const c = this.chipEls.get(d.id);
+      if (!c || c.def !== d) { this.addChip(d); continue; }
+      if (!this.peekView.has(d.id) && !c.el.closest('.pocket')) this.giveBack(c.el);
     }
   }
-  private updateChips(dt: number) {
+  /** 칩이 지금 보이는 모양인가(칩들은 style.display 로 스스로 숨는다) */
+  private chipVisible(el: HTMLElement) {
+    if (el.style.display === 'none') return false;
+    const f = el.firstElementChild as HTMLElement | null;
+    return !f || f.style.display !== 'none';
+  }
+  private updateChips(dt: number, t: number) {
+    const canPeek = this.startedFlag && !this.cur && !this.hiddenFlag && this.presentGate(t);
     for (const { def, el } of this.chipEls.values()) {
-      if (!def.update) continue;
-      try { def.update(el, dt); } catch (e) { console.error(`[hud] chip ${def.id}.update`, e); }
+      if (def.update) { try { def.update(el, dt); } catch (e) { console.error(`[hud] chip ${def.id}.update`, e); } }
+      if (def.id === CLOCK_CHIP || this.isLive(def)) continue;
+      const sig = chipSig(el.textContent, this.chipVisible(el));
+      this.applyPeek(this.peeks.observe(def.id, sig, t, { auto: def.peek !== false, canPeek }), t);
+    }
+    for (const id of this.peeks.update(t, hold())) this.peekView.hide(id, (el) => this.giveBack(el));
+  }
+  private applyPeek(r: PeekResult, t: number) {
+    if (!r) return;
+    for (const id of r.evicted ?? []) this.peekView.hide(id, (el) => this.giveBack(el));
+    if (r.start) {
+      const c = this.chipEls.get(r.start);
+      if (!c) { this.peeks.forget(r.start); return; }
+      this.peekView.show(r.start, c.el, this.project(1.4));
+      this.bumpAt.set(r.start, t);
+    } else if (r.extend) {
+      // 숫자가 촤르르 올라가는 동안 매번 흔들지 않게
+      if (t - (this.bumpAt.get(r.extend) ?? 0) > 900) { this.bumpAt.set(r.extend, t); this.peekView.bump(r.extend); }
     }
   }
-
-  // ───────────── 키 안내 ─────────────
-  addHotkey(_def: HotkeyDef): void { this.keysDirty = true; }
-  removeHotkey(_def: HotkeyDef): void { this.keysDirty = true; }
-  private drawKeys() {
-    this.keysDirty = false;
-    const list = keyHints(this.game.hud.hotkeys());
-    const sig = list.map((k) => k.cap + k.label).join('|');
-    if (this.keysEl.dataset.sig === sig) return;
-    this.keysEl.dataset.sig = sig;
-    this.keysEl.innerHTML = list.map((k) => `<div class="key dl-card"><b>${esc(k.cap)}</b>${esc(k.label)}</div>`).join('');
+  /** game.hud.peek(id, ms) — 칩을 일부러 잠깐 띄운다(놀기 전·창/주머니가 열려 있으면 무시) */
+  peekChip(id: string, ms?: number): void {
+    const t = now();
+    const c = this.chipEls.get(id);
+    if (!c || id === CLOCK_CHIP || this.isLive(c.def)) return;
+    if (!this.startedFlag || this.cur || this.hiddenFlag || !this.chipVisible(c.el)) return;
+    this.applyPeek(this.peeks.request(id, ms, t), t);
   }
+  /** 디버그: 떠 있는 칩 */
+  peekList() { return [...this.peeks.stack]; }
+
+  // ───────────── 단축키(안내 줄은 없다 — 주머니 '조작 안내'가 읽는다) ─────────────
+  addHotkey(_def: HotkeyDef): void { /* 늘 떠 있는 키 줄은 없앴다(wave 7) */ }
+  removeHotkey(_def: HotkeyDef): void { /* 위와 같음 */ }
 
   // ───────────── 행동 안내 칩(E·F) ─────────────
   setPrompts(chips: PromptChip[]) {
@@ -229,22 +400,46 @@ export class HudView implements HudRenderer {
     this.promptsEl.innerHTML = chips.map((c) => `<div class="pchip dl-card${c.main ? '' : ' alt'}"><b>${esc(c.cap)}</b>${esc(c.label)}</div>`).join('');
   }
 
-  // ───────────── 배너·카드 ─────────────
-  showBanner(b: BannerOpts): void { this.banners.push(b); this.pumpQueues(); }
+  // ───────────── 큰 연출 자리(배너·지역 이름) · 카드 ─────────────
+  showBanner(b: BannerOpts): void { this.stage.push({ kind: 'banner', ms: b.ms ?? 2600, b }); this.pumpQueues(); }
   showCard(c: CardOpts): void { this.cards.push(c); this.pumpQueues(); }
+  /** 하위 호환(__hud.banners): 지금 배너 + 기다리는 배너 */
+  get banners() {
+    const st = this.stage;
+    return {
+      get cur() { const c = st.cur; return c?.kind === 'banner' ? c.b : null; },
+      pending: () => st.pending().filter((x): x is Extract<StageEntry, { kind: 'banner' }> => x.kind === 'banner').map((x) => x.b),
+    };
+  }
+  stageBusy(): boolean { const t = now(); return this.stage.busy(t) || !this.presentGate(t); }
+  stageClaim(ms: number): void { this.stage.claim(ms, now()); }
   private pumpQueues() {
     const t = now(), hd = hold();
-    const b = this.banners.update(t, hd);
-    if (b?.show) {
-      const x = b.show;
-      this.bannerEl.style.setProperty('--bc', x.color ?? '#ffb36b');
-      (this.bannerEl.querySelector('.bt') as HTMLElement).innerHTML = `${x.icon ? `<span>${esc(x.icon)}</span>` : ''}${esc(x.text)}`;
-      const sub = this.bannerEl.querySelector('.bs') as HTMLElement;
-      sub.textContent = x.sub ?? '';
-      sub.style.display = x.sub ? '' : 'none';
-      this.bannerEl.classList.remove('on'); void this.bannerEl.offsetWidth; this.bannerEl.classList.add('on');
-    } else if (b?.hide) this.bannerEl.classList.remove('on');
-    const c = this.cards.update(t, hd);
+    const gate = this.presentGate(t);
+    const u = this.stage.update(t, gate, hd);
+    if (u?.hide) this.offStage(u.hide);
+    if (u?.show) {
+      const x = u.show;
+      if (x.kind === 'banner') {
+        const b = x.b;
+        this.bannerEl.style.setProperty('--bc', b.color ?? '#ffb36b');
+        (this.bannerEl.querySelector('.bt') as HTMLElement).innerHTML = `${b.icon ? `<span>${esc(b.icon)}</span>` : ''}${esc(b.text)}`;
+        const sub = this.bannerEl.querySelector('.bs') as HTMLElement;
+        sub.textContent = b.sub ?? '';
+        sub.style.display = b.sub ? '' : 'none';
+        this.bannerEl.classList.remove('on'); void this.bannerEl.offsetWidth; this.bannerEl.classList.add('on');
+      } else {
+        const r = x.r;
+        (this.region.querySelector('.nm') as HTMLElement).textContent = r.name;
+        (this.region.querySelector('.sub span') as HTMLElement).textContent = r.sub;
+        this.region.style.setProperty('--rc', r.color);
+        this.region.style.setProperty('--rs', r.dark);
+        this.region.classList.remove('on'); void this.region.offsetWidth;
+        this.region.classList.add('on');
+      }
+    }
+    // 카드는 큰 배너가 떠 있거나 숨 고르는 동안 기다린다
+    const c = this.cards.update(t, hd, gate && !this.stage.busy(t));
     if (c?.show) {
       const x = c.show;
       this.cardEl.style.setProperty('--cc', x.color ?? '#ffb36b');
@@ -252,22 +447,49 @@ export class HudView implements HudRenderer {
       (this.cardEl.querySelector('.ct') as HTMLElement).textContent = x.title;
       (this.cardEl.querySelector('.cb') as HTMLElement).textContent = x.body;
       this.cardEl.classList.remove('on'); void this.cardEl.offsetWidth; this.cardEl.classList.add('on');
+      // 큰 연출은 한 번에 하나 — 카드가 떠 있는 동안 배너·지역 이름은 기다린다
+      this.stage.claim(Math.max(400, x.ms ?? 3200), t);
     } else if (c?.hide) this.cardEl.classList.remove('on');
+    this.pumpToasts(t, gate, hd);
+    this.pumpTalk(t, gate);
+  }
+  private offStage(x: StageEntry) {
+    if (x.kind === 'banner') this.bannerEl.classList.remove('on');
+    else this.region.classList.remove('on');
+  }
+  /** 잡았다!·상자처럼 도파민 연출이 가운데를 쓸 때 — 떠 있는 배너는 비켜 주고, 끝날 때까지 기다린다 */
+  private spotlight(ms: number) {
+    const was = this.stage.interrupt(ms, now());
+    if (was) this.offStage(was);
+    this.cardEl.classList.remove('on');
   }
   /** 디버그: 지금 카드 + 기다리는 카드 */
   cardList() { return { current: this.cards.cur, pending: [...this.cards.pending()], dropped: this.cards.dropped }; }
+  /** 디버그: 큰 연출 자리 */
+  stageInfo() { const t = now(); return { cur: this.stage.cur, pending: [...this.stage.pending()], busy: this.stage.busy(t), gate: this.presentGate(t), toast: this.toasts.cur, toastQ: [...this.toasts.pending()] }; }
 
   // ───────────── 게이지 ─────────────
   setGauge(id: string, g: GaugeOpts): void {
     let el = this.gaugeEls.get(id);
+    const vis = gaugeVisible(g);
     if (!el) {
+      if (!vis) return; // 숨긴 게이지는 굳이 만들지 않는다
       el = h(`<div class="gauge dl-card" data-g="${esc(id)}"><div class="gl"><span></span><small></small></div><div class="gb"><i></i></div></div>`);
-      this.gaugesEl.insertBefore(el, this.comboEl);
+      el.style.display = 'none';
+      this.gaugesEl.insertBefore(el, this.livesEl);
       this.gaugeEls.set(id, el);
     }
-    const vis = gaugeVisible(g);
-    el.style.display = vis ? '' : 'none';
-    if (!vis) return;
+    if (!vis) {
+      // 다 차거나 상황이 끝나면 스르르
+      if (el.classList.contains('on')) {
+        el.classList.remove('on');
+        const e = el;
+        window.setTimeout(() => { if (!e.classList.contains('on')) e.style.display = 'none'; }, GAUGE_FADE_MS);
+      }
+      return;
+    }
+    if (el.style.display === 'none') { el.style.display = ''; void el.offsetWidth; }
+    el.classList.add('on');
     const v = gaugeValue(g);
     (el.querySelector('.gl span') as HTMLElement).textContent = g.label;
     (el.querySelector('.gl small') as HTMLElement).textContent = `${Math.floor(v * 100)}%`;
@@ -276,9 +498,13 @@ export class HudView implements HudRenderer {
     el.style.setProperty('--gc', g.color || '#ff9fb8');
     el.classList.toggle('hot', gaugeHot(g));
   }
+  /** 콤보: 5 이상이고 막 늘었을 때만(조금 지나면 스르르) */
   setCombo(n: number) {
-    const on = comboVisible(n);
-    const txt = on ? comboText(n) : '';
+    const t = now();
+    const v = typeof n === 'number' && Number.isFinite(n) ? n : 0;
+    if (v !== this.comboN) { if (v > this.comboN) this.comboAt = t; this.comboN = v; }
+    const on = comboShown(v, this.comboAt, t);
+    const txt = on ? comboText(v) : this.comboEl.textContent ?? '';
     if (this.comboEl.textContent === txt && this.comboEl.classList.contains('on') === on) return;
     this.comboEl.textContent = txt;
     this.comboEl.classList.toggle('on', on);
@@ -287,15 +513,18 @@ export class HudView implements HudRenderer {
 
   // ───────────── 지역 이름 ─────────────
   showRegion(name: string, sub: string, color: string, dark = '#5a3f22'): void {
-    (this.region.querySelector('.nm') as HTMLElement).textContent = name;
-    (this.region.querySelector('.sub span') as HTMLElement).textContent = sub;
-    this.region.style.setProperty('--rc', color);
-    this.region.style.setProperty('--rs', dark);
-    this.region.classList.remove('on'); void this.region.offsetWidth;
-    this.region.classList.add('on');
-    clearTimeout(this.regionTimer);
-    if (!hold()) this.regionTimer = window.setTimeout(() => this.region.classList.remove('on'), 3800);
+    this.stage.push({ kind: 'region', ms: 3800, r: { name, sub, color, dark } });
+    this.pumpQueues();
   }
+
+  // ───────────── 미니맵(설정에서 켜기) ─────────────
+  setMinimap(on: boolean) {
+    this.minimapOn = on;
+    this.mapEl.classList.toggle('off', !on);
+    this.root.classList.toggle('nomap', !on);
+    if (on) this.lastSlow = -1;
+  }
+  get minimap() { return this.minimapOn; }
 
   // ───────────── 지도(+ 등록 층) ─────────────
   drawLayersHint(): void { this.lastSlow = -1; }
@@ -429,17 +658,36 @@ export class HudView implements HudRenderer {
     }
   }
 
-  // ───────────── 지갑 ─────────────
-  bump(sel: '.coinp' | '.starp' | '.keyp') { const el = this.$(`.wallet ${sel}`); el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+  // ───────────── 지갑(칩 'hud:wallet' — 코인·반짝별·열쇠 조각) ─────────────
+  /** 지갑 칩 — hud.ts 가 등록한다. 숫자는 tick 이 통통 세어 올린다 */
+  walletChip(): ChipDef {
+    return {
+      id: 'hud:wallet', order: 10,
+      render: (el) => {
+        el.innerHTML = '<div class="wallet"><div class="pill dl-card coinp"><div class="ic coin">₩</div><span class="v">0</span></div><div class="pill dl-card starp"><div class="ic star">★</div><span class="v">0</span></div><div class="pill dl-card keyp" style="display:none"></div></div>';
+        this.coinV = el.querySelector('.coinp .v'); this.starV = el.querySelector('.starp .v'); this.keyP = el.querySelector('.keyp');
+        this.keySig = '';
+        this.updateWallet();
+      },
+    };
+  }
+  bump(sel: '.coinp' | '.starp' | '.keyp') {
+    const el = this.root.querySelector(`[data-chip="hud:wallet"] ${sel}`) as HTMLElement | null;
+    if (!el) return;
+    el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+  }
+  /** 돈이 바뀌면 플레이어 머리 위에서 '+120 ₩' 이 몽글 떠오른다 */
   coinDelta(d: number) {
-    if (!d) return;
-    const el = h(`<div class="delta">${d > 0 ? '+' : ''}${fmt(d)}</div>`);
-    if (d < 0) el.style.webkitTextStroke = '5px #c56b6b';
-    this.root.appendChild(el);
-    setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(-20px)'; }, 900);
-    setTimeout(() => el.remove(), 1600);
+    if (!d || !this.startedFlag || this.hiddenFlag) return;
+    const up = d > 0;
+    this.floats.pop(`${up ? '+' : '−'}${fmt(Math.abs(d))} ₩`, this.head(), up ? '#ffe27a' : '#ffc2c2', up ? '#c98a12' : '#c56b6b');
+  }
+  starDelta(d: number) {
+    if (!d || !this.startedFlag || this.hiddenFlag) return;
+    this.floats.pop(`${d > 0 ? '+' : '−'}${fmt(Math.abs(d))} ★`, this.head(), '#e6dcff', '#7d66e0');
   }
   private updateWallet() {
+    if (!this.coinV || !this.starV || !this.keyP) return;
     const st = this.game.state;
     const E = this.game.econ;
     this.shownCoins = countStep(this.shownCoins, st.coins);
@@ -458,48 +706,104 @@ export class HudView implements HudRenderer {
     }
   }
 
+  // ───────────── 안내 말풍선(반짝이) ─────────────
+  showHint(hn: HintOpts): boolean { return this.hints.push(hn); }
+  hideHint(id: string): void {
+    const cur = this.hints.cur?.h.id === id ? this.hints.cur.h : null;
+    this.hints.remove(id);
+    if (!cur || this.hintView.current !== id) return;
+    // 해냈으면(until 참) 반짝 퐁, 아니면 스르르
+    let done = false;
+    try { done = !!cur.until?.(); } catch { done = false; }
+    this.hintView.hide(done ? 'done' : 'remove');
+  }
+  private pumpHints(t: number, dt: number) {
+    // 창·주머니·컷신·놀기 전·HUD 숨김이면 반짝이는 잠깐 숨는다
+    const gate = this.startedFlag && !this.cur && !this.hiddenFlag && this.presentGate(t);
+    const u = this.hints.update(t, gate);
+    if (u?.hide) this.hintView.hide(u.why ?? 'remove');
+    if (u?.show) { this.hintView.show(u.show); try { this.game.audio?.sfx('ui-click', { pitch: 1.6, vol: 0.4 }); } catch { /* 소리 없음 */ } }
+    if (this.hintView.current) {
+      // 부른 쪽이 자리를 주면(onboarding 반짝이 자리) 거기, 아니면 플레이어 어깨 옆
+      let a: { x: number; y: number } | null = null;
+      const fn = this.hints.cur?.h.anchor;
+      if (fn) { try { a = fn(); } catch { a = null; } }
+      if (!a) { const p = this.project(1.55); a = p ? { x: p.x + 54, y: p.y - 18 } : null; }
+      this.hintView.tick(a, dt);
+    }
+  }
+  hintInfo() { return { cur: this.hints.cur?.h.id ?? null, pending: this.hints.pending().map((x) => x.h.id), seen: [...this.hints.seen] }; }
+
+  // ───────────── 토스트 한 줄 ─────────────
+  private pumpToasts(t: number, gate: boolean, hd: boolean) {
+    const u = this.toasts.update(t, gate, hd);
+    const host = this.game.ui.toasts;
+    if (!host || !u) return;
+    if (u.show) {
+      // 앞 줄은 위로 스르르 비켜 가고, 새 줄이 그 자리에 퐁
+      if (this.toastEl) { const old = this.toastEl; old.classList.add('gone'); window.setTimeout(() => old.remove(), 260); }
+      const d = this.makeToast(u.show.text);
+      host.appendChild(d);
+      this.toastEl = d;
+    } else if (u.hide && this.toastEl) {
+      const old = this.toastEl;
+      this.toastEl = null;
+      old.classList.add('gone');
+      window.setTimeout(() => old.remove(), 300);
+    }
+  }
+  private makeToast(text: string) {
+    const toastIcon = (s: string) =>
+      /코인|팔았|🪙/.test(s) ? '🪙' : /공룡|알/.test(s) ? '🦕' : /도감|기록/.test(s) ? '📖' : /샀다|구매/.test(s) ? '🛍️' : /열쇠/.test(s) ? '🗝️' : /완성|뚝딱/.test(s) ? '🔨' : /기증|스탬프/.test(s) ? '🏛️' : /가방/.test(s) ? '🎒' : /모자라|못|💦/.test(s) ? '💦' : /상자/.test(s) ? '🎁' : '✨';
+    const d = document.createElement('div');
+    d.className = 'toast dl-toast';
+    const ic = document.createElement('span'); ic.className = 'ti'; ic.textContent = toastIcon(text);
+    const tx = document.createElement('span'); tx.className = 'tt'; tx.textContent = text;
+    d.title = text;
+    d.append(ic, tx);
+    return d;
+  }
+
   // ───────────── 매 프레임 ─────────────
   tick(dt: number) {
     const n = now();
+    this.syncStarted(n);
+    this.watchFocus(n);
     this.updateWallet();
     this.pumpQueues();
-    if (this.keysDirty) this.drawKeys();
+    this.pumpHints(n, dt);
+    this.pocket.tick(n);
     if (this.lastChip < 0 || n - this.lastChip >= 100) {
-      this.updateChips(this.lastChip < 0 ? dt : (n - this.lastChip) / 1000);
+      this.updateChips(this.lastChip < 0 ? dt : (n - this.lastChip) / 1000, n);
       this.lastChip = n;
     }
     if (this.lastSlow >= 0 && n - this.lastSlow < 200) return;
     this.lastSlow = n;
     // 집·박물관 안(먼바다 위 먼 좌표)에서는 지역 배너·지도를 그대로 둔다 — 실내 이름 카드는 interiors 가 띄운다
     if ((this.game.ext as { interiors?: { current?(): string | null } }).interiors?.current?.()) return;
-    this.updatePlace();
-    this.drawMap();
+    // 놀기 전(타이틀 위 하늘 구경)엔 지역 이름을 아껴 둔다 — 시작하고 나서 지금 있는 섬 이름이 뜬다
+    if (this.startedFlag) this.updatePlace();
+    if (this.minimapOn) this.drawMap();
   }
-  setHidden(on: boolean) { this.root.classList.toggle('hidden', on); }
+  setHidden(on: boolean) {
+    this.hiddenFlag = on;
+    this.root.classList.toggle('hidden', on);
+    if (on) { this.peeks.clear(now()); this.peekView.clear((el) => this.giveBack(el)); }
+  }
 
   // ───────────── 토스트·대화 ─────────────
   toast(text: string): void { this.game.ui.toast(text); }
 
-  /** core ui.toast 를 감싼다: '이름: 대사' 는 대화창, 나머지는 아이콘 토스트(같은 틀은 묶고, 같은 글은 1.5초 안에 한 번) */
+  /** core ui.toast 를 감싼다: '이름: 대사' 는 대화창, 나머지는 한 줄 토스트(같은 틀은 묶고, 같은 글은 1.5초 안에 한 번) */
   installToast() {
     const game = this.game;
     let pend: Array<{ text: string; ms: number }> = [];
     let flushQ = false;
-    const toastIcon = (s: string) =>
-      /코인|팔았|🪙/.test(s) ? '🪙' : /공룡|알/.test(s) ? '🦕' : /도감|기록/.test(s) ? '📖' : /샀다|구매/.test(s) ? '🛍️' : /열쇠/.test(s) ? '🗝️' : /완성|뚝딱/.test(s) ? '🔨' : /기증|스탬프/.test(s) ? '🏛️' : /가방/.test(s) ? '🎒' : /모자라|못|💦/.test(s) ? '💦' : /상자/.test(s) ? '🎁' : '✨';
     const pushToast = (text: string, ms: number) => {
-      const host = game.ui.toasts;
-      if (!host) return this.coreToast(text, ms);
+      if (!game.ui.toasts) return this.coreToast(text, ms);
       if (!this.dedupe.allow(text, now())) return;
-      while (host.children.length >= 3) host.firstElementChild!.remove();
-      const d = document.createElement('div');
-      d.className = 'toast dl-toast';
-      const ic = document.createElement('span'); ic.className = 'ti'; ic.textContent = toastIcon(text);
-      const tx = document.createElement('span'); tx.textContent = text;
-      d.append(ic, tx);
-      host.appendChild(d);
-      setTimeout(() => { d.style.opacity = '0'; d.style.transform = 'translateY(-8px) scale(.96)'; }, ms - 300);
-      setTimeout(() => d.remove(), ms);
+      this.toasts.push({ text, ms });
+      this.pumpQueues();
     };
     const flush = () => {
       flushQ = false;
@@ -522,12 +826,25 @@ export class HudView implements HudRenderer {
     };
     game.ui.toast = (text: string, ms = 2200) => {
       const m = text.match(/^([^:：\s][^:：]{0,11})\s*[:：]\s+(.+)$/s);
-      if (m && !/^E\s/.test(text)) { this.say(m[1].trim(), m[2].trim(), ms); return; }
+      if (m && !/^E\s/.test(text)) {
+        // 아직 못 보여 줄 때(놀기 전·컷신)·앞 대사가 아직 떠 있을 때는 줄 세워 뒀다가 차례로 — 아무도 못 본 채 사라지지 않게
+        if (!this.presentGate() || this.talkQ.length || now() < this.talkUntil) {
+          this.talkQ.push({ who: m[1].trim(), line: m[2].trim(), ms });
+          while (this.talkQ.length > 4) this.talkQ.shift();
+        } else this.say(m[1].trim(), m[2].trim(), ms);
+        return;
+      }
       pend.push({ text, ms });
       if (!flushQ) { flushQ = true; requestAnimationFrame(flush); setTimeout(() => flushQ && flush(), 60); }
     };
   }
 
+  /** 기다리던 대사 — 문이 열려 있고 앞 대사가 끝났으면 하나 */
+  private pumpTalk(t: number, gate: boolean) {
+    if (!gate || !this.talkQ.length || t < this.talkUntil) return;
+    const x = this.talkQ.shift()!;
+    this.say(x.who, x.line, x.ms);
+  }
   /** 대화창(동숲식): 이름표 색은 이름 해시, 한 글자씩 타자(촬영 모드면 한 번에) */
   say(who: string, line: string, ms = 3600) {
     const NAME_COL = ['#ff9cb8', '#7cc8ff', '#9bd77a', '#ffbe3b', '#c59bff', '#ff9f8a'];
@@ -544,7 +861,9 @@ export class HudView implements HudRenderer {
       let i = 0;
       this.typeTimer = window.setInterval(() => { tx.textContent = chars.slice(0, ++i).join(''); if (i >= chars.length) clearInterval(this.typeTimer); }, 38);
     }
-    if (!hold()) this.talkTimer = window.setTimeout(() => talk.classList.remove('on'), Math.max(ms, chars.length * 38 + 1800));
+    const dur = Math.max(ms, chars.length * 38 + 1800);
+    this.talkUntil = now() + dur;
+    if (!hold()) this.talkTimer = window.setTimeout(() => talk.classList.remove('on'), dur);
   }
 
   // ───────────── 색종이·잡았다·상자 ─────────────
@@ -584,6 +903,8 @@ export class HudView implements HudRenderer {
       <div class="info">${CAT_ICON[s.category] ?? '📦'} ${c.sizeText ? esc(c.sizeText) + ' · ' : ''}도감 ${got}/${total}${!witness && price ? ` · ${fmt(price)}코인` : ''}${witness ? ' · 도감에 적었어요' : ''}</div>
       ${c.line ? `<div class="line">${esc(c.line)}</div>` : ''}
       ${isNew ? '<div class="stamp">NEW</div>' : ''}`;
+    // 잡았다!는 가운데 혼자 — 떠 있던 배너는 비켜 주고 끝날 때까지 기다린다
+    this.spotlight(3000);
     this.catchEl.classList.remove('on'); void this.catchEl.offsetWidth; this.catchEl.classList.add('on');
     this.confetti(this.catchEl, [col, '#ffffff', '#ffe58a', '#ffb3c8', '#a8e6ff'], 18 + s.rarity * 8);
     clearTimeout(this.catchTimer);
@@ -597,6 +918,7 @@ export class HudView implements HudRenderer {
       // 미믹 상자 — 빈 카드 대신 깜짝 문구
       this.lootEl.style.setProperty('--rc', '#ff8fb1');
       this.lootEl.innerHTML = `<div class="tier">미믹 상자게다! 🦀</div><div class="row"><div class="it dl-card" style="animation-delay:0.25s">상자가 꿈틀꿈틀 도망쳤어요!</div></div>`;
+      this.spotlight(2600);
       this.lootEl.classList.remove('on'); void this.lootEl.offsetWidth; this.lootEl.classList.add('on');
       this.confetti(this.lootEl, ['#ff8fb1', '#ffffff', '#ffe58a'], 20);
       clearTimeout(this.lootTimer);
@@ -607,14 +929,16 @@ export class HudView implements HudRenderer {
     this.lootEl.style.setProperty('--rc', T.color);
     this.lootEl.innerHTML = `<div class="tier">${esc(T.name)} 상자!</div><div class="row">${loot.map((l, i) =>
       `<div class="it dl-card" style="animation-delay:${0.25 + i * 0.12}s">${ico(l.id)} ${esc(l.name ?? (l.id === 'coins' ? '코인' : l.id === 'stars' ? '반짝별' : this.look.name(l.id)))} ×${fmt(l.n)}</div>`).join('')}</div>`;
+    this.spotlight(3400);
     this.lootEl.classList.remove('on'); void this.lootEl.offsetWidth; this.lootEl.classList.add('on');
     this.confetti(this.lootEl, [T.color, T.glow, '#ffe58a', '#fff'], T.n);
     clearTimeout(this.lootTimer);
     if (!hold()) this.lootTimer = window.setTimeout(() => this.lootEl.classList.remove('on'), 3400);
   }
 
-  /** 칩 하나 흔들기(가방 꽉 참 등) */
+  /** 칩 하나 흔들기(가방 꽉 참 등) — 숨어 있으면 먼저 살짝 띄운다 */
   shakeChip(id: string) {
+    this.peekChip(id, 2600);
     const el = this.chipEls.get(id)?.el.firstElementChild as HTMLElement | null;
     if (!el) return;
     el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');

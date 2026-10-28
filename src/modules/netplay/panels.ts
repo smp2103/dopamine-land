@@ -61,7 +61,6 @@ export const NET_CSS = `
 #dl .np-chip.on .dot { background: #7ccf8a; box-shadow: 0 0 6px #7ccf8a; }
 #dl .np-chip.wait .dot { background: #ffbe3b; animation: np-blink 1s infinite; }
 #dl .np-chips { display: flex; gap: 6px; }
-#dl .np-sv { pointer-events: auto; cursor: pointer; padding: 6px 10px; }
 @keyframes np-blink { 50% { opacity: .3 } }
 `;
 
@@ -418,13 +417,12 @@ export function registerNetUi(game: Game, ctl: NetController) {
   game.hud.registerPanel(friends);
   game.hud.registerPanel(save);
 
-  // ── 칩: 친구 상태 + 세이브
+  // ── 칩: 친구 상태(세이브는 친구 창 안 '💾 세이브 코드' 단추로 — 늘 떠 있는 💾 칩은 wave 7 에서 뺐다)
   game.hud.registerChip({
     id: 'netplay:friends', order: 60,
     render(el) {
-      el.innerHTML = '<div class="np-chips"><div class="chip dl-card np-chip" title="친구 (T)"><div class="ci">👫</div><span class="v">친구</span><i class="dot"></i></div><div class="chip dl-card np-sv" title="세이브 코드">💾</div></div>';
+      el.innerHTML = '<div class="np-chips"><div class="chip dl-card np-chip" title="친구 (T)"><div class="ci">👫</div><span class="v">친구</span><i class="dot"></i></div></div>';
       (el.querySelector('.np-chip') as HTMLElement).onclick = () => game.hud.toggle('friends', ctl.status === 'connected' ? 'play' : 'link');
-      (el.querySelector('.np-sv') as HTMLElement).onclick = () => game.hud.toggle('save');
     },
     update(el) {
       const box = el.querySelector('.np-chip') as HTMLElement | null;

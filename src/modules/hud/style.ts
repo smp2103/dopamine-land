@@ -24,36 +24,19 @@ export const CSS = `
 .dl-card { background: linear-gradient(180deg, #fffdf6 0%, ${UI_BG} 100%); border: 3px solid #fff; border-radius: 22px;
   box-shadow: 0 5px 0 #ead6ad, 0 12px 26px #6b4a2b2e; }
 
-/* 좌상단: 시계 */
-#dl .clock { position: absolute; left: 18px; top: 16px; padding: 8px 16px 8px 12px; display: flex; align-items: center; gap: 10px; }
-#dl .clock .sun { width: 38px; height: 38px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff6b0, #ffc94a 60%, #ffa23a); box-shadow: 0 0 0 4px #fff3c8, 0 0 18px #ffcf5a; }
-#dl .clock .sun.night { background: radial-gradient(circle at 35% 35%, #fffbe8, #e8e3ff 60%, #b9afff); box-shadow: 0 0 0 4px #ece8ff, 0 0 18px #b9afff; }
-#dl .clock .t { font-size: 28px; line-height: 1; color: ${UI_TEXT}; letter-spacing: 1px; }
-#dl .clock .d { font-size: 14px; color: #a88a66; margin-top: 2px; }
-#dl .clock .place { font-size: 14px; color: #fff; background: #8ccf7e; border-radius: 999px; padding: 2px 10px; margin-left: 4px; box-shadow: 0 2px 0 #64a85a; }
-
-/* 우상단: 코인·별 */
-#dl .wallet { position: absolute; right: 18px; top: 16px; display: flex; gap: 10px; }
+/* 지갑(칩 'hud:wallet' 안 — 떠오르거나 주머니 무지개에서만 보인다) */
+#dl .wallet { display: flex; gap: 8px; }
 #dl .pill { display: flex; align-items: center; gap: 8px; padding: 6px 16px 6px 8px; font-size: 22px; }
 #dl .pill .ic { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; color: #fff; }
 #dl .pill .ic.coin { background: radial-gradient(circle at 35% 30%, #fff3a0, #ffcd3c 55%, #f0a020); box-shadow: inset 0 -3px 0 #d98a12, 0 0 0 3px #fff2c0; color: #b06a00; font-size: 16px; }
 #dl .pill .ic.star { background: radial-gradient(circle at 35% 30%, #fff, #c9b8ff 60%, #9d86ff); box-shadow: inset 0 -3px 0 #7d66e0, 0 0 0 3px #ece6ff; }
 #dl .pill.bump .ic { animation: dl-coin .5s ease; }
-#dl .delta { position: absolute; right: 24px; top: 70px; font-size: 24px; color: #fff; -webkit-text-stroke: 5px #d98a12; paint-order: stroke fill; animation: dl-pop .3s; transition: opacity .6s, transform .6s; }
 
 /* 우하단: 미니맵 */
 #dl .map { position: absolute; right: 18px; bottom: 18px; width: 196px; height: 196px; border-radius: 50%; padding: 6px; }
 #dl .map canvas { width: 100%; height: 100%; border-radius: 50%; display: block; }
 #dl .map .n { position: absolute; left: 50%; top: -6px; transform: translateX(-50%); background: #ff8f8f; color: #fff; border-radius: 999px; padding: 0 9px; font-size: 15px; box-shadow: 0 3px 0 #db6a6a; border: 2px solid #fff; }
 #dl .map .lbl { position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%); white-space: nowrap; font-size: 14px; padding: 2px 12px; border-radius: 999px; background: #fff; box-shadow: 0 3px 0 #ead6ad; }
-
-/* 좌하단: 단축키 */
-#dl .keys { position: absolute; left: 18px; bottom: 18px; display: flex; gap: 8px; }
-#dl .key { display: flex; align-items: center; gap: 6px; padding: 6px 12px 6px 6px; font-size: 16px; border-radius: 16px; }
-#dl .key b { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 9px; background: #fff; border: 2px solid #e6d3ae; box-shadow: 0 3px 0 #e6d3ae; font-weight: normal; font-size: 14px; color: #8a6b48; }
-#dl .help { position: absolute; left: 50%; bottom: 24%; transform: translateX(-50%); padding: 14px 22px; font-size: 17px; display: grid; grid-template-columns: repeat(4, auto); gap: 8px 18px; align-items: center; animation: dl-in .5s cubic-bezier(.3,1.5,.5,1); transition: opacity .8s; }
-#dl .help .k { display: flex; gap: 6px; align-items: center; }
-#dl .help .title { grid-column: 1 / -1; text-align: center; font-size: 20px; color: #e38b57; }
 
 /* 지역명 (젤다식) */
 #dl .region { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); text-align: center; opacity: 0; transition: opacity 1s; }
@@ -129,23 +112,6 @@ export const CSS = `
 #dl .bar { height: 12px; border-radius: 12px; background: #f1e2c4; overflow: hidden; margin-top: 4px; } #dl .bar i { display: block; height: 100%; background: linear-gradient(90deg, #8fdc9a, #ffd36b); border-radius: 12px; }
 
 /* ─── 폴리시 v2 ─── */
-/* 시계 아이콘: 낮 해 · 노을 · 새벽 · 밤 달 · 우주 행성 */
-#dl .clock .sun { position: relative; transition: background .6s, box-shadow .6s; }
-#dl .clock .sun.dusk { background: radial-gradient(circle at 50% 30%, #fff1b8, #ffb05a 45%, #ff7a8a 80%); box-shadow: 0 0 0 4px #ffe1cf, 0 0 18px #ff9a6a; }
-#dl .clock .sun.dusk::after { content: ''; position: absolute; left: -4px; right: -4px; bottom: -4px; height: 45%; background: #fff6e2; border-radius: 0 0 22px 22px; border-top: 3px solid #ffb27a; }
-#dl .clock .sun.dawn { background: radial-gradient(circle at 40% 35%, #fffde6, #ffd6a8 55%, #ffb3c8); box-shadow: 0 0 0 4px #ffeef2, 0 0 16px #ffc7d6; }
-#dl .clock .sun.night { background: #ffeeb0; box-shadow: 0 0 0 4px #e5e2ff, 0 0 18px #b9afff; }
-#dl .clock .sun.night::after { content: ''; position: absolute; width: 30px; height: 30px; border-radius: 50%; right: -5px; top: -4px; background: linear-gradient(180deg, #fffefa, #fff6e2); }
-#dl .clock .sun.night::before { content: '✦'; position: absolute; left: -6px; top: -8px; font-size: 13px; color: #b9afff; }
-#dl .clock .sun.planet { background: radial-gradient(circle at 35% 30%, #fff, #c9b8ff 55%, #8b74f0); box-shadow: 0 0 0 4px #ece6ff, 0 0 18px #a99bff; }
-#dl .clock .sun.planet::after { content: ''; position: absolute; left: -9px; right: -9px; top: 15px; height: 8px; border-radius: 50%; border: 3px solid #ffd23f; transform: rotate(-16deg); }
-#dl .clock .o2 { display: none; }
-#dl .clock.space { background: linear-gradient(180deg, #4a4fa8, #2d3175); border-color: #c9c2ff; box-shadow: 0 5px 0 #1d2257, 0 12px 26px #0006; }
-#dl .clock.space { padding-bottom: 20px; }
-#dl .clock.space .t { color: #fff; font-size: 26px; }
-#dl .clock.space .d { color: #c9c2ff; }
-#dl .clock.space .o2 { display: block; position: absolute; left: 62px; right: 16px; bottom: 8px; height: 6px; border-radius: 6px; background: #ffffff26; overflow: hidden; }
-#dl .clock.space .o2 i { display: block; height: 100%; background: linear-gradient(90deg, #7ef0ff, #b7ffcf); border-radius: 6px; }
 #dl .map.space { background: linear-gradient(180deg, #4a4fa8, #2d3175); border-color: #c9c2ff; }
 
 /* 지역명: 흰 글자 + 진한 외곽선 + 색 그림자 — 어떤 땅 위에서도 읽힌다 */
@@ -156,8 +122,6 @@ export const CSS = `
 
 /* 잡았다: 화면 아래 1/3 — 머리 위 물고기를 가리지 않게 */
 #dl .catch { top: auto; bottom: 7%; }
-#dl:has(.catch.on) .keys, #dl:has(.loot.on) .keys { opacity: 0; }
-#dl .keys { transition: opacity .3s; }
 #dl .catch .burst { width: 440px; height: 440px; margin: -220px 0 0 -220px; opacity: .22; }
 #dl .catch .box { padding: 18px 40px 14px; border-width: 4px; }
 #dl .catch .nm { font-size: 44px; }
@@ -166,8 +130,10 @@ export const CSS = `
 #ui .toasts { top: 104px !important; }
 #ui .toast.dl-toast { display: flex; align-items: center; gap: 10px; background: ${UI_BG} !important; color: ${UI_TEXT} !important; border: 3px solid #fff;
   padding: 7px 20px 7px 8px !important; font-size: 19px !important; border-radius: 999px !important; box-shadow: 0 4px 0 #e2c08a, 0 10px 22px #4a2f1733 !important;
-  transition: opacity .3s, transform .3s; }
-#ui .toast .ti { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 19px; background: radial-gradient(circle at 35% 30%, #fff, #ffe2a8); box-shadow: inset 0 -3px 0 #f0c878; }
+  transition: opacity .3s, transform .3s; max-width: min(760px, calc(100vw - 32px)); box-sizing: border-box; }
+/* 토스트는 한 줄 — 넘치면 … (전체 글은 title) */
+#ui .toast.dl-toast .tt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ui .toast .ti { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 19px; background: radial-gradient(circle at 35% 30%, #fff, #ffe2a8); box-shadow: inset 0 -3px 0 #f0c878; flex-shrink: 0; }
 
 /* 대화창(동숲식) */
 #dl .talk { position: absolute; left: 50%; bottom: 40px; width: min(820px, 88vw); min-height: 132px; transform: translateX(-50%) translateY(30px) scale(.94);
@@ -180,7 +146,6 @@ export const CSS = `
 #dl .talk .tx { font-size: 28px; line-height: 1.45; color: ${UI_TEXT}; min-height: 42px; word-break: keep-all; }
 #dl .talk .nx { position: absolute; right: 34px; bottom: 12px; font-size: 20px; color: #f0a040; animation: dl-nx .8s ease-in-out infinite; }
 @keyframes dl-nx { 0%,100% { transform: translateY(0) } 50% { transform: translateY(5px) } }
-#dl:has(.talk.on) .keys { opacity: 0; }
 
 /* 창: 도감은 넓게, 탭 한 줄 고정 */
 #dl .win.wide { width: min(980px, 94vw); height: min(640px, 86vh); }
@@ -207,9 +172,6 @@ export const CSS = `
 #dl .empty .e2 { font-size: 18px; color: #a88a66; margin-top: 4px; }
 
 /* ─── HUD v2: 칩 칸·지갑·키 안내·행동 안내·배너·카드·게이지 ─── */
-/* 왼쪽 위 칩 칸(시계·가방 + 다른 모듈 칩, order 순) */
-#dl .chips { position: absolute; left: 18px; top: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-height: calc(100vh - 260px); }
-#dl .chips .clock { position: relative; left: auto; top: auto; }
 #dl .chip { padding: 6px 14px 6px 8px; font-size: 17px; display: flex; align-items: center; gap: 8px; border-radius: 18px; }
 #dl .chip .ci { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; background: radial-gradient(circle at 35% 30%, #fff, #ffe2a8); box-shadow: inset 0 -3px 0 #f0c878; flex: none; }
 #dl .chip.bagc .bar { width: 64px; height: 8px; border-radius: 8px; background: #f1e2c4; overflow: hidden; }
@@ -218,8 +180,6 @@ export const CSS = `
 #dl .chip.bagc.full { color: #d9576f; }
 #dl .chip.shake { animation: dl-shake .5s ease; }
 @keyframes dl-shake { 0%,100% { transform: none } 20% { transform: translateX(-6px) rotate(-3deg) } 40% { transform: translateX(6px) rotate(3deg) } 60% { transform: translateX(-4px) } 80% { transform: translateX(3px) } }
-#dl .clock .d .wd { display: inline-block; background: #ffe7c2; color: #a8743a; border-radius: 8px; padding: 0 6px; margin-right: 4px; }
-#dl .clock .t .wi { font-size: 22px; margin-left: 6px; vertical-align: 2px; }
 
 /* 지갑: 열쇠 조각 알 */
 #dl .pill.keyp { font-size: 18px; gap: 10px; padding: 6px 14px; }
@@ -230,8 +190,6 @@ export const CSS = `
 #dl .pill .v { min-width: 1ch; display: inline-block; }
 #dl .pill.bump .v { animation: dl-coin .45s ease; }
 
-/* 키 안내(hint 단축키) */
-#dl .keys .key.cap-only { padding-right: 6px; }
 
 /* 행동 안내 칩(E·F) — 코어 프롬프트 대신 */
 #ui .prompt { display: none !important; }
@@ -390,7 +348,175 @@ export const CSS = `
 #dl .islets .ib { opacity: .45; } #dl .islets .ib.on { opacity: 1; }
 #dl .mside .sec { margin: 6px 2px 0; font-size: 16px; }
 
-/* HUD 숨기기(백틱 키 · flags.ui.hudHidden): 창·대화·잡았다는 그대로 */
-#dl.hidden .chips, #dl.hidden .wallet, #dl.hidden .map, #dl.hidden .keys, #dl.hidden .gauges, #dl.hidden .card { opacity: 0 !important; pointer-events: none; }
-#dl .chips, #dl .wallet, #dl .map, #dl .gauges { transition: opacity .3s; }
+/* HUD 숨기기(\ 키 · flags.ui.hudHidden): 창·대화·잡았다는 그대로 */
+#dl.hidden .clockslot, #dl.hidden .peeks, #dl.hidden .map, #dl.hidden .gauges, #dl.hidden .card, #dl.hidden .hintb { opacity: 0 !important; pointer-events: none; }
+#dl .clockslot, #dl .map, #dl .gauges { transition: opacity .3s; }
+
+/* ════════════ wave 7 — 비어 있는 화면 · 말랑 주머니 · 떠오르는 방울 · 반짝이 ════════════ */
+/* 놀기 전엔 투명 → 'game:start' 뒤 0.6초 스르르 */
+#dl.prestart { opacity: 0 !important; visibility: hidden; }
+#dl.wake { animation: dl-wake .6s ease-out both; }
+#dl.wake .clockslot { animation: dl-wake-pop .7s .1s cubic-bezier(.3,1.7,.5,1) both; }
+@keyframes dl-wake { 0% { opacity: 0 } 100% { opacity: 1 } }
+@keyframes dl-wake-pop { 0% { transform: scale(.3) translateY(-10px); opacity: 0 } 100% { transform: none; opacity: 1 } }
+
+/* 해/달 시계 방울(왼쪽 위 · 늘 있음 · 창이 열리면 숨는다) */
+#dl .clockslot { position: absolute; left: 16px; top: 14px; transition: opacity .35s, transform .35s; }
+#dl.panel .clockslot { opacity: 0; transform: translateY(-10px) scale(.9); }
+#dl .clock { position: relative; display: flex; align-items: center; gap: 8px; padding: 4px 14px 4px 4px; border-radius: 999px; background: #fffaf0d0; border: 2.5px solid #fff;
+  box-shadow: 0 3px 0 #ead6ad99, 0 6px 16px #6b4a2b1c; transform-origin: 24px 50%; animation: dl-jelly 6s ease-in-out infinite; }
+@keyframes dl-jelly { 0%,100% { transform: scale(1) } 22% { transform: scale(1.025, .975) } 48% { transform: scale(.985, 1.02) } 74% { transform: scale(1.012, .99) } }
+#dl .clock .orb { position: relative; width: 34px; height: 34px; border-radius: 50%; flex: none; transition: background .8s, box-shadow .8s;
+  background: radial-gradient(circle at 35% 32%, #fffbe0, #ffd34a 58%, #ffa63a); box-shadow: 0 0 0 3px #fff3c8, 0 0 14px #ffcf5a; }
+#dl .clock .orb .ray { position: absolute; inset: -7px; border-radius: 50%; z-index: -1; background: repeating-conic-gradient(#ffe27a 0 12deg, transparent 12deg 30deg);
+  -webkit-mask: radial-gradient(circle, transparent 52%, #000 54%, #000 70%, transparent 72%); mask: radial-gradient(circle, transparent 52%, #000 54%, #000 70%, transparent 72%); animation: dl-spin 14s linear infinite; }
+#dl .clock .orb.dawn { background: radial-gradient(circle at 40% 35%, #fffde6, #ffd6a8 55%, #ffb3c8); box-shadow: 0 0 0 3px #ffeef2, 0 0 12px #ffc7d6; }
+#dl .clock .orb.dusk { background: radial-gradient(circle at 50% 30%, #fff1b8, #ffb05a 45%, #ff7a8a 85%); box-shadow: 0 0 0 3px #ffe1cf, 0 0 14px #ff9a6a; }
+#dl .clock .orb.dusk .ray { opacity: .55; }
+#dl .clock .orb.night { background: #fff0b8; box-shadow: 0 0 0 3px #e5e2ff, 0 0 14px #b9afff; overflow: visible; }
+#dl .clock .orb.night .ray { display: none; }
+#dl .clock .orb.night::after { content: ''; position: absolute; width: 27px; height: 27px; border-radius: 50%; right: -4px; top: -3px; background: #fffaf0; }
+#dl .clock .orb.night::before { content: '✦'; position: absolute; left: -7px; top: -9px; font-size: 12px; color: #b9afff; animation: dl-wob 2.4s ease-in-out infinite; }
+#dl .clock .orb.planet { background: radial-gradient(circle at 35% 30%, #fff, #c9b8ff 55%, #8b74f0); box-shadow: 0 0 0 3px #ece6ff, 0 0 14px #a99bff; }
+#dl .clock .orb.planet .ray { display: none; }
+#dl .clock .orb.planet::after { content: ''; position: absolute; left: -8px; right: -8px; top: 13px; height: 7px; border-radius: 50%; border: 2.5px solid #ffd23f; transform: rotate(-16deg); }
+#dl .clock .t { font-size: 20px; line-height: 1; letter-spacing: .5px; }
+#dl .clock .t .wi { font-size: 15px; margin-left: 5px; vertical-align: 1px; }
+#dl .clock .d { font-size: 12px; color: #a88a66; margin-top: 2px; }
+#dl .clock .d .wd { display: inline-block; background: #ffe7c2; color: #a8743a; border-radius: 7px; padding: 0 5px; margin-right: 4px; }
+#dl .clock .o2 { display: none; }
+#dl .clock.space { background: linear-gradient(180deg, #4a4fa8e6, #2d3175e6); border-color: #c9c2ff; box-shadow: 0 3px 0 #1d2257, 0 8px 18px #0005; padding-bottom: 12px; }
+#dl .clock.space .t { color: #fff; } #dl .clock.space .d { color: #c9c2ff; }
+#dl .clock.space .o2 { display: block; position: absolute; left: 44px; right: 14px; bottom: 5px; height: 5px; border-radius: 5px; background: #ffffff26; overflow: hidden; }
+#dl .clock.space .o2 i { display: block; height: 100%; background: linear-gradient(90deg, #7ef0ff, #b7ffcf); border-radius: 5px; }
+
+/* 숨은 칩 보관함(내용은 계속 갱신된다) */
+#dl .chipstore { position: absolute; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
+/* 떠오른 칩 방울(시계 아래, 새 것이 위) */
+#dl .peeks { position: absolute; left: 16px; top: 62px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+#dl.panel .peeks { opacity: 0; }
+#dl .pk { position: relative; pointer-events: auto; transform-origin: 18% 50%; filter: drop-shadow(0 6px 10px #6b4a2b26); }
+#dl .pk::after { content: ''; position: absolute; left: 14px; top: 5px; width: 22px; height: 7px; border-radius: 50%; background: #ffffffb8; transform: rotate(-12deg); pointer-events: none; }
+#dl .pk .chip, #dl .pk .pill { border-radius: 999px; }
+#dl .pk.out { pointer-events: none; }
+/* 떠오르는 숫자 방울(+120 ₩) */
+#dl .fpop { position: absolute; z-index: 5; pointer-events: none; white-space: nowrap; font-size: 20px; color: var(--fd); padding: 2px 13px 3px; border-radius: 999px; border: 3px solid #fff;
+  background: radial-gradient(circle at 30% 25%, #fff 0 18%, var(--fc) 70%); box-shadow: 0 4px 0 #0000001a, 0 8px 16px #4a2f1726; }
+
+/* 게이지: 필요할 때만, 다 차면 스르르 · 상황 칩(바람) */
+#dl .gauges { bottom: 238px; transition: bottom .4s; }
+#dl.nomap .gauges { bottom: 22px; }
+#dl .gauge { opacity: 0; transform: translateY(8px) scale(.94); transition: opacity .6s, transform .5s cubic-bezier(.3,1.5,.5,1); }
+#dl .gauge.on { opacity: 1; transform: none; }
+#dl .gauges .lives { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+#dl .gauges .lives:empty { display: none; }
+#dl .combo { transition: opacity .5s; }
+#dl .map.off { display: none; }
+#dl .card { top: 16px; }
+
+/* 토스트: 늘 한 줄 — 새 줄이 앞 줄을 바꿔 친다 */
+#ui .toasts { top: 18px !important; }
+#ui .toast.dl-toast.gone { position: absolute; left: 50%; top: 0; opacity: 0 !important; transform: translate(-50%, -12px) scale(.95) !important; white-space: nowrap; }
+
+/* ─── 말랑 주머니(Tab) ─── */
+#dl .pocket { position: absolute; inset: 0; z-index: 7; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .22s, visibility 0s .25s; --cx: 50vw; --cy: 55vh; --r: 200px; --s: 1; }
+#dl .pocket.on { pointer-events: auto; opacity: 1; visibility: visible; transition: opacity .22s; }
+#dl .pocket .veil { position: absolute; inset: 0; background: radial-gradient(circle at var(--cx) var(--cy), #fff0 0, #fff0 110px, #5a3a6a1f 240px, #3a2550 130%);
+  -webkit-backdrop-filter: blur(4px) saturate(1.08); backdrop-filter: blur(4px) saturate(1.08);
+  -webkit-mask: radial-gradient(circle at var(--cx) var(--cy), transparent 0 100px, #000 280px); mask: radial-gradient(circle at var(--cx) var(--cy), transparent 0 100px, #000 280px); }
+#dl .pocket .ring::before { content: ''; position: absolute; left: var(--cx); top: var(--cy); width: calc(var(--r) * 2); height: calc(var(--r) * 2); transform: translate(-50%, -50%);
+  border-radius: 50%; border: 3px dashed #ffffffa0; box-shadow: 0 0 0 10px #ffffff18, inset 0 0 40px #ffe7f366; animation: pk-spin 40s linear infinite; pointer-events: none; }
+#dl .pocket.on .ring::before { animation: pk-ring .5s cubic-bezier(.3,1.5,.5,1) both, pk-spin 40s linear .5s infinite; }
+@keyframes pk-ring { 0% { transform: translate(-50%, -50%) scale(.2); opacity: 0 } 100% { transform: translate(-50%, -50%) scale(1); opacity: 1 } }
+/* 빙글 돌 때도 가운데 맞춤(translate)을 잃지 않게 — dl-spin 은 transform 을 통째로 바꾼다 */
+@keyframes pk-spin { from { transform: translate(-50%, -50%) rotate(0deg) } to { transform: translate(-50%, -50%) rotate(360deg) } }
+#dl .pb { position: absolute; width: calc(86px * var(--s)); height: calc(86px * var(--s)); margin: calc(-43px * var(--s)) 0 0 calc(-43px * var(--s)); padding: 0; border: 0; background: none;
+  font-family: inherit; color: ${UI_TEXT}; cursor: pointer; outline: none; }
+#dl .pocket.on .pb { animation: pk-out .6s var(--d) both cubic-bezier(.3,1.55,.45,1); }
+@keyframes pk-out { 0% { transform: translate(var(--ox), var(--oy)) scale(.12); opacity: 0 } 45% { opacity: 1 } 100% { transform: none; opacity: 1 } }
+#dl .pb .jelly { position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center; border: 3px solid #fff; transition: scale .3s cubic-bezier(.3,1.6,.5,1), box-shadow .3s;
+  background: radial-gradient(circle at 34% 28%, #fff 0 10%, color-mix(in srgb, var(--c) 32%, #fff) 36%, var(--c) 80%, color-mix(in srgb, var(--c) 78%, #7a5a8a) 100%);
+  box-shadow: inset 0 -7px 0 #0000001a, inset 0 5px 12px #ffffffaa, 0 6px 0 color-mix(in srgb, var(--c) 62%, #a07850), 0 12px 22px #3a25402e;
+  animation: pk-idle 3.4s ease-in-out infinite; animation-delay: var(--ph); }
+@keyframes pk-idle { 0%,100% { transform: none; border-radius: 50% } 30% { transform: scale(1.035, .965) translateY(1px); border-radius: 53% 47% 50% 50% / 47% 53% 47% 53% } 62% { transform: scale(.975, 1.03) translateY(-2px); border-radius: 48% 52% 51% 49% / 52% 48% 52% 48% } }
+#dl .pb .ic { font-size: calc(36px * var(--s)); line-height: 1; filter: drop-shadow(0 2px 0 #0000001f); }
+#dl .pb .shine { position: absolute; left: 17%; top: 11%; width: 30%; height: 19%; border-radius: 50%; background: #ffffffc0; transform: rotate(-28deg); pointer-events: none; }
+#dl .pb .lb { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 5px); white-space: nowrap; font-size: 15px; padding: 1px 10px 2px; border-radius: 999px; background: #fffaf0; box-shadow: 0 2px 0 #ead6ad; transition: background .2s, color .2s; }
+#dl .pb .lb kbd { font-family: inherit; font-size: 11px; margin-left: 5px; padding: 0 5px; border-radius: 6px; background: #f3e4c8; color: #a88a66; }
+#dl .pb .num { position: absolute; left: 0; top: 0; width: 21px; height: 21px; display: grid; place-items: center; font-style: normal; font-size: 12px; border-radius: 50%; background: #fff; color: #b69a74; box-shadow: 0 2px 0 #ead6ad; }
+#dl .pb .bd { position: absolute; right: -6px; top: -6px; min-width: 26px; height: 26px; padding: 0 6px; display: none; place-items: center; font-style: normal; font-size: 14px; color: #fff;
+  border-radius: 999px; background: radial-gradient(circle at 35% 30%, #ffb3c6, #ff6f91); border: 2.5px solid #fff; box-shadow: 0 0 0 0 #ff9fb880; }
+#dl .pb .bd.on { display: grid; animation: pk-spark 1.8s ease-in-out infinite; }
+#dl .pb .bd.on::before { content: '✦'; position: absolute; left: -9px; top: -10px; font-size: 12px; color: #ffd23f; animation: dl-wob 1.2s ease-in-out infinite; }
+@keyframes pk-spark { 0%,100% { transform: scale(1); box-shadow: 0 0 0 0 #ff9fb880 } 50% { transform: scale(1.12); box-shadow: 0 0 0 6px #ff9fb800 } }
+#dl .pb:hover, #dl .pb.f { z-index: 2; }
+#dl .pb:hover .jelly, #dl .pb.f .jelly { scale: 1.14; animation: pk-boing .7s cubic-bezier(.3,1.5,.5,1), pk-idle 3.4s ease-in-out .7s infinite;
+  box-shadow: inset 0 -7px 0 #0000001a, inset 0 5px 12px #ffffffaa, 0 6px 0 color-mix(in srgb, var(--c) 62%, #a07850), 0 0 0 6px #ffffffcc, 0 0 30px var(--c); }
+#dl .pb.f .lb, #dl .pb:hover .lb { background: var(--c); color: #fff; box-shadow: 0 2px 0 #0002; }
+#dl .pb.f .lb kbd, #dl .pb:hover .lb kbd { background: #fff6; color: #fff; }
+@keyframes pk-boing { 0% { transform: none } 25% { transform: scale(1.18, .84) } 50% { transform: scale(.9, 1.14) } 72% { transform: scale(1.06, .96) } 100% { transform: none } }
+#dl .pb.pop .jelly { animation: pk-pick .4s ease-out both; }
+@keyframes pk-pick { 0% { transform: none } 40% { transform: scale(1.3); filter: brightness(1.2) } 100% { transform: scale(.2); opacity: 0 } }
+#dl .pocket .cap { position: absolute; transform: translate(-50%, 0); text-align: center; pointer-events: none; padding: 5px 16px 6px; border-radius: 18px; background: #fffaf0e8;
+  border: 2.5px solid #fff; box-shadow: 0 3px 0 color-mix(in srgb, var(--c, #ead6ad) 70%, #e0c89c), 0 8px 18px #3a254030; white-space: nowrap; animation: pk-cap .35s .25s both cubic-bezier(.3,1.6,.5,1); }
+@keyframes pk-cap { 0% { transform: translate(-50%, 0) scale(.4); opacity: 0 } 100% { transform: translate(-50%, 0); opacity: 1 } }
+#dl .pocket .cap b { display: block; font-weight: normal; font-size: 19px; }
+#dl .pocket .cap small { display: block; font-size: 13px; color: #a88a66; }
+#dl .pocket .cap kbd, #dl .pocket .foot kbd { font-family: inherit; font-size: 12px; padding: 0 6px; border-radius: 7px; background: #fff; border: 2px solid #e6d3ae; box-shadow: 0 2px 0 #e6d3ae; color: #8a6b48; margin: 0 1px; }
+#dl .pocket .foot { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 14px; font-size: 14px; color: #fff; text-shadow: 0 1px 2px #3a2550aa; white-space: nowrap; pointer-events: none; }
+#dl .pocket .arc { position: absolute; inset: 0; pointer-events: none; }
+/* 주머니가 열려 있는 동안 배너·지역 이름·카드는 숨는다(줄은 그대로, 시간은 흐른다) */
+#dl.pocketing .banner, #dl.pocketing .region, #dl.pocketing .card, #dl.pocketing .prompts { opacity: 0 !important; }
+#dl .pocket .aw { position: absolute; transform: rotate(var(--rot, 0deg)); transform-origin: 50% 100%; pointer-events: auto; filter: drop-shadow(0 6px 10px #3a254033); }
+#dl .pocket.on .aw { animation: pk-float .5s var(--d) both cubic-bezier(.3,1.5,.5,1); }
+@keyframes pk-float { 0% { transform: rotate(var(--rot, 0deg)) translateY(30px) scale(.6); opacity: 0 } 100% { transform: rotate(var(--rot, 0deg)); opacity: 1 } }
+#dl .pocket .aw .chip, #dl .pocket .aw .pill { border-radius: 999px; }
+
+/* ─── 처음 안내: 별 친구 반짝이 ─── */
+#dl .hintb { position: absolute; left: 0; top: 0; z-index: 6; pointer-events: none; display: none; will-change: transform; }
+#dl .hintb.on { display: block; }
+#dl .hintb .star { position: absolute; left: -30px; top: -30px; width: 60px; height: 60px; filter: drop-shadow(0 0 10px #ffe27acc) drop-shadow(0 4px 0 #e0a83a55); animation: hs-bob 2.2s ease-in-out infinite; }
+#dl .hintb.on .star svg { animation: hs-in .55s cubic-bezier(.3,1.7,.5,1) both; }
+#dl .hintb .star .shut, #dl .hintb .star .yawnm { display: none; }
+#dl .hintb .star .tw { position: absolute; font-style: normal; color: #ffd23f; font-size: 14px; opacity: 0; }
+#dl .hintb .star .t1 { right: -6px; top: -4px; animation: hs-tw 1.8s ease-in-out infinite; }
+#dl .hintb .star .t2 { left: -8px; bottom: 6px; animation: hs-tw 1.8s .9s ease-in-out infinite; }
+@keyframes hs-bob { 0%,100% { transform: translateY(0) rotate(-6deg) } 50% { transform: translateY(-7px) rotate(6deg) } }
+@keyframes hs-in { 0% { transform: scale(0) rotate(-120deg) } 100% { transform: none } }
+@keyframes hs-tw { 0%,100% { opacity: 0; transform: scale(.5) } 50% { opacity: 1; transform: scale(1.2) } }
+#dl .hintb .say { position: absolute; left: 36px; top: -50px; width: max-content; max-width: 330px; padding: 11px 18px 11px; font-size: 18px; line-height: 1.4; border-radius: 22px;
+  word-break: keep-all; transform-origin: 0 70%; animation: hs-say .45s .12s both cubic-bezier(.3,1.6,.5,1); }
+#dl .hintb .say::before { content: ''; position: absolute; left: -11px; top: 30px; border: 9px solid transparent; border-right: 12px solid #fff; border-left: 0; }
+#dl .hintb .say .who { position: absolute; top: -13px; left: 14px; font-size: 12px; line-height: 1.5; color: #fff; background: #ffc54a; border-radius: 999px; padding: 0 9px; border: 2px solid #fff; box-shadow: 0 2px 0 #0001; }
+#dl .hintb.left .say { left: auto; right: 36px; transform-origin: 100% 70%; }
+#dl .hintb.left .say::before { left: auto; right: -11px; border-right: 0; border-left: 12px solid #fff; }
+@keyframes hs-say { 0% { transform: scale(.3); opacity: 0 } 100% { transform: none; opacity: 1 } }
+#dl .hintb kbd { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 7px; margin: 0 3px; border-radius: 9px; background: #fff; border: 2px solid #e6d3ae;
+  box-shadow: 0 3px 0 #e6d3ae; font-family: inherit; font-size: 15px; color: #8a6b48; vertical-align: 1px; animation: hs-key 1.6s ease-in-out infinite; }
+@keyframes hs-key { 0%,80%,100% { transform: none } 88% { transform: translateY(2px); box-shadow: 0 1px 0 #e6d3ae } }
+#dl .hintb.done .say { animation: hs-gone .35s ease-in both; }
+#dl .hintb.done .star { animation: hs-done .65s ease-out both; }
+@keyframes hs-done { 0% { transform: scale(1) } 35% { transform: scale(1.45) rotate(30deg); filter: brightness(1.3) } 100% { transform: scale(0) rotate(160deg); opacity: 0 } }
+@keyframes hs-gone { 100% { transform: scale(.4); opacity: 0 } }
+#dl .hintb.yawn .say { animation: hs-gone .4s ease-in both; }
+#dl .hintb.yawn .star { animation: hs-yawn 1.5s ease-in both; }
+#dl .hintb.yawn .star .eyes, #dl .hintb.yawn .star .smile { display: none; }
+#dl .hintb.yawn .star .shut, #dl .hintb.yawn .star .yawnm { display: inline; }
+@keyframes hs-yawn { 0% { transform: none } 35% { transform: scale(1.08, .92) rotate(-8deg) } 55% { transform: scale(1) } 100% { transform: translate(18px, -60px) scale(.5); opacity: 0 } }
+#dl .hintb.away { opacity: 0; transition: opacity .2s; }
+
+/* ─── 설정 · 조작 안내 창 ─── */
+#dl .setg { display: flex; flex-direction: column; gap: 10px; max-width: 700px; margin: 4px auto 0; }
+#dl .srow { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-radius: 22px; }
+#dl .srow .si { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; flex: none; background: radial-gradient(circle at 35% 30%, #fff, #d8ecff); box-shadow: inset 0 -3px 0 #0000000f; }
+#dl .srow .sl { flex: 1; font-size: 19px; } #dl .srow .sl small { display: block; font-size: 13px; color: #a88a66; }
+#dl .seg { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: #f3e4c8; box-shadow: inset 0 2px 0 #e2c99c; }
+#dl .seg .sg { font-family: inherit; font-size: 16px; padding: 5px 14px; border: 0; border-radius: 999px; background: transparent; color: #8a6b48; cursor: pointer; transition: transform .15s, background .2s; }
+#dl .seg .sg:hover { transform: translateY(-1px); }
+#dl .seg .sg.on { background: #fff; color: #4a3b2a; box-shadow: 0 3px 0 #e2c99c; animation: dl-pop .3s cubic-bezier(.3,1.6,.5,1); }
+#dl .ctls { display: flex; flex-direction: column; gap: 12px; }
+#dl .ctls .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; margin-top: 8px; }
+#dl .ctls .crow { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 16px; font-size: 16px; }
+#dl .ctls .caps { display: flex; gap: 3px; flex: none; min-width: 64px; }
+#dl .ctls kbd { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 7px; border-radius: 9px; background: #fff; border: 2px solid #e6d3ae; box-shadow: 0 3px 0 #e6d3ae; font-family: inherit; font-size: 14px; color: #8a6b48; }
 `;

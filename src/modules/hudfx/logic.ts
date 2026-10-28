@@ -131,8 +131,8 @@ export interface GaugeIn {
   ocean?: { stamina: number; staminaMax: number; oxygen: number; oxygenMax: number; swimming: boolean } | null;
   moon?: { value: number; max: number } | null;
 }
-/** 상황이 끝난 뒤에도 잠깐(초) 남겨 둔다 — 잡자마자 게이지가 사라지지 않게 */
-export const GAUGE_LINGER = 2.5;
+/** 상황이 끝난 뒤에도 잠깐(초) 남겨 둔다 — 잡자마자 게이지가 사라지지 않게(wave 7: 다 차거나 끝나면 1.5초 뒤 스르르) */
+export const GAUGE_LINGER = 1.5;
 /** 낚시 중(던지기·당기기 포함) */
 /** 낚시 중? — fishing.ts 만 'fish' 동작을 쓴다(보물 새총의 'cast' 는 낚시가 아니다) */
 /** 달 산소: hud 시계 위젯에 늘 산소 막대가 있으니 모자랄 때(40% 아래)만 크게 띄운다 */
@@ -314,13 +314,14 @@ export class Sequencer<T extends { ms: number }> {
   private until = 0;
   constructor(private max = 6) {}
   push(it: T) { this.q.push(it); while (this.q.length > this.max) this.q.shift(); }
-  update(now: number, hold = false): { show?: T; hide?: T } | null {
+  /** allowShow=false(다른 큰 연출이 떠 있음 · 놀기 전)면 다 된 것을 내리기만 한다 */
+  update(now: number, hold = false, allowShow = true): { show?: T; hide?: T } | null {
     if (this.cur && !hold && now >= this.until) {
       const was = this.cur;
       this.cur = null;
-      if (!this.q.length) return { hide: was };
+      if (!this.q.length || !allowShow) return { hide: was };
     }
-    if (!this.cur && this.q.length) {
+    if (!this.cur && this.q.length && allowShow) {
       this.cur = this.q.shift()!;
       this.until = now + Math.max(400, this.cur.ms);
       return { show: this.cur };

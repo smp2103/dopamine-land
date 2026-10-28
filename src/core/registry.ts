@@ -1,7 +1,7 @@
 // HUD 레지스트리(계약 v2 5장) — game.hud 의 정체. 코어가 늘 만들어 두고, hud 모듈이 attach(renderer) 로 실제 그리기를 붙인다.
 // attach 전에는 전부 큐에 쌓아 둔다(패널 열기는 마지막 요청 하나만). 그리기 없는 순수 저장소라 테스트에서 바로 쓴다.
 import type {
-  BannerOpts, CardOpts, ChipDef, DexFacade, GaugeOpts, HotkeyDef, HudHelpers, HudRegistry, HudRenderer,
+  BannerOpts, CardOpts, ChipDef, DexFacade, GaugeOpts, HintOpts, HotkeyDef, HudHelpers, HudRegistry, HudRenderer,
   MapLayerDef, PanelCtx, PanelDef, PanelState,
 } from './api';
 
@@ -89,6 +89,8 @@ export class HudRegistryStore implements HudRegistry {
   private qGauges = new Map<string, GaugeOpts>();
   private qToasts: string[] = [];
   private qRegion: Region | null = null;
+  private qHints: HintOpts[] = [];
+  private qPeeks = new Map<string, number | undefined>();
   // 열린 패널
   private state: PanelState | null = null;
   private changeFns: ChangeFn[] = [];
@@ -232,9 +234,32 @@ export class HudRegistryStore implements HudRegistry {
     else this.qRegion = [name, sub, color, dark];
   }
 
+  // ── wave 7: 칩 살짝 보이기 · 안내 말풍선 · 큰 연출 자리
+  peek(chipId: string, ms?: number): void {
+    if (this.impl?.peekChip) this.impl.peekChip(chipId, ms);
+    else if (!this.impl) this.qPeeks.set(chipId, ms);
+  }
+  hint(h: HintOpts): boolean {
+    if (!h || !h.id) return false;
+    if (this.impl) return this.impl.showHint ? this.impl.showHint(h) : false;
+    // 같은 id 는 마지막 것만 쌓는다
+    const i = this.qHints.findIndex((x) => x.id === h.id);
+    if (i >= 0) this.qHints.splice(i, 1, h); else this.qHints.push(h);
+    return true;
+  }
+  hideHint(id: string): void {
+    const i = this.qHints.findIndex((x) => x.id === id);
+    if (i >= 0) this.qHints.splice(i, 1);
+    this.impl?.hideHint?.(id);
+  }
+  stageBusy(): boolean { return this.impl ? !!this.impl.stageBusy?.() : true; }
+  stageClaim(ms: number, tag?: string): void { this.impl?.stageClaim?.(ms, tag); }
+  /** attach 전에 쌓인 안내 말풍선(테스트·디버그) */
+  pendingHints(): readonly HintOpts[] { return this.qHints; }
+
   /**
    * 렌더러 붙이기. 큐를 이 순서로 비운다:
-   * 패널 → 칩 → 단축키 → 지도 층 → (쌓인) 패널 열기 → 배너 → 카드 → 게이지 → 토스트 → 지역 이름.
+   * 패널 → 칩 → 단축키 → 지도 층 → (쌓인) 패널 열기 → 배너 → 카드 → 게이지 → 토스트 → 지역 이름 → 안내 말풍선 → 칩 살짝 보이기.
    * 다른 렌더러로 갈아 끼우면 열린 패널은 새 렌더러에서 다시 연다.
    */
   attach(impl: HudRenderer): void {
@@ -257,6 +282,11 @@ export class HudRegistryStore implements HudRegistry {
     this.qGauges.clear();
     for (const t of this.qToasts.splice(0)) impl.toast(t);
     if (this.qRegion) { const r = this.qRegion; this.qRegion = null; impl.showRegion(r[0], r[1], r[2], r[3]); }
+    // wave 7: 안내 말풍선 · 칩 살짝 보이기(렌더러가 받을 때만)
+    const hints = this.qHints.splice(0);
+    if (impl.showHint) for (const h of hints) impl.showHint(h);
+    if (impl.peekChip) for (const [id, ms] of this.qPeeks) impl.peekChip(id, ms);
+    this.qPeeks.clear();
   }
 
   // ── 안쪽

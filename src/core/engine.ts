@@ -2,6 +2,9 @@
 // 성능(웨이브 6): 적응형 픽셀 비율(22 ms 넘는 프레임이 3초 → 한 단계 내림, URL quality= 를 주면 끔) ·
 //   작은 것 빼기(화면에서 아주 작은 메시는 그리지 않음, 품질별 QUALITY.cull·shadowCull) · 품질 → 청크(장식 반경·먼 고리·거리 숨김) 전달.
 // 디버그: window.__perf = { state(), pixelRatio(v?), adaptive(on?), cull(k?, shadowK?) }
+// 부팅(웨이브 7): 모듈은 한꺼번에 받아 오고(Engine.prefetchModules — 엔진 만들기 전에 미리 출발) 짓기는 order 순서 그대로 ·
+//   loadModules(onProgress) 로 '친구들 부르는 중 n/m' 을 알린다(사람이 볼 때만 짓기 사이에 한 프레임 쉬어 화면을 그린다) ·
+//   lil-gui(룩 테스트 패널)는 처음 열 때 받아 온다(buildGui/toggleGui). 캔버스 id = 'dl-world'(index.html 이 준비 전엔 숨긴다).
 import * as THREE from 'three';
 import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, SMAAEffect,
@@ -9,7 +12,7 @@ import {
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import GUI from 'lil-gui';
+import type GUI from 'lil-gui';
 import * as Island from './island';
 import { PALETTE } from './palette';
 import { applyCurve, curveUniforms } from './curve';
@@ -75,7 +78,35 @@ function wrapShadowPass(r: THREE.WebGLRenderer) {
   };
 }
 
-type Loader = () => Promise<{ default: ModuleBuild; order?: number }>;
+type LoadedModule = { default: ModuleBuild; order?: number };
+type Loader = () => Promise<LoadedModule>;
+
+/** 모듈 불러오기 진행(loadModules 콜백) — import: 받아 옴, build: 지음 */
+export interface ModuleProgress { phase: 'import' | 'build'; done: number; total: number; name: string }
+
+/** 받아 오기 약속(이름 → import) — prefetchModules 가 먼저 출발시키면 loadModules 가 그대로 이어 쓴다 */
+const fetching = new Map<string, Promise<LoadedModule>>();
+function moduleEntries(solo: string[] | null) {
+  const all = import.meta.glob<LoadedModule>('../modules/*.ts') as Record<string, Loader>;
+  return Object.entries(all)
+    .map(([path, load]) => ({ name: path.replace(/^.*\/(.*)\.ts$/, '$1'), load }))
+    .filter((m) => !m.name.startsWith('_'))
+    .filter((m) => !solo || solo.includes(m.name));
+}
+function fetchModule(m: { name: string; load: Loader }): Promise<LoadedModule> {
+  let p = fetching.get(m.name);
+  if (!p) { p = m.load(); fetching.set(m.name, p); p.catch(() => {}); }
+  return p;
+}
+/** 화면을 한 번 그릴 틈(rAF 뒤 setTimeout). 숨은 탭에선 rAF 가 안 오니 60 ms 로 막는다 */
+function yieldPaint(): Promise<void> {
+  return new Promise((res) => {
+    let done = false;
+    const go = () => { if (!done) { done = true; res(); } };
+    requestAnimationFrame(() => setTimeout(go, 0));
+    setTimeout(go, 60);
+  });
+}
 
 export class Engine {
   renderer: THREE.WebGLRenderer;
@@ -141,6 +172,7 @@ export class Engine {
     r.shadowMap.type = THREE.PCFShadowMap;
     r.toneMapping = THREE.NoToneMapping;
     r.outputColorSpace = THREE.SRGBColorSpace;
+    r.domElement.id = 'dl-world';
     document.body.appendChild(r.domElement);
     this.renderer = r;
     wrapShadowPass(r);
@@ -563,25 +595,46 @@ export class Engine {
     };
   }
 
-  async loadModules() {
-    const all = import.meta.glob<{ default: ModuleBuild; order?: number }>('../modules/*.ts') as Record<string, Loader>;
-    const entries = Object.entries(all)
-      .map(([path, load]) => ({ name: path.replace(/^.*\/(.*)\.ts$/, '$1'), load }))
-      .filter((m) => !m.name.startsWith('_'))
-      .filter((m) => !this.opts.solo || this.opts.solo.includes(m.name));
-    const loaded: Array<{ name: string; mod: { default: ModuleBuild; order?: number } }> = [];
-    for (const m of entries) {
-      try { loaded.push({ name: m.name, mod: await m.load() }); }
-      catch (err) { this.fail(m.name, err); }
-    }
+  /** 모듈별 짓기 시간(ms) — 부팅 측정용 */
+  moduleMs: Record<string, number> = {};
+
+  /** 모듈 파일 받아 오기를 미리 출발시킨다(엔진을 만들기 전에 불러도 된다). 실행 순서·결과는 loadModules 와 같다 */
+  static prefetchModules(solo: string[] | null) {
+    for (const m of moduleEntries(solo)) fetchModule(m);
+  }
+
+  /** 모듈 받아 오기(한꺼번에) → order 순서로 짓기. onProgress 로 진행을 알린다 */
+  async loadModules(onProgress?: (p: ModuleProgress) => void) {
+    const entries = moduleEntries(this.opts.solo);
+    const total = entries.length;
+    const tell = (p: ModuleProgress) => { try { onProgress?.(p); } catch (e) { console.error('[loadModules progress]', e); } };
+    // 받아 오기는 동시에(네트워크·변환 대기를 겹친다). 결과는 목록 순서 그대로 모아 정렬이 늘 같게
+    let got = 0;
+    const settled = await Promise.allSettled(entries.map((m) => fetchModule(m).then((mod) => {
+      tell({ phase: 'import', done: ++got, total, name: m.name });
+      return mod;
+    })));
+    const loaded: Array<{ name: string; mod: LoadedModule }> = [];
+    settled.forEach((r, i) => {
+      if (r.status === 'fulfilled') loaded.push({ name: entries[i].name, mod: r.value });
+      else this.fail(entries[i].name, r.reason);
+    });
     loaded.sort((a, b) => (a.mod.order ?? 10) - (b.mod.order ?? 10));
     // 플레이어 주변은 기본으로 비워 둔다
     this.occupied.push({ x: Island.HERO.player.x, z: Island.HERO.player.z, r: Island.HERO.clearRadius });
+    // 사람이 보는 로딩이면 짓기 사이사이 화면을 그려 진행 막대가 움직이게(촬영은 쉬지 않고 그대로)
+    const paint = !!onProgress && !this.opts.shot;
+    let lastPaint = performance.now();
+    let built = 0;
     for (const { name, mod } of loaded) {
+      const b0 = performance.now();
       try {
         const obj = await mod.default(this.ctx());
         if (obj) { obj.name = obj.name || name; this.scene.add(obj); }
       } catch (err) { this.fail(name, err); }
+      this.moduleMs[name] = Math.round(performance.now() - b0);
+      tell({ phase: 'build', done: ++built, total: loaded.length, name });
+      if (paint && performance.now() - lastPaint > 40) { await yieldPaint(); lastPaint = performance.now(); }
     }
     applyCurve(this.scene);
     for (const fn of this.todHooks) fn(this.todName, TOD[this.todName]);
@@ -603,8 +656,29 @@ export class Engine {
     this.controls.update();
   }
 
-  buildGui() {
-    const gui = new GUI({ title: '룩 테스트' });
+  /** 룩 테스트 패널(lil-gui) — 처음 부를 때 받아 와 만든다. 이미 있으면 그것을 돌려준다 */
+  async buildGui(): Promise<GUI> {
+    if (this.gui) return this.gui;
+    this.guiPending ??= this.makeGui();
+    return this.guiPending;
+  }
+
+  /** 룩 테스트 패널 보이기/숨기기(on 생략 = 토글). 없으면 만든다. 지금 보이는지 돌려준다 */
+  async toggleGui(on?: boolean): Promise<boolean> {
+    const had = !!this.gui || !!this.guiPending;
+    const gui = await this.buildGui();
+    const show = on ?? (had ? gui._hidden : true);
+    gui.show(show);
+    return show;
+  }
+
+  gui: GUI | null = null;
+  private guiPending: Promise<GUI> | null = null;
+
+  private async makeGui(): Promise<GUI> {
+    const { default: GUICtor } = await import('lil-gui');
+    const gui = new GUICtor({ title: '룩 테스트' });
+    this.gui = gui;
     const state = { quality: this.quality, tod: this.todName, cam: this.opts.cam, curveK: curveUniforms.uCurveK.value };
     const qNames = Object.fromEntries(QUALITY_ORDER.map((k) => [QUALITY[k].label, k]));
     gui.add(state, 'quality', qNames).name('그래픽 품질').onChange((v: QualityName) => {
